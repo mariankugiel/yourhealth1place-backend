@@ -121,9 +121,9 @@ resource "aws_instance" "app_server" {
 }
 
 # IAM Policy for EC2 instances
-resource "aws_iam_role_policy" "ec2_policy" {
+resource "aws_iam_policy" "ec2_policy" {
   name = "${var.project_name}-${var.environment}-ec2-policy"
-  role = aws_iam_role.ec2_role.id
+  description = "Policy for EC2 instances to access S3, RDS, and CloudWatch"
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -143,17 +143,16 @@ resource "aws_iam_role_policy" "ec2_policy" {
           "arn:aws:s3:::${var.environment}-${var.logs_bucket_name}/*"
         ]
       },
-             {
-         Effect = "Allow"
-         Action = [
-           "rds:DescribeDBInstances",
-           "rds:DescribeDBClusters",
-           "rds:DescribeDBClusterParameters",
-           "rds:DescribeDBParameters"
-         ]
-         Resource = "*"
-       },
-
+      {
+        Effect = "Allow"
+        Action = [
+          "rds:DescribeDBInstances",
+          "rds:DescribeDBClusters",
+          "rds:DescribeDBClusterParameters",
+          "rds:DescribeDBParameters"
+        ]
+        Resource = "*"
+      },
       {
         Effect = "Allow"
         Action = [
@@ -165,10 +164,12 @@ resource "aws_iam_role_policy" "ec2_policy" {
       }
     ]
   })
+
+  tags = var.common_tags
 }
 
 # Attach the policy to the role
 resource "aws_iam_role_policy_attachment" "ec2_policy" {
   role       = aws_iam_role.ec2_role.name
-  policy_arn = aws_iam_role_policy.ec2_policy.arn
+  policy_arn = aws_iam_policy.ec2_policy.arn
 } 
