@@ -72,6 +72,7 @@ resource "aws_sns_topic_policy" "main" {
     Version = "2012-10-17"
     Statement = [
       {
+        Sid    = "AllowS3Publish"
         Effect = "Allow"
         Principal = {
           Service = "s3.amazonaws.com"
@@ -87,6 +88,7 @@ resource "aws_sns_topic_policy" "main" {
         }
       },
       {
+        Sid    = "AllowCloudWatchPublish"
         Effect = "Allow"
         Principal = {
           Service = "cloudwatch.amazonaws.com"
@@ -108,6 +110,7 @@ resource "aws_sns_topic_policy" "health_data_alerts" {
     Version = "2012-10-17"
     Statement = [
       {
+        Sid    = "AllowS3Publish"
         Effect = "Allow"
         Principal = {
           Service = "s3.amazonaws.com"
@@ -123,6 +126,7 @@ resource "aws_sns_topic_policy" "health_data_alerts" {
         }
       },
       {
+        Sid    = "AllowCloudWatchPublish"
         Effect = "Allow"
         Principal = {
           Service = "cloudwatch.amazonaws.com"
@@ -144,6 +148,7 @@ resource "aws_sns_topic_policy" "security_alerts" {
     Version = "2012-10-17"
     Statement = [
       {
+        Sid    = "AllowCloudWatchPublish"
         Effect = "Allow"
         Principal = {
           Service = "cloudwatch.amazonaws.com"
@@ -154,6 +159,7 @@ resource "aws_sns_topic_policy" "security_alerts" {
         Resource = aws_sns_topic.security_alerts.arn
       },
       {
+        Sid    = "AllowGuardDutyPublish"
         Effect = "Allow"
         Principal = {
           Service = "guardduty.amazonaws.com"

@@ -33,10 +33,10 @@ provider "aws" {
 module "vpc" {
   source = "../../modules/vpc"
   
-  environment    = var.environment
-  project_name   = var.project_name
-  vpc_cidr      = var.vpc_cidr
-  azs           = var.availability_zones
+  environment = var.environment
+  project_name = var.project_name
+  vpc_cidr = var.vpc_cidr
+  azs = var.availability_zones
   private_subnets = var.private_subnets
   public_subnets  = var.public_subnets
   common_tags   = var.common_tags
@@ -51,6 +51,16 @@ module "iam" {
   health_data_bucket_name = "${var.environment}-${var.health_data_bucket_name}"
   logs_bucket_name = "${var.environment}-${var.logs_bucket_name}"
   backup_bucket_name = "${var.environment}-${var.backup_bucket_name}"
+  common_tags = var.common_tags
+}
+
+# SNS Module
+module "sns" {
+  source = "../../modules/sns"
+  
+  environment = var.environment
+  project_name = var.project_name
+  notification_email = var.notification_email
   common_tags = var.common_tags
 }
 
@@ -78,16 +88,6 @@ module "athena" {
   output_location = "s3://${module.s3.logs_bucket_name}/athena-output/"
   logs_bucket_name = "${var.environment}-${var.logs_bucket_name}"
   health_data_bucket_name = "${var.environment}-${var.health_data_bucket_name}"
-  common_tags = var.common_tags
-}
-
-# SNS Module
-module "sns" {
-  source = "../../modules/sns"
-  
-  environment = var.environment
-  project_name = var.project_name
-  notification_email = var.notification_email
   common_tags = var.common_tags
 }
 

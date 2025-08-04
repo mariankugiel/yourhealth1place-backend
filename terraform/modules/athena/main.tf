@@ -274,7 +274,7 @@ resource "aws_glue_catalog_table" "health_records" {
 
 # IAM Policy for Athena Access
 resource "aws_iam_policy" "athena_access" {
-  name        = "${var.project_name}-athena-access-policy-${var.environment}"
+  name        = "${var.project_name}-athena-access-policy-${var.environment}-${random_id.suffix.hex}"
   description = "Policy for Athena access"
 
   policy = jsonencode({
@@ -335,4 +335,9 @@ resource "aws_iam_policy" "athena_access" {
   tags = merge(var.common_tags, {
     Name = "${var.project_name}-athena-access-policy-${var.environment}"
   })
+}
+
+# Random ID for unique naming
+resource "random_id" "suffix" {
+  byte_length = 4
 } 
