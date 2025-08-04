@@ -61,7 +61,7 @@ class AWSService:
                 Body=encrypted_data,
                 Metadata=metadata,
                 ContentType=content_type,
-                ServerSideEncryption='aws:kms'
+                ServerSideEncryption='AES256'
             )
             
             # Log access for analytics
@@ -187,7 +187,7 @@ class AWSService:
                 Bucket=settings.AWS_S3_BUCKET,
                 Key=log_key,
                 Body=json.dumps(log_data),
-                ServerSideEncryption='aws:kms'
+                ServerSideEncryption='AES256'
             )
             
         except Exception as e:

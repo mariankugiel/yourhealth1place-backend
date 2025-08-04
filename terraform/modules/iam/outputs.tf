@@ -42,8 +42,3 @@ output "sns_access_policy_arn" {
   description = "ARN of the SNS access policy"
   value       = aws_iam_policy.sns_access.arn
 }
-
-output "kms_access_policy_arn" {
-  description = "ARN of the KMS access policy"
-  value       = aws_iam_policy.kms_access.arn
-} 

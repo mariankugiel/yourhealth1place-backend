@@ -135,30 +135,7 @@ resource "aws_iam_policy" "sns_access" {
   })
 }
 
-# KMS Access Policy
-resource "aws_iam_policy" "kms_access" {
-  name        = "${var.project_name}-kms-access-policy-${var.environment}"
-  description = "Policy for KMS access for encryption"
 
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "kms:Decrypt",
-          "kms:GenerateDataKey",
-          "kms:DescribeKey"
-        ]
-        Resource = "*"
-      }
-    ]
-  })
-
-  tags = merge(var.common_tags, {
-    Name = "${var.project_name}-kms-access-policy-${var.environment}"
-  })
-}
 
 # CloudWatch Logs Policy
 resource "aws_iam_policy" "cloudwatch_logs" {
@@ -228,10 +205,7 @@ resource "aws_iam_role_policy_attachment" "application_sns" {
   policy_arn = aws_iam_policy.sns_access.arn
 }
 
-resource "aws_iam_role_policy_attachment" "application_kms" {
-  role       = aws_iam_role.application.name
-  policy_arn = aws_iam_policy.kms_access.arn
-}
+
 
 resource "aws_iam_role_policy_attachment" "application_cloudwatch" {
   role       = aws_iam_role.application.name
@@ -297,7 +271,4 @@ resource "aws_iam_role_policy_attachment" "lambda_sns" {
   policy_arn = aws_iam_policy.sns_access.arn
 }
 
-resource "aws_iam_role_policy_attachment" "lambda_kms" {
-  role       = aws_iam_role.lambda_execution.name
-  policy_arn = aws_iam_policy.kms_access.arn
-} 
+ 

@@ -2,10 +2,6 @@
 resource "aws_athena_database" "main" {
   name   = var.database_name
   bucket = var.output_location
-
-  tags = merge(var.common_tags, {
-    Name = "${var.project_name}-athena-database-${var.environment}"
-  })
 }
 
 # Athena Workgroup
@@ -118,10 +114,6 @@ resource "aws_glue_catalog_table" "health_access_logs" {
     name = "day"
     type = "string"
   }
-
-  tags = merge(var.common_tags, {
-    Name = "${var.project_name}-health-access-logs-table-${var.environment}"
-  })
 }
 
 # Glue Catalog Table for Medication Data
@@ -200,10 +192,6 @@ resource "aws_glue_catalog_table" "medication_data" {
     name = "month"
     type = "string"
   }
-
-  tags = merge(var.common_tags, {
-    Name = "${var.project_name}-medication-data-table-${var.environment}"
-  })
 }
 
 # Glue Catalog Table for Health Records
@@ -282,10 +270,6 @@ resource "aws_glue_catalog_table" "health_records" {
     name = "month"
     type = "string"
   }
-
-  tags = merge(var.common_tags, {
-    Name = "${var.project_name}-health-records-table-${var.environment}"
-  })
 }
 
 # IAM Policy for Athena Access

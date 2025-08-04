@@ -1,401 +1,206 @@
-# YourHealth1Place Terraform Infrastructure
+# Terraform Infrastructure for YourHealth1Place
 
-This Terraform configuration sets up a secure, HIPAA-compliant AWS infrastructure for the YourHealth1Place healthcare application.
+This directory contains the Terraform configuration for deploying the YourHealth1Place infrastructure across three environments: development, staging, and production.
 
-## 🏗️ Architecture Overview
-
-The infrastructure includes:
-
-- **VPC** with public and private subnets across multiple AZs
-- **IAM** roles and policies for secure access control
-- **S3** buckets for health data, logs, and backups with encryption
-- **Athena** for analytics and querying of health data
-- **SNS** topics for notifications and alerts
-- **KMS** keys for encryption of sensitive data
-- **CloudWatch** for monitoring and logging
-
-## 📁 Project Structure
+## 📁 Directory Structure
 
 ```
 terraform/
-├── main.tf                    # Main Terraform configuration
-├── variables.tf               # Variable definitions
-├── outputs.tf                # Output definitions
-├── terraform.tfvars.example  # Example variable values
-├── deploy.sh                 # Linux/Mac deployment script
-├── deploy.bat                # Windows deployment script
-├── README.md                 # This file
-├── ENVIRONMENT_MANAGEMENT.md # Environment management guide
-├── environments/             # Environment-specific configurations
-│   ├── dev.tfvars           # Development environment
-│   ├── stage.tfvars         # Staging environment
-│   └── prod.tfvars          # Production environment
-└── modules/
-    ├── vpc/                 # VPC and networking
-    ├── iam/                 # IAM roles and policies
-    ├── s3/                  # S3 buckets and policies
-    ├── athena/              # Athena database and workgroup
-    ├── sns/                 # SNS topics and subscriptions
-    ├── kms/                 # KMS keys for encryption
-    └── cloudwatch/          # CloudWatch monitoring
+├── modules/                 # Reusable modules (shared across envs)
+│   ├── vpc/               # VPC configuration
+│   ├── iam/               # IAM roles and policies
+│   ├── s3/                # S3 buckets
+│   ├── athena/            # Athena database
+│   ├── sns/               # SNS topics
+│   ├── cloudwatch/        # CloudWatch monitoring
+│   ├── rds/               # RDS database
+│   └── ec2/               # EC2 instances
+├── environments/           # Separate config per environment
+│   ├── dev/               # Development environment
+│   │   ├── main.tf        # Main configuration
+│   │   ├── variables.tf   # Variable declarations
+│   │   ├── outputs.tf     # Output values
+│   │   └── terraform.tfvars # Environment-specific values
+│   ├── stage/             # Staging environment
+│   │   ├── main.tf
+│   │   ├── variables.tf
+│   │   ├── outputs.tf
+│   │   └── terraform.tfvars
+│   └── prod/              # Production environment
+│       ├── main.tf
+│       ├── variables.tf
+│       ├── outputs.tf
+│       └── terraform.tfvars
+└── .gitignore             # Git ignore rules
 ```
 
-## 🚀 Quick Start
+## 🚀 Deployment
 
 ### Prerequisites
 
-1. **AWS CLI** configured with appropriate credentials
-2. **Terraform** >= 1.0 installed
-3. **AWS S3 bucket** for Terraform state (create manually)
+1. **Terraform Cloud Account**
+   - Create account at [https://app.terraform.io/](https://app.terraform.io/)
+   - Create organization: "YourHealth1Place"
+   - Create workspaces: `yourhealth1place-dev`, `yourhealth1place-stage`, `yourhealth1place-prod`
 
-### Multi-Environment Setup
-
-This infrastructure supports three environments: **dev**, **stage**, and **prod**. Each environment has its own configuration and state file.
-
-#### Using Deployment Scripts (Recommended)
-
-**Linux/Mac:**
-```bash
-# Deploy to development environment
-./deploy.sh dev plan
-./deploy.sh dev apply
-
-# Deploy to staging environment
-./deploy.sh stage plan
-./deploy.sh stage apply
-
-# Deploy to production environment
-./deploy.sh prod plan
-./deploy.sh prod apply
-```
-
-**Windows:**
-```cmd
-# Deploy to development environment
-deploy.bat dev plan
-deploy.bat dev apply
-
-# Deploy to staging environment
-deploy.bat stage plan
-deploy.bat stage apply
-
-# Deploy to production environment
-deploy.bat prod plan
-deploy.bat prod apply
-```
-
-#### Manual Setup
-
-1. **Create S3 bucket for Terraform state:**
-   ```bash
-   aws s3 mb s3://yourhealth1place-terraform-state
-   aws s3api put-bucket-versioning --bucket yourhealth1place-terraform-state --versioning-configuration Status=Enabled
-   ```
-
-2. **Initialize Terraform for specific environment:**
-   ```bash
-   cd terraform
-   terraform init -backend-config="key=dev/terraform.tfstate"
-   ```
-
-3. **Review the plan:**
-   ```bash
-   terraform plan -var-file="environments/dev.tfvars"
-   ```
-
-4. **Apply the configuration:**
-   ```bash
-   terraform apply -var-file="environments/dev.tfvars"
-   ```
-
-## 🔧 Configuration
-
-### Environment Management
-
-The infrastructure supports three environments with separate configurations:
-
-- **Development (`environments/dev.tfvars`)**: Minimal resources for cost optimization
-- **Staging (`environments/stage.tfvars`)**: Mirror of production for testing
-- **Production (`environments/prod.tfvars`)**: Full production configuration
-
-### Environment Variables
-
-Each environment has its own configuration file. Example for development:
-
-```hcl
-# Development Environment Configuration
-environment = "dev"
-project_name = "YourHealth1Place"
-
-# VPC Configuration
-vpc_cidr = "10.0.0.0/16"
-availability_zones = ["us-east-1a", "us-east-1b"]
-private_subnets = ["10.0.1.0/24", "10.0.2.0/24"]
-public_subnets = ["10.0.101.0/24", "10.0.102.0/24"]
-
-# S3 Bucket Names (will be prefixed with environment)
-health_data_bucket_name = "health-data"
-logs_bucket_name = "logs"
-backup_bucket_name = "backup"
-
-# Athena Configuration
-athena_database_name = "healthcare_analytics_dev"
-athena_workgroup_name = "healthcare_workgroup_dev"
-
-# SNS Configuration
-notification_email = "dev-admin@yourhealth1place.com"
-```
-
-### Important Notes
-
-- **Bucket Names**: S3 bucket names are automatically prefixed with environment (e.g., `dev-health-data`)
-- **Email**: Each environment has its own notification email
-- **State Files**: Each environment has its own Terraform state file
-- **Resource Isolation**: Complete isolation between environments
-
-## 🏥 Healthcare Compliance Features
-
-### HIPAA Compliance
-
-- **Encryption**: All data encrypted at rest and in transit
-- **Access Logging**: Comprehensive audit trails
-- **Data Retention**: 7-year retention for health data logs
-- **Access Controls**: Role-based access with least privilege
-- **Monitoring**: Real-time alerts for security events
-
-### Security Features
-
-- **VPC Endpoints**: Private connectivity to AWS services
-- **Security Groups**: Restrictive firewall rules
-- **KMS Encryption**: Customer-managed encryption keys
-- **IAM Policies**: Least privilege access control
-- **CloudWatch Alarms**: Proactive monitoring
-
-## 📊 Monitoring and Alerting
-
-### CloudWatch Dashboards
-
-- Application performance metrics
-- Health data access patterns
-- Security event monitoring
-- System health indicators
-
-### SNS Topics
-
-- **Main Topic**: General application notifications
-- **Health Data Alerts**: PHI access monitoring
-- **Security Alerts**: Security event notifications
-- **System Health**: Infrastructure health alerts
-
-### CloudWatch Alarms
-
-- High CPU/Memory usage
-- Health data access thresholds
-- API error rates
-- Database connection limits
-
-## 🔐 IAM Roles and Permissions
-
-### Application Role
-- S3 access for health data, logs, and backups
-- Athena access for analytics
-- SNS access for notifications
-- KMS access for encryption/decryption
-- CloudWatch Logs access
-
-### Lambda Execution Role
-- Basic Lambda execution permissions
-- S3, Athena, SNS, and KMS access
-- CloudWatch Logs access
-
-## 📦 S3 Buckets
-
-### Health Data Bucket
-- **Purpose**: Store encrypted health records
-- **Encryption**: AES-256 server-side encryption
-- **Lifecycle**: 7-year retention for HIPAA compliance
-- **Access**: Restricted to application role only
-
-### Logs Bucket
-- **Purpose**: Store application and access logs
-- **Encryption**: AES-256 server-side encryption
-- **Lifecycle**: 7-year retention for compliance
-- **Access**: Application role and CloudWatch
-
-### Backup Bucket
-- **Purpose**: Store application backups
-- **Encryption**: AES-256 server-side encryption
-- **Lifecycle**: 7-year retention
-- **Access**: Application role only
-
-## 🔍 Athena Analytics
-
-### Database
-- **Name**: `yourhealth1place_analytics`
-- **Purpose**: Query health data and access logs
-- **Tables**: Pre-configured for health records and access logs
-
-### Workgroup
-- **Name**: `primary`
-- **Configuration**: Enforced settings for security
-- **Output**: Encrypted S3 location
-
-## 🔑 KMS Keys
-
-### Health Data Key
-- **Purpose**: Encrypt/decrypt health data
-- **Rotation**: Automatic key rotation enabled
-- **Access**: Application role and administrators
-
-### Application Secrets Key
-- **Purpose**: Encrypt application secrets
-- **Rotation**: Automatic key rotation enabled
-- **Access**: Application role and administrators
-
-### Database Key
-- **Purpose**: Encrypt database data
-- **Rotation**: Automatic key rotation enabled
-- **Access**: Application role, administrators, and RDS
-
-## 🚨 Security Considerations
-
-### Network Security
-- Private subnets for application servers
-- Public subnets only for load balancers
-- VPC endpoints for AWS service access
-- Security groups with minimal required access
-
-### Data Security
-- All data encrypted at rest
-- TLS encryption in transit
-- KMS-managed encryption keys
-- Access logging for all data operations
-
-### Compliance
-- HIPAA-compliant data handling
-- 7-year audit trail retention
-- Role-based access control
-- Regular security monitoring
-
-## 🔄 Deployment Workflow
+2. **AWS Credentials**
+   - Configure AWS credentials in each Terraform Cloud workspace
+   - Set as environment variables: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`
 
 ### Environment-Specific Deployment
 
-**Development Environment:**
+#### Development Environment
 ```bash
-# Plan deployment
-./deploy.sh dev plan
-
-# Apply deployment
-./deploy.sh dev apply
+cd terraform/environments/dev
+terraform init
+terraform plan
+terraform apply
 ```
 
-**Staging Environment:**
+#### Staging Environment
 ```bash
-# Plan deployment
-./deploy.sh stage plan
-
-# Apply deployment
-./deploy.sh stage apply
+cd terraform/environments/stage
+terraform init
+terraform plan
+terraform apply
 ```
 
-**Production Environment:**
+#### Production Environment
 ```bash
-# Plan deployment
-./deploy.sh prod plan
-
-# Apply deployment
-./deploy.sh prod apply
+cd terraform/environments/prod
+terraform init
+terraform plan
+terraform apply
 ```
 
-### Manual Deployment (Alternative)
+### Terraform Cloud Deployment
 
-```bash
-# Initialize for specific environment
-terraform init -backend-config="key=dev/terraform.tfstate"
+1. **Connect Git Repository**
+   - In each workspace, go to **Settings** → **Version Control**
+   - Connect to your Git repository
+   - Set Terraform working directory to the appropriate environment folder
 
-# Plan with environment-specific variables
-terraform plan -var-file="environments/dev.tfvars"
+2. **Configure Variables**
+   - Add environment-specific variables in each workspace
+   - Mark sensitive variables (like `db_password`) as sensitive
 
-# Apply with environment-specific variables
-terraform apply -var-file="environments/dev.tfvars"
-```
+3. **Deploy**
+   - Queue a plan in the Terraform Cloud UI
+   - Review the plan
+   - Apply the changes
 
-## 🧹 Cleanup
+## 🏗️ Environment Configurations
 
-### Destroy Specific Environment
+### Development Environment
+- **VPC**: `10.0.0.0/16` (2 AZs)
+- **EC2**: 1x t3.micro instance
+- **RDS**: db.t3.micro (20GB)
+- **Cost**: ~€25-30/month
 
-**Using deployment scripts:**
-```bash
-# Destroy development environment
-./deploy.sh dev destroy
+### Staging Environment
+- **VPC**: `10.1.0.0/16` (3 AZs)
+- **EC2**: 2x t3.small instances
+- **RDS**: db.t3.small (50GB)
+- **Cost**: ~€50-55/month
 
-# Destroy staging environment
-./deploy.sh stage destroy
+### Production Environment
+- **VPC**: `10.2.0.0/16` (3 AZs)
+- **EC2**: 3x t3.medium instances
+- **RDS**: db.t3.medium (100GB)
+- **Cost**: ~€100-105/month
 
-# Destroy production environment
-./deploy.sh prod destroy
-```
+## 🔧 Module Structure
 
-**Manual commands:**
-```bash
-# Destroy development environment
-terraform destroy -var-file="environments/dev.tfvars"
+### VPC Module
+- Creates VPC with public and private subnets
+- Sets up Internet Gateway and NAT Gateway
+- Configures route tables
 
-# Destroy staging environment
-terraform destroy -var-file="environments/stage.tfvars"
+### IAM Module
+- Creates IAM roles for EC2 instances
+- Sets up S3 bucket policies
+- Configures RDS access policies
 
-# Destroy production environment
-terraform destroy -var-file="environments/prod.tfvars"
-```
+### S3 Module
+- Creates health data bucket (encrypted)
+- Creates logs bucket
+- Creates backup bucket
+- Configures bucket policies and lifecycle rules
 
-⚠️ **Warning**: This will permanently delete all resources and data in the specified environment.
+### RDS Module
+- Creates PostgreSQL RDS instance
+- Configures security groups
+- Sets up automated backups
 
-### Environment Management
+### EC2 Module
+- Creates EC2 instances for application hosting
+- Configures security groups
+- Sets up user data for application deployment
 
-For detailed information about managing multiple environments, see [ENVIRONMENT_MANAGEMENT.md](ENVIRONMENT_MANAGEMENT.md).
+### Athena Module
+- Creates Athena database and workgroup
+- Configures S3 integration for querying
 
-## 📋 Outputs
+### SNS Module
+- Creates SNS topics for notifications
+- Configures email subscriptions
 
-After deployment, Terraform will output:
+### CloudWatch Module
+- Creates CloudWatch dashboards
+- Sets up monitoring and alerting
 
+## 🔐 Security Features
+
+- **Network Isolation**: Separate VPCs per environment
+- **Encryption**: S3 server-side encryption, RDS encryption at rest
+- **IAM Roles**: Least privilege access
+- **Security Groups**: Restrictive firewall rules
+- **Monitoring**: CloudWatch monitoring and alerting
+
+## 📊 Outputs
+
+Each environment provides outputs for:
 - VPC and subnet information
-- S3 bucket names and ARNs
-- IAM role ARNs
-- Athena database and workgroup names
+- S3 bucket names
+- EC2 instance details
+- RDS endpoint and credentials
 - SNS topic ARNs
-- KMS key ARNs
-- CloudWatch log group names
+- CloudWatch dashboard names
 
-## 🆘 Troubleshooting
+## 🚨 Important Notes
 
-### Common Issues
+1. **Database Passwords**: Change default passwords in `terraform.tfvars`
+2. **SSH Keys**: Configure SSH key names for EC2 access
+3. **Email Notifications**: Update email addresses in `terraform.tfvars`
+4. **Cost Monitoring**: Set up AWS Cost Explorer alerts
+5. **Backup Strategy**: Configure RDS backup retention periods
 
-1. **S3 Bucket Name Already Exists**
-   - Update bucket names in `terraform.tfvars`
-   - Ensure names are globally unique
+## 🔄 Maintenance
 
-2. **IAM Role Already Exists**
-   - Update project name in `terraform.tfvars`
-   - Or delete existing roles manually
+### Adding New Resources
+1. Create new module in `modules/` directory
+2. Add module call to environment `main.tf` files
+3. Add variables to `variables.tf`
+4. Add outputs to `outputs.tf`
 
-3. **VPC CIDR Conflict**
-   - Update `vpc_cidr` in `terraform.tfvars`
-   - Choose a different CIDR range
+### Updating Existing Resources
+1. Modify the appropriate module
+2. Test in development environment first
+3. Apply to staging for validation
+4. Deploy to production
 
-### Support
+### Environment-Specific Changes
+- Modify `terraform.tfvars` in the specific environment directory
+- Variables in `variables.tf` can have environment-specific defaults
 
-For issues with this infrastructure:
+## 📞 Support
 
-1. Check CloudWatch logs for application errors
-2. Review SNS notifications for alerts
-3. Verify IAM permissions are correct
-4. Ensure all required variables are set
-
-## 📄 License
-
-This infrastructure is licensed under the MIT License - see the LICENSE file for details.
+For issues with deployment:
+1. Check Terraform Cloud run logs
+2. Verify AWS credentials and permissions
+3. Review module configurations
+4. Contact the infrastructure team
 
 ---
 
-**Note**: This infrastructure is designed for production healthcare applications. Ensure all security configurations are properly reviewed before deployment. 
+**Note**: This structure provides complete isolation between environments while sharing reusable modules for consistency and maintainability. 

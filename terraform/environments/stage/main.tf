@@ -7,14 +7,12 @@ terraform {
     }
   }
   
-  # Backend configuration will be set per environment
-  # For dev: terraform init -backend-config="key=dev/terraform.tfstate"
-  # For stage: terraform init -backend-config="key=stage/terraform.tfstate"
-  # For prod: terraform init -backend-config="key=prod/terraform.tfstate"
-  backend "s3" {
-    bucket = "yourhealth1place-terraform-state"
-    region = "us-east-1"
-    # key will be set via -backend-config during init
+  # Terraform Cloud Configuration for Staging
+  cloud {
+    organization = "YourHealth1Place"
+    workspaces {
+      name = "yourhealth1place-stage"
+    }
   }
 }
 
@@ -25,7 +23,7 @@ provider "aws" {
     tags = {
       Project     = "YourHealth1Place"
       Environment = var.environment
-      ManagedBy   = "Terraform"
+      ManagedBy   = "Terraform Cloud"
       Owner       = "Healthcare Team"
     }
   }
@@ -33,7 +31,7 @@ provider "aws" {
 
 # VPC Module
 module "vpc" {
-  source = "./modules/vpc"
+  source = "../../modules/vpc"
   
   environment    = var.environment
   project_name   = var.project_name
@@ -46,7 +44,7 @@ module "vpc" {
 
 # IAM Module
 module "iam" {
-  source = "./modules/iam"
+  source = "../../modules/iam"
   
   environment = var.environment
   project_name = var.project_name
@@ -58,7 +56,7 @@ module "iam" {
 
 # S3 Module
 module "s3" {
-  source = "./modules/s3"
+  source = "../../modules/s3"
   
   environment = var.environment
   project_name = var.project_name
@@ -71,7 +69,7 @@ module "s3" {
 
 # Athena Module
 module "athena" {
-  source = "./modules/athena"
+  source = "../../modules/athena"
   
   environment = var.environment
   project_name = var.project_name
@@ -85,7 +83,7 @@ module "athena" {
 
 # SNS Module
 module "sns" {
-  source = "./modules/sns"
+  source = "../../modules/sns"
   
   environment = var.environment
   project_name = var.project_name
@@ -93,24 +91,48 @@ module "sns" {
   common_tags = var.common_tags
 }
 
-# KMS Module for encryption
-module "kms" {
-  source = "./modules/kms"
-  
-  environment = var.environment
-  project_name = var.project_name
-  key_administrators = var.kms_key_administrators
-  key_users = var.kms_key_users
-  common_tags = var.common_tags
-}
-
 # CloudWatch Module for monitoring
 module "cloudwatch" {
-  source = "./modules/cloudwatch"
+  source = "../../modules/cloudwatch"
   
   environment = var.environment
   project_name = var.project_name
   sns_topic_arn = module.sns.main_topic_arn
   health_data_bucket_name = "${var.environment}-${var.health_data_bucket_name}"
+  common_tags = var.common_tags
+}
+
+# RDS Module for sensitive health data
+module "rds" {
+  source = "../../modules/rds"
+  
+  environment = var.environment
+  project_name = var.project_name
+  vpc_id = module.vpc.vpc_id
+  private_subnet_ids = module.vpc.private_subnet_ids
+  app_security_group_id = module.ec2.security_group_id
+  instance_class = var.rds_instance_class
+  allocated_storage = var.rds_allocated_storage
+  max_allocated_storage = var.rds_max_allocated_storage
+  db_username = var.db_username
+  db_password = var.db_password
+  common_tags = var.common_tags
+}
+
+# EC2 Module for application hosting
+module "ec2" {
+  source = "../../modules/ec2"
+  
+  environment = var.environment
+  project_name = var.project_name
+  vpc_id = module.vpc.vpc_id
+  subnet_ids = module.vpc.public_subnet_ids
+  instance_count = var.instance_count
+  instance_type = var.instance_type
+  key_name = var.key_name
+  root_volume_size = var.root_volume_size
+  aws_region = var.aws_region
+  health_data_bucket_name = "${var.environment}-${var.health_data_bucket_name}"
+  logs_bucket_name = "${var.environment}-${var.logs_bucket_name}"
   common_tags = var.common_tags
 } 

@@ -1,4 +1,4 @@
-import boto3
+import psycopg2
 import json
 import uuid
 from datetime import datetime
@@ -9,15 +9,9 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-class DynamoDBService:
+class RDSService:
     def __init__(self):
-        self.session = boto3.Session(
-            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-            region_name=settings.AWS_REGION
-        )
-        self.dynamodb = self.session.resource('dynamodb')
-        self.table_name = settings.AWS_DYNAMODB_TABLE
+        self.database_url = settings.DATABASE_URL
         
     async def get_encryption_key(self, key_name: str) -> str:
         """Get encryption key from Akeyless"""
@@ -28,8 +22,16 @@ class DynamoDBService:
             logger.error(f"Failed to get encryption key from Akeyless: {e}")
             raise
     
+    def _get_connection(self):
+        """Get database connection"""
+        try:
+            return psycopg2.connect(self.database_url)
+        except Exception as e:
+            logger.error(f"Failed to connect to database: {e}")
+            raise
+    
     async def store_health_data(self, internal_user_id: str, data_type: str, data: Dict[str, Any]) -> str:
-        """Store sensitive health data in encrypted DynamoDB"""
+        """Store sensitive health data in encrypted RDS"""
         try:
             # Generate unique record ID
             record_id = str(uuid.uuid4())
@@ -40,21 +42,45 @@ class DynamoDBService:
             # Encrypt sensitive data
             encrypted_data = self._encrypt_data(data, encryption_key)
             
-            # Prepare DynamoDB item
-            item = {
-                'record_id': record_id,
-                'internal_user_id': internal_user_id,
-                'data_type': data_type,
-                'encrypted_data': encrypted_data,
-                'encryption_key_id': f"health-data-{data_type}",
-                'created_at': datetime.utcnow().isoformat(),
-                'updated_at': datetime.utcnow().isoformat(),
-                'is_active': True
-            }
+            # Store in RDS
+            conn = self._get_connection()
+            cursor = conn.cursor()
             
-            # Store in DynamoDB
-            table = self.dynamodb.Table(self.table_name)
-            table.put_item(Item=item)
+            # Create table if not exists
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS health_data (
+                    record_id VARCHAR(255) PRIMARY KEY,
+                    internal_user_id VARCHAR(255) NOT NULL,
+                    data_type VARCHAR(100) NOT NULL,
+                    encrypted_data JSONB NOT NULL,
+                    encryption_key_id VARCHAR(255) NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    is_active BOOLEAN DEFAULT TRUE
+                )
+            """)
+            
+            # Create indexes
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_health_data_user_id 
+                ON health_data(internal_user_id)
+            """)
+            
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_health_data_type 
+                ON health_data(data_type)
+            """)
+            
+            # Insert data
+            cursor.execute("""
+                INSERT INTO health_data 
+                (record_id, internal_user_id, data_type, encrypted_data, encryption_key_id)
+                VALUES (%s, %s, %s, %s, %s)
+            """, (record_id, internal_user_id, data_type, json.dumps(encrypted_data), f"health-data-{data_type}"))
+            
+            conn.commit()
+            cursor.close()
+            conn.close()
             
             # Log access for analytics
             await self._log_data_access(internal_user_id, data_type, "store", record_id)
@@ -66,27 +92,31 @@ class DynamoDBService:
             raise
     
     async def retrieve_health_data(self, internal_user_id: str, data_type: str, record_id: str) -> Optional[Dict[str, Any]]:
-        """Retrieve sensitive health data from encrypted DynamoDB"""
+        """Retrieve sensitive health data from encrypted RDS"""
         try:
             # Get encryption key
             encryption_key = await self.get_encryption_key(f"health-data-{data_type}")
             
-            # Retrieve from DynamoDB
-            table = self.dynamodb.Table(self.table_name)
-            response = table.get_item(
-                Key={
-                    'record_id': record_id,
-                    'internal_user_id': internal_user_id
-                }
-            )
+            # Retrieve from RDS
+            conn = self._get_connection()
+            cursor = conn.cursor()
             
-            if 'Item' not in response:
+            cursor.execute("""
+                SELECT encrypted_data FROM health_data 
+                WHERE record_id = %s AND internal_user_id = %s AND is_active = TRUE
+            """, (record_id, internal_user_id))
+            
+            result = cursor.fetchone()
+            cursor.close()
+            conn.close()
+            
+            if not result:
                 return None
             
-            item = response['Item']
+            encrypted_data = json.loads(result[0])
             
             # Decrypt data
-            decrypted_data = self._decrypt_data(item['encrypted_data'], encryption_key)
+            decrypted_data = self._decrypt_data(encrypted_data, encryption_key)
             
             # Log access for analytics
             await self._log_data_access(internal_user_id, data_type, "retrieve", record_id)
@@ -100,33 +130,36 @@ class DynamoDBService:
     async def list_health_data(self, internal_user_id: str, data_type: str = None) -> List[Dict[str, Any]]:
         """List health data records for a user"""
         try:
-            table = self.dynamodb.Table(self.table_name)
-            
-            # Build query parameters
-            query_params = {
-                'IndexName': 'InternalUserIndex',
-                'KeyConditionExpression': 'internal_user_id = :user_id',
-                'ExpressionAttributeValues': {
-                    ':user_id': internal_user_id,
-                    ':active': True
-                },
-                'FilterExpression': 'is_active = :active'
-            }
+            conn = self._get_connection()
+            cursor = conn.cursor()
             
             if data_type:
-                query_params['FilterExpression'] += ' AND data_type = :data_type'
-                query_params['ExpressionAttributeValues'][':data_type'] = data_type
+                cursor.execute("""
+                    SELECT record_id, data_type, created_at, updated_at 
+                    FROM health_data 
+                    WHERE internal_user_id = %s AND data_type = %s AND is_active = TRUE
+                    ORDER BY created_at DESC
+                """, (internal_user_id, data_type))
+            else:
+                cursor.execute("""
+                    SELECT record_id, data_type, created_at, updated_at 
+                    FROM health_data 
+                    WHERE internal_user_id = %s AND is_active = TRUE
+                    ORDER BY created_at DESC
+                """, (internal_user_id,))
             
-            response = table.query(**query_params)
+            results = cursor.fetchall()
+            cursor.close()
+            conn.close()
             
             # Return metadata only (not the encrypted data)
             records = []
-            for item in response.get('Items', []):
+            for row in results:
                 records.append({
-                    'record_id': item['record_id'],
-                    'data_type': item['data_type'],
-                    'created_at': item['created_at'],
-                    'updated_at': item['updated_at']
+                    'record_id': row[0],
+                    'data_type': row[1],
+                    'created_at': row[2].isoformat() if row[2] else None,
+                    'updated_at': row[3].isoformat() if row[3] else None
                 })
             
             return records
@@ -136,22 +169,22 @@ class DynamoDBService:
             return []
     
     async def update_health_data(self, internal_user_id: str, record_id: str, data: Dict[str, Any]) -> bool:
-        """Update sensitive health data in DynamoDB"""
+        """Update sensitive health data in RDS"""
         try:
-            # Get the existing record to determine data type
-            table = self.dynamodb.Table(self.table_name)
-            response = table.get_item(
-                Key={
-                    'record_id': record_id,
-                    'internal_user_id': internal_user_id
-                }
-            )
+            conn = self._get_connection()
+            cursor = conn.cursor()
             
-            if 'Item' not in response:
+            # Get the existing record to determine data type
+            cursor.execute("""
+                SELECT data_type FROM health_data 
+                WHERE record_id = %s AND internal_user_id = %s AND is_active = TRUE
+            """, (record_id, internal_user_id))
+            
+            result = cursor.fetchone()
+            if not result:
                 return False
             
-            existing_item = response['Item']
-            data_type = existing_item['data_type']
+            data_type = result[0]
             
             # Get encryption key
             encryption_key = await self.get_encryption_key(f"health-data-{data_type}")
@@ -159,18 +192,16 @@ class DynamoDBService:
             # Encrypt new data
             encrypted_data = self._encrypt_data(data, encryption_key)
             
-            # Update in DynamoDB
-            table.update_item(
-                Key={
-                    'record_id': record_id,
-                    'internal_user_id': internal_user_id
-                },
-                UpdateExpression='SET encrypted_data = :data, updated_at = :updated_at',
-                ExpressionAttributeValues={
-                    ':data': encrypted_data,
-                    ':updated_at': datetime.utcnow().isoformat()
-                }
-            )
+            # Update in RDS
+            cursor.execute("""
+                UPDATE health_data 
+                SET encrypted_data = %s, updated_at = CURRENT_TIMESTAMP
+                WHERE record_id = %s AND internal_user_id = %s
+            """, (json.dumps(encrypted_data), record_id, internal_user_id))
+            
+            conn.commit()
+            cursor.close()
+            conn.close()
             
             # Log access for analytics
             await self._log_data_access(internal_user_id, data_type, "update", record_id)
@@ -184,33 +215,31 @@ class DynamoDBService:
     async def delete_health_data(self, internal_user_id: str, record_id: str) -> bool:
         """Soft delete health data (mark as inactive)"""
         try:
-            table = self.dynamodb.Table(self.table_name)
+            conn = self._get_connection()
+            cursor = conn.cursor()
             
             # Get the record to determine data type
-            response = table.get_item(
-                Key={
-                    'record_id': record_id,
-                    'internal_user_id': internal_user_id
-                }
-            )
+            cursor.execute("""
+                SELECT data_type FROM health_data 
+                WHERE record_id = %s AND internal_user_id = %s AND is_active = TRUE
+            """, (record_id, internal_user_id))
             
-            if 'Item' not in response:
+            result = cursor.fetchone()
+            if not result:
                 return False
             
-            data_type = response['Item']['data_type']
+            data_type = result[0]
             
             # Soft delete (mark as inactive)
-            table.update_item(
-                Key={
-                    'record_id': record_id,
-                    'internal_user_id': internal_user_id
-                },
-                UpdateExpression='SET is_active = :active, updated_at = :updated_at',
-                ExpressionAttributeValues={
-                    ':active': False,
-                    ':updated_at': datetime.utcnow().isoformat()
-                }
-            )
+            cursor.execute("""
+                UPDATE health_data 
+                SET is_active = FALSE, updated_at = CURRENT_TIMESTAMP
+                WHERE record_id = %s AND internal_user_id = %s
+            """, (record_id, internal_user_id))
+            
+            conn.commit()
+            cursor.close()
+            conn.close()
             
             # Log access for analytics
             await self._log_data_access(internal_user_id, data_type, "delete", record_id)
@@ -231,7 +260,7 @@ class DynamoDBService:
                 'data_type': data_type,
                 'action': action,
                 'record_id': record_id,
-                'source': 'dynamodb_service'
+                'source': 'rds_service'
             }
             
             # Log to CloudWatch or your preferred logging service
@@ -257,4 +286,4 @@ class DynamoDBService:
         return encrypted_data.get('data', {})
 
 # Create service instance
-dynamodb_service = DynamoDBService() 
+rds_service = RDSService() 

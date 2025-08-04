@@ -14,7 +14,7 @@ This application follows a secure multi-service architecture:
 ### **AWS** - Sensitive Health Data Storage
 - **S3**: Encrypted storage for lab reports, wearable metrics, AI summaries
 - **Athena**: Analytics and querying of health data access logs
-- **KMS**: Server-side encryption for data at rest
+- **Akeyless**: External encryption key management
 
 ### **Akeyless (AKS)** - Encryption Key Management
 - **Centralized Key Storage**: All encryption keys for Supabase and AWS
@@ -95,6 +95,8 @@ fastapi-backend/
 
 ## 🚀 Installation
 
+### **Option 1: Local Development Setup**
+
 1. **Clone the repository**
    ```bash
    git clone <repository-url>
@@ -129,7 +131,7 @@ fastapi-backend/
    - Create S3 bucket for health data
    - Set up Athena database and workgroup
    - Configure IAM permissions
-   - Enable KMS encryption
+   - Enable Akeyless encryption
 
    **Akeyless Setup:**
    - Create Akeyless account
@@ -145,6 +147,32 @@ fastapi-backend/
    ```bash
    python run.py
    ```
+
+### **Option 2: Terraform Cloud Deployment (Recommended)**
+
+1. **Set up Terraform Cloud**
+   - Create account at [https://app.terraform.io/](https://app.terraform.io/)
+   - Create organization: "YourHealth1Place"
+   - Create workspaces: `yourhealth1place-dev`, `yourhealth1place-stage`, `yourhealth1place-prod`
+
+2. **Configure AWS credentials**
+   - Add AWS credentials as environment variables in each workspace
+   - Set up cost estimation and notifications
+
+3. **Deploy infrastructure**
+   ```bash
+   # Using the deployment script
+   ./terraform/deploy-cloud.sh dev    # Deploy development
+   ./terraform/deploy-cloud.sh stage  # Deploy staging
+   ./terraform/deploy-cloud.sh prod   # Deploy production
+   
+   # Or on Windows
+   terraform\deploy-cloud.bat dev
+   ```
+
+4. **Access the application**
+   - Get the EC2 public IP from Terraform Cloud outputs
+   - Access the API at `http://<EC2_IP>/docs`
 
 ## 🔧 Configuration
 
@@ -199,7 +227,7 @@ Once the application is running, you can access:
 - **Audit logging**: All access attempts logged
 
 ### Encryption
-- **Data at rest**: AWS KMS encryption
+- **Data at rest**: AES-256 encryption with Akeyless keys
 - **Data in transit**: TLS/SSL encryption
 - **Key management**: Centralized in Akeyless
 - **Key rotation**: Automated key rotation support

@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     AWS_SECRET_ACCESS_KEY: str = "your-aws-secret-key"
     AWS_REGION: str = "us-east-1"
     AWS_S3_BUCKET: str = "yourhealth1place-documents"
-    AWS_DYNAMODB_TABLE: str = "yourhealth1place-health-data"
+    DATABASE_URL: str = "postgresql://health_admin:password@yourhealth1place-dev-health-data.region.rds.amazonaws.com:5432/health_data"
     AWS_ATHENA_DATABASE: str = "yourhealth1place_analytics"
     AWS_ATHENA_WORKGROUP: str = "primary"
     

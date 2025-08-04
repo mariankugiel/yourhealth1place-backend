@@ -6,7 +6,7 @@ import json
 
 from app.core.database import get_db
 from app.core.supabase_client import supabase_client
-from app.core.dynamodb_service import dynamodb_service
+from app.core.rds_service import rds_service
 from app.core.aws_service import aws_service
 from app.models.user import User
 from app.models.health_record import HealthRecord
@@ -21,11 +21,11 @@ async def create_health_record(
     db: Session = Depends(get_db)
 ):
     """
-    Create a new health record with sensitive data stored in DynamoDB
+    Create a new health record with sensitive data stored in RDS
     """
     try:
-        # Store sensitive health data in DynamoDB
-        dynamodb_record_id = await dynamodb_service.store_health_data(
+        # Store sensitive health data in RDS
+        rds_record_id = await rds_service.store_health_data(
             internal_user_id=current_user.internal_user_id,
             data_type=health_data.record_type,
             data=health_data.sensitive_data
@@ -36,7 +36,7 @@ async def create_health_record(
             patient_id=health_data.patient_id,
             record_date=health_data.record_date,
             record_type=health_data.record_type,
-            dynamodb_record_id=dynamodb_record_id,
+            rds_record_id=rds_record_id,
             is_abnormal=health_data.is_abnormal,
             requires_follow_up=health_data.requires_follow_up,
             recorded_by=current_user.id
@@ -51,7 +51,7 @@ async def create_health_record(
             patient_id=db_health_record.patient_id,
             record_date=db_health_record.record_date,
             record_type=db_health_record.record_type,
-            dynamodb_record_id=db_health_record.dynamodb_record_id,
+            rds_record_id=db_health_record.rds_record_id,
             is_abnormal=db_health_record.is_abnormal,
             requires_follow_up=db_health_record.requires_follow_up,
             created_at=db_health_record.created_at
@@ -68,7 +68,7 @@ async def get_health_record(
     db: Session = Depends(get_db)
 ):
     """
-    Retrieve health record with sensitive data from DynamoDB
+    Retrieve health record with sensitive data from RDS
     """
     try:
         # Get metadata from PostgreSQL
@@ -79,11 +79,11 @@ async def get_health_record(
         if not db_health_record:
             raise HTTPException(status_code=404, detail="Health record not found")
         
-        # Retrieve sensitive data from DynamoDB
-        sensitive_data = await dynamodb_service.retrieve_health_data(
+        # Retrieve sensitive data from RDS
+        sensitive_data = await rds_service.retrieve_health_data(
             internal_user_id=current_user.internal_user_id,
             data_type=db_health_record.record_type,
-            record_id=db_health_record.dynamodb_record_id
+            record_id=db_health_record.rds_record_id
         )
         
         if not sensitive_data:
