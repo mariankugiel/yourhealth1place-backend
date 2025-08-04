@@ -43,7 +43,7 @@ output "ec2_instance_ids" {
 
 output "ec2_public_ips" {
   description = "Public IPs of the EC2 instances"
-  value       = module.ec2.public_ips
+  value       = module.ec2.instance_public_ips
 }
 
 output "ec2_security_group_id" {
