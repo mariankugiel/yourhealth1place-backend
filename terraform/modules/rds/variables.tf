@@ -18,8 +18,8 @@ variable "private_subnet_ids" {
   type        = list(string)
 }
 
-variable "app_security_group_id" {
-  description = "Security group ID of the application"
+variable "database_security_group_id" {
+  description = "Security group ID of the database from VPC module"
   type        = string
 }
 

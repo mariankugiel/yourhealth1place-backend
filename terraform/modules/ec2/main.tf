@@ -14,56 +14,6 @@ data "aws_ami" "amazon_linux_2" {
   }
 }
 
-# Security Group for EC2 instances
-resource "aws_security_group" "app_sg" {
-  name_prefix = "${var.project_name}-${var.environment}-app-"
-  vpc_id      = var.vpc_id
-
-  # SSH access
-  ingress {
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  # HTTP access
-  ingress {
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  # HTTPS access
-  ingress {
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  # FastAPI application port
-  ingress {
-    from_port   = 8000
-    to_port     = 8000
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  # All outbound traffic
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = merge(var.common_tags, {
-    Name = "${var.project_name}-${var.environment}-app-sg"
-  })
-}
-
 # IAM Role for EC2 instances
 resource "aws_iam_role" "ec2_role" {
   name = "${var.project_name}-${var.environment}-ec2-role"
@@ -97,7 +47,7 @@ resource "aws_instance" "app_server" {
   ami                    = data.aws_ami.amazon_linux_2.id
   instance_type          = var.instance_type
   subnet_id              = var.subnet_ids[count.index % length(var.subnet_ids)]
-  vpc_security_group_ids = [aws_security_group.app_sg.id]
+  vpc_security_group_ids = [var.application_security_group_id]
   iam_instance_profile   = aws_iam_instance_profile.ec2_profile.name
 
   key_name = var.key_name

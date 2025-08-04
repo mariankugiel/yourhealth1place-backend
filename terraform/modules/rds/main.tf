@@ -19,7 +19,7 @@ resource "aws_db_instance" "health_data" {
   password = var.db_password
 
   # Network configuration
-  vpc_security_group_ids = [aws_security_group.rds_sg.id]
+  vpc_security_group_ids = [var.database_security_group_id]
   db_subnet_group_name   = aws_db_subnet_group.health_data.name
 
   # Backup and maintenance
@@ -53,40 +53,6 @@ resource "aws_db_subnet_group" "health_data" {
 
   tags = merge(var.common_tags, {
     Name = "${var.project_name}-${var.environment}-health-data-subnet-group"
-  })
-}
-
-# Security Group for RDS
-resource "aws_security_group" "rds_sg" {
-  name_prefix = "${var.project_name}-${var.environment}-rds-"
-  vpc_id      = var.vpc_id
-
-  # Allow PostgreSQL access from application security group
-  ingress {
-    from_port       = 5432
-    to_port         = 5432
-    protocol        = "tcp"
-    security_groups = [var.app_security_group_id]
-  }
-
-  # Allow PostgreSQL access from bastion host (if exists)
-  ingress {
-    from_port   = 5432
-    to_port     = 5432
-    protocol    = "tcp"
-    cidr_blocks = ["10.0.0.0/16"]  # VPC CIDR
-  }
-
-  # No outbound rules needed for RDS
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = merge(var.common_tags, {
-    Name = "${var.project_name}-${var.environment}-rds-sg"
   })
 }
 

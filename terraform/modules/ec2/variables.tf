@@ -18,6 +18,11 @@ variable "subnet_ids" {
   type        = list(string)
 }
 
+variable "application_security_group_id" {
+  description = "Security group ID of the application from VPC module"
+  type        = string
+}
+
 variable "instance_count" {
   description = "Number of EC2 instances to create"
   type        = number

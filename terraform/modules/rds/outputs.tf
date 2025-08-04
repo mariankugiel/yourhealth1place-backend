@@ -28,11 +28,6 @@ output "db_arn" {
   value       = aws_db_instance.health_data.arn
 }
 
-output "db_security_group_id" {
-  description = "ID of the RDS security group"
-  value       = aws_security_group.rds_sg.id
-}
-
 output "db_subnet_group_name" {
   description = "Name of the DB subnet group"
   value       = aws_db_subnet_group.health_data.name
