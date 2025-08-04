@@ -54,22 +54,22 @@ output "ec2_security_group_id" {
 # RDS Outputs
 output "rds_instance_id" {
   description = "ID of the RDS instance"
-  value       = module.rds.instance_id
+  value       = module.rds.db_instance_id
 }
 
 output "rds_endpoint" {
   description = "Endpoint of the RDS instance"
-  value       = module.rds.endpoint
+  value       = module.rds.db_endpoint
 }
 
 output "rds_port" {
   description = "Port of the RDS instance"
-  value       = module.rds.port
+  value       = module.rds.db_port
 }
 
 output "rds_database_name" {
   description = "Name of the RDS database"
-  value       = module.rds.database_name
+  value       = module.rds.db_name
 }
 
 # SNS Outputs
@@ -92,7 +92,7 @@ output "athena_workgroup_name" {
 # IAM Outputs
 output "iam_role_arn" {
   description = "ARN of the IAM role"
-  value       = module.iam.role_arn
+  value       = module.iam.application_role_arn
 }
 
 # CloudWatch Outputs

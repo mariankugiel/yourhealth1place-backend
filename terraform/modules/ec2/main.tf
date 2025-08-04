@@ -170,5 +170,5 @@ resource "aws_iam_role_policy" "ec2_policy" {
 # Attach the policy to the role
 resource "aws_iam_role_policy_attachment" "ec2_policy" {
   role       = aws_iam_role.ec2_role.name
-  policy_arn = aws_iam_role_policy.ec2_policy.policy_id
+  policy_arn = aws_iam_role_policy.ec2_policy.arn
 } 

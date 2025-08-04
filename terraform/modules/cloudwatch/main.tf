@@ -11,7 +11,7 @@ resource "aws_cloudwatch_log_group" "application" {
 # CloudWatch Log Group for Health Data Access Logs
 resource "aws_cloudwatch_log_group" "health_data_access" {
   name              = "/aws/health-data-access/${var.project_name}-${var.environment}"
-  retention_in_days = 2555  # 7 years for HIPAA compliance
+  retention_in_days = 2557  # 7 years for HIPAA compliance (closest valid value)
 
   tags = merge(var.common_tags, {
     Name = "${var.project_name}-health-data-access-log-group-${var.environment}"
@@ -23,7 +23,7 @@ resource "aws_cloudwatch_log_group" "health_data_access" {
 # CloudWatch Log Group for Security Events
 resource "aws_cloudwatch_log_group" "security_events" {
   name              = "/aws/security-events/${var.project_name}-${var.environment}"
-  retention_in_days = 2555  # 7 years for compliance
+  retention_in_days = 2557  # 7 years for compliance (closest valid value)
 
   tags = merge(var.common_tags, {
     Name = "${var.project_name}-security-events-log-group-${var.environment}"

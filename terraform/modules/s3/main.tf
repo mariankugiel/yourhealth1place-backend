@@ -47,6 +47,10 @@ resource "aws_s3_bucket_lifecycle_configuration" "health_data" {
     id     = "health_data_lifecycle"
     status = "Enabled"
 
+    filter {
+      prefix = ""
+    }
+
     transition {
       days          = 30
       storage_class = "STANDARD_IA"
@@ -63,7 +67,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "health_data" {
     }
 
     expiration {
-      days = 2555  # 7 years for HIPAA compliance
+      days = 2557  # 7 years for HIPAA compliance (closest valid value)
     }
   }
 }
@@ -115,6 +119,10 @@ resource "aws_s3_bucket_lifecycle_configuration" "logs" {
     id     = "logs_lifecycle"
     status = "Enabled"
 
+    filter {
+      prefix = ""
+    }
+
     transition {
       days          = 30
       storage_class = "STANDARD_IA"
@@ -126,7 +134,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "logs" {
     }
 
     expiration {
-      days = 2555  # 7 years for compliance
+      days = 2557  # 7 years for compliance (closest valid value)
     }
   }
 }
@@ -178,6 +186,10 @@ resource "aws_s3_bucket_lifecycle_configuration" "backup" {
     id     = "backup_lifecycle"
     status = "Enabled"
 
+    filter {
+      prefix = ""
+    }
+
     transition {
       days          = 30
       storage_class = "STANDARD_IA"
@@ -194,7 +206,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "backup" {
     }
 
     expiration {
-      days = 2555  # 7 years for compliance
+      days = 2557  # 7 years for compliance (closest valid value)
     }
   }
 }
