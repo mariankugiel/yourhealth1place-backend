@@ -105,6 +105,18 @@ resource "aws_instance" "app_server" {
   user_data = base64encode(templatefile("${path.module}/user_data.sh", {
     project_name = var.project_name
     environment  = var.environment
+    RDS_ENDPOINT = var.rds_endpoint
+    DB_USERNAME = var.db_username
+    DB_PASSWORD = var.db_password
+    DB_NAME = var.db_name
+    SUPABASE_URL = var.supabase_url
+    SUPABASE_ANON_KEY = var.supabase_anon_key
+    AWS_ACCESS_KEY_ID = ""
+    AWS_SECRET_ACCESS_KEY = ""
+    AWS_REGION = var.aws_region
+    AWS_S3_BUCKET = var.health_data_bucket_name
+    AKEYLESS_ACCESS_ID = var.akeyless_access_id
+    AKEYLESS_ACCESS_KEY = var.akeyless_access_key
   }))
 
   root_block_device {

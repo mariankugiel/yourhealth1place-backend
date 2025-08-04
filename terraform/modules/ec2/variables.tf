@@ -61,4 +61,60 @@ variable "common_tags" {
   description = "Common tags to apply to all resources"
   type        = map(string)
   default     = {}
+}
+
+# Additional variables for user_data.sh template
+variable "database_url" {
+  description = "Database connection URL"
+  type        = string
+  default     = ""
+}
+
+variable "supabase_url" {
+  description = "Supabase URL"
+  type        = string
+  default     = ""
+}
+
+variable "supabase_anon_key" {
+  description = "Supabase anonymous key"
+  type        = string
+  default     = ""
+}
+
+variable "akeyless_access_id" {
+  description = "Akeyless access ID"
+  type        = string
+  default     = ""
+}
+
+variable "akeyless_access_key" {
+  description = "Akeyless access key"
+  type        = string
+  default     = ""
+}
+
+# RDS Configuration Variables
+variable "rds_endpoint" {
+  description = "RDS instance endpoint"
+  type        = string
+  default     = ""
+}
+
+variable "db_username" {
+  description = "Database username"
+  type        = string
+  default     = ""
+}
+
+variable "db_password" {
+  description = "Database password"
+  type        = string
+  default     = ""
+}
+
+variable "db_name" {
+  description = "Database name"
+  type        = string
+  default     = "health_data"
 } 

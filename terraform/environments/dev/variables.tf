@@ -148,4 +148,29 @@ variable "db_password" {
   description = "Database master password"
   type        = string
   sensitive   = true
+}
+
+# Application Configuration Variables
+variable "supabase_url" {
+  description = "Supabase URL"
+  type        = string
+  default     = ""
+}
+
+variable "supabase_anon_key" {
+  description = "Supabase anonymous key"
+  type        = string
+  default     = ""
+}
+
+variable "akeyless_access_id" {
+  description = "Akeyless access ID"
+  type        = string
+  default     = ""
+}
+
+variable "akeyless_access_key" {
+  description = "Akeyless access key"
+  type        = string
+  default     = ""
 } 

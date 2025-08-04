@@ -134,5 +134,13 @@ module "ec2" {
   aws_region = var.aws_region
   health_data_bucket_name = "${var.environment}-${var.health_data_bucket_name}"
   logs_bucket_name = "${var.environment}-${var.logs_bucket_name}"
+  rds_endpoint = module.rds.db_endpoint
+  db_username = var.db_username
+  db_password = var.db_password
+  db_name = "health_data"
+  supabase_url = var.supabase_url
+  supabase_anon_key = var.supabase_anon_key
+  akeyless_access_id = var.akeyless_access_id
+  akeyless_access_key = var.akeyless_access_key
   common_tags = var.common_tags
 } 
