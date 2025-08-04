@@ -1,6 +1,6 @@
 # Health Data Bucket
 resource "aws_s3_bucket" "health_data" {
-  bucket = "${var.environment}-${var.health_data_bucket_name}"
+  bucket = var.health_data_bucket_name
 
   tags = merge(var.common_tags, {
     Name = "${var.project_name}-health-data-bucket-${var.environment}"
@@ -74,7 +74,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "health_data" {
 
 # Logs Bucket
 resource "aws_s3_bucket" "logs" {
-  bucket = "${var.environment}-${var.logs_bucket_name}"
+  bucket = var.logs_bucket_name
 
   tags = merge(var.common_tags, {
     Name = "${var.project_name}-logs-bucket-${var.environment}"
@@ -141,7 +141,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "logs" {
 
 # Backup Bucket
 resource "aws_s3_bucket" "backup" {
-  bucket = "${var.environment}-${var.backup_bucket_name}"
+  bucket = var.backup_bucket_name
 
   tags = merge(var.common_tags, {
     Name = "${var.project_name}-backup-bucket-${var.environment}"
@@ -334,4 +334,4 @@ resource "aws_s3_bucket_notification" "health_data" {
   }
 
   depends_on = [aws_s3_bucket_policy.health_data]
-} 
+}
