@@ -4,7 +4,7 @@ resource "aws_db_instance" "health_data" {
 
   # Engine configuration
   engine         = "postgres"
-  engine_version = "15.6"
+  engine_version = "15.7"
   instance_class = var.instance_class
 
   # Storage configuration
