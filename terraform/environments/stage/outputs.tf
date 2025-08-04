@@ -19,6 +19,16 @@ output "public_subnet_ids" {
   value       = module.vpc.public_subnet_ids
 }
 
+output "application_security_group_id" {
+  description = "ID of the application security group"
+  value       = module.vpc.application_security_group_id
+}
+
+output "database_security_group_id" {
+  description = "ID of the database security group"
+  value       = module.vpc.database_security_group_id
+}
+
 # S3 Outputs
 output "health_data_bucket_name" {
   description = "Name of the health data S3 bucket"
@@ -44,11 +54,6 @@ output "ec2_instance_ids" {
 output "ec2_public_ips" {
   description = "Public IPs of the EC2 instances"
   value       = module.ec2.instance_public_ips
-}
-
-output "ec2_security_group_id" {
-  description = "ID of the EC2 security group"
-  value       = module.ec2.security_group_id
 }
 
 # RDS Outputs
