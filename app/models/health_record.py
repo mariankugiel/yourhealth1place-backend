@@ -9,12 +9,12 @@ class HealthRecord(Base):
     id = Column(Integer, primary_key=True, index=True)
     patient_id = Column(Integer, ForeignKey("patients.id"), nullable=False)
     
-    # Metadata only - sensitive data stored in AWS S3
+    # Metadata only - sensitive data stored in AWS DynamoDB
     record_date = Column(DateTime, nullable=False)
     record_type = Column(String(50), nullable=False)  # vital_signs, lab_results, imaging, etc.
     
-    # AWS S3 file reference
-    aws_file_id = Column(String(255), unique=True, index=True, nullable=False)
+    # AWS DynamoDB record reference
+    dynamodb_record_id = Column(String(255), unique=True, index=True, nullable=False)
     
     # Non-sensitive metadata
     is_abnormal = Column(Boolean, default=False)
@@ -30,4 +30,4 @@ class HealthRecord(Base):
     recorder = relationship("User", foreign_keys=[recorded_by])
     
     def __repr__(self):
-        return f"<HealthRecord(id={self.id}, patient_id={self.patient_id}, type='{self.record_type}', aws_file_id='{self.aws_file_id}')>" 
+        return f"<HealthRecord(id={self.id}, patient_id={self.patient_id}, type='{self.record_type}', dynamodb_record_id='{self.dynamodb_record_id}')>" 

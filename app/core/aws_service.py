@@ -30,73 +30,90 @@ class AWSService:
             logger.error(f"Failed to get encryption key from Akeyless: {e}")
             raise
     
-    async def store_health_data(self, user_id: str, data_type: str, data: Dict[str, Any]) -> str:
-        """Store sensitive health data in encrypted S3"""
+    async def store_document(self, internal_user_id: str, file_data: bytes, file_name: str, content_type: str) -> str:
+        """Store user uploaded documents in encrypted S3"""
         try:
             # Generate unique file ID
             file_id = str(uuid.uuid4())
             
-            # Get encryption key for this data type
-            encryption_key = await self.get_encryption_key(f"health-data-{data_type}")
+            # Get encryption key for documents
+            encryption_key = await self.get_encryption_key("document-encryption")
             
             # Prepare metadata (no sensitive info)
             metadata = {
-                "user_id": user_id,
-                "data_type": data_type,
+                "internal_user_id": internal_user_id,
+                "original_filename": file_name,
+                "content_type": content_type,
                 "timestamp": datetime.utcnow().isoformat(),
                 "file_id": file_id,
-                "encryption_key_id": f"health-data-{data_type}"
+                "encryption_key_id": "document-encryption"
             }
             
-            # Encrypt data (in production, use proper encryption)
-            encrypted_data = self._encrypt_data(data, encryption_key)
+            # Encrypt file data (in production, use proper encryption)
+            encrypted_data = self._encrypt_file_data(file_data, encryption_key)
             
             # Store in S3
-            s3_key = f"health-data/{user_id}/{data_type}/{file_id}.json"
+            s3_key = f"documents/{internal_user_id}/{file_id}/{file_name}"
             
             self.s3_client.put_object(
                 Bucket=settings.AWS_S3_BUCKET,
                 Key=s3_key,
-                Body=json.dumps(encrypted_data),
+                Body=encrypted_data,
                 Metadata=metadata,
+                ContentType=content_type,
                 ServerSideEncryption='aws:kms'
             )
             
             # Log access for analytics
-            await self._log_data_access(user_id, data_type, "store", file_id)
+            await self._log_data_access(internal_user_id, "document", "store", file_id)
             
             return file_id
             
         except Exception as e:
-            logger.error(f"Failed to store health data: {e}")
+            logger.error(f"Failed to store document: {e}")
             raise
     
-    async def retrieve_health_data(self, user_id: str, data_type: str, file_id: str) -> Optional[Dict[str, Any]]:
-        """Retrieve sensitive health data from encrypted S3"""
+    async def retrieve_document(self, internal_user_id: str, file_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve user uploaded document from encrypted S3"""
         try:
             # Get encryption key
-            encryption_key = await self.get_encryption_key(f"health-data-{data_type}")
+            encryption_key = await self.get_encryption_key("document-encryption")
+            
+            # List objects to find the file
+            prefix = f"documents/{internal_user_id}/{file_id}/"
+            response = self.s3_client.list_objects_v2(
+                Bucket=settings.AWS_S3_BUCKET,
+                Prefix=prefix
+            )
+            
+            if 'Contents' not in response:
+                return None
+            
+            # Get the first file (should be only one)
+            s3_key = response['Contents'][0]['Key']
             
             # Retrieve from S3
-            s3_key = f"health-data/{user_id}/{data_type}/{file_id}.json"
-            
             response = self.s3_client.get_object(
                 Bucket=settings.AWS_S3_BUCKET,
                 Key=s3_key
             )
             
-            encrypted_data = json.loads(response['Body'].read())
+            encrypted_data = response['Body'].read()
             
             # Decrypt data
-            decrypted_data = self._decrypt_data(encrypted_data, encryption_key)
+            decrypted_data = self._decrypt_file_data(encrypted_data, encryption_key)
             
             # Log access for analytics
-            await self._log_data_access(user_id, data_type, "retrieve", file_id)
+            await self._log_data_access(internal_user_id, "document", "retrieve", file_id)
             
-            return decrypted_data
+            return {
+                'file_data': decrypted_data,
+                'content_type': response.get('ContentType', 'application/octet-stream'),
+                'original_filename': response.get('Metadata', {}).get('original_filename', 'unknown')
+            }
             
         except Exception as e:
-            logger.error(f"Failed to retrieve health data: {e}")
+            logger.error(f"Failed to retrieve document: {e}")
             return None
     
     async def list_health_data(self, user_id: str, data_type: str = None) -> List[Dict[str, Any]]:
@@ -240,6 +257,16 @@ class AWSService:
         """Decrypt data (simplified - in production use proper decryption)"""
         # This is a placeholder - in production, use proper decryption libraries
         return encrypted_data.get("data", {})
+    
+    def _encrypt_file_data(self, file_data: bytes, key: str) -> bytes:
+        """Encrypt file data (simplified - in production use proper encryption)"""
+        # This is a placeholder - in production, use proper encryption libraries
+        return file_data  # In production, this would be properly encrypted
+    
+    def _decrypt_file_data(self, encrypted_data: bytes, key: str) -> bytes:
+        """Decrypt file data (simplified - in production use proper decryption)"""
+        # This is a placeholder - in production, use proper decryption libraries
+        return encrypted_data  # In production, this would be properly decrypted
 
 # Global instance
 aws_service = AWSService() 
