@@ -1,7 +1,7 @@
 # Athena Database
 resource "aws_athena_database" "main" {
   name   = var.database_name
-  bucket = var.output_location
+  bucket = var.logs_bucket_name  # ← This is correct!
 }
 
 # Athena Workgroup
