@@ -2,6 +2,7 @@
 resource "aws_athena_database" "main" {
   name   = var.database_name
   bucket = var.logs_bucket_name  # ← This is correct!
+  force_destroy = true  # Add this line
 }
 
 # Athena Workgroup
