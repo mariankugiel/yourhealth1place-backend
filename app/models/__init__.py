@@ -4,6 +4,11 @@ from .appointment import Appointment
 from .health_record import HealthRecord
 from .medication import Medication
 from .message import Message
+from .professional import Professional
+from .health_plan import HealthPlan
+from .health_plan_progress import HealthPlanProgress
+from .patient_insight import PatientInsight
+from .statistics import ProfessionalStatistics
 
 __all__ = [
     "User",
@@ -11,5 +16,10 @@ __all__ = [
     "Appointment",
     "HealthRecord",
     "Medication",
-    "Message"
+    "Message",
+    "Professional",
+    "HealthPlan",
+    "HealthPlanProgress",
+    "PatientInsight",
+    "ProfessionalStatistics"
 ] 

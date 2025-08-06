@@ -21,15 +21,21 @@ class AppointmentType(str, enum.Enum):
     LAB_TEST = "lab_test"
     IMAGING = "imaging"
 
+class ConsultationType(str, enum.Enum):
+    PHYSICAL = "physical"
+    VIDEO = "video"
+    PHONE = "phone"
+
 class Appointment(Base):
     __tablename__ = "appointments"
     
     id = Column(Integer, primary_key=True, index=True)
     patient_id = Column(Integer, ForeignKey("patients.id"), nullable=False)
-    doctor_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    professional_id = Column(Integer, ForeignKey("professionals.id"), nullable=False)
     appointment_date = Column(DateTime, nullable=False)
     duration_minutes = Column(Integer, default=30)
     appointment_type = Column(Enum(AppointmentType), nullable=False)
+    consultation_type = Column(Enum(ConsultationType), default=ConsultationType.PHYSICAL)
     status = Column(Enum(AppointmentStatus), default=AppointmentStatus.SCHEDULED)
     reason = Column(Text, nullable=True)
     symptoms = Column(Text, nullable=True)
@@ -44,7 +50,7 @@ class Appointment(Base):
     
     # Relationships
     patient = relationship("Patient", back_populates="appointments")
-    doctor = relationship("User", foreign_keys=[doctor_id])
+    professional = relationship("Professional", back_populates="appointments")
     
     def __repr__(self):
         return f"<Appointment(id={self.id}, patient_id={self.patient_id}, date='{self.appointment_date}')>" 

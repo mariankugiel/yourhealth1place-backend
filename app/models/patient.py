@@ -20,6 +20,8 @@ class Patient(Base):
     # Relationships
     user = relationship("User", backref="patient_profile")
     appointments = relationship("Appointment", back_populates="patient")
+    health_plans = relationship("HealthPlan", back_populates="patient")
+    insights = relationship("PatientInsight", back_populates="patient")
     
     def __repr__(self):
         return f"<Patient(id={self.id}, mrn='{self.medical_record_number}')>" 
