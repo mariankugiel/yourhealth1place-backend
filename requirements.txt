@@ -11,7 +11,7 @@ pydantic-settings==2.1.0
 python-dotenv==1.0.0
 redis==5.0.1
 celery==5.3.4
-httpx==0.25.2
+httpx==0.24.1
 pytest==7.4.3
 pytest-asyncio==0.21.1
 black==23.11.0
@@ -29,7 +29,6 @@ aioboto3==12.3.0
 
 # Akeyless integration
 akeyless==3.0.0
-akeyless-api==3.0.0
 
 # Additional utilities
 cryptography==41.0.7

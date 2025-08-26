@@ -1,26 +1,26 @@
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, Enum
+from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, Date, JSON
 from sqlalchemy.sql import func
-from sqlalchemy.orm import relationship
 from app.core.database import Base
-import enum
-
-class UserRole(str, enum.Enum):
-    PATIENT = "patient"
-    PROFESSIONAL = "professional"
 
 class User(Base):
     __tablename__ = "users"
-
-    id = Column(Integer, primary_key=True, index=True)
-    supabase_user_id = Column(String, unique=True, index=True)
-    internal_user_id = Column(String, unique=True, index=True)
-    email = Column(String, unique=True, index=True)
-    role = Column(Enum(UserRole), default=UserRole.PATIENT)
+    
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    email = Column(String(255), nullable=False, unique=True, index=True)
+    hashed_password = Column(String(255), nullable=False)
+    full_name = Column(String(255))
+    date_of_birth = Column(Date)
+    gender = Column(String(20))
+    phone_number = Column(String(20))
+    address = Column(Text)
+    emergency_contact_name = Column(String(255))
+    emergency_contact_phone = Column(String(20))
+    emergency_contact_relationship = Column(String(100))
+    blood_type = Column(String(10))
+    allergies = Column(Text)
+    current_medications = Column(JSON)
+    emergency_medical_info = Column(Text)
+    is_active = Column(Boolean, default=True)
+    is_superuser = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-    
-    # Relationships
-    professional = relationship("Professional", back_populates="user", uselist=False)
-    
-    def __repr__(self):
-        return f"<User(id={self.id}, email='{self.email}', role='{self.role}')>" 
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now()) 

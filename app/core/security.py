@@ -2,10 +2,17 @@ from datetime import datetime, timedelta
 from typing import Optional, Union
 from jose import JWTError, jwt
 from passlib.context import CryptContext
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from app.core.config import settings
+from app.models.user import User
+from app.crud.user import user_crud
 
 # Password hashing context
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+# Security scheme
+security = HTTPBearer()
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a password against its hash."""
@@ -41,4 +48,37 @@ def verify_token(token: str) -> Optional[dict]:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         return payload
     except JWTError:
-        return None 
+        return None
+
+async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> User:
+    """Get the current authenticated user."""
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+    try:
+        payload = verify_token(credentials.credentials)
+        if payload is None:
+            raise credentials_exception
+
+        user_id: str = payload.get("sub")
+        if user_id is None:
+            raise credentials_exception
+
+    except JWTError:
+        raise credentials_exception
+
+    # Get user from database
+    user = user_crud.get_by_id(int(user_id))
+    if user is None:
+        raise credentials_exception
+
+    return user
+
+async def get_current_active_user(current_user: User = Depends(get_current_user)) -> User:
+    """Get the current active user."""
+    if not current_user:
+        raise HTTPException(status_code=400, detail="Inactive user")
+    return current_user 

@@ -1,24 +1,199 @@
+from app.core.database import Base
+
+# Core User Models
 from .user import User
 from .patient import Patient
-from .appointment import Appointment
-from .health_record import HealthRecord
-from .medication import Medication
-from .message import Message
 from .professional import Professional
-from .health_plan import HealthPlan
+
+# Professional Practice System
+from .professional_practices import ProfessionalPractice
+from .professional_locations import ProfessionalLocation
+from .professional_availability import ProfessionalAvailabilitySchedule, ProfessionalAppointmentSlot
+
+# Appointment System
+from .appointment_types import AppointmentType, AppointmentTypePricing
+from .appointment import ManualAppointment, Appointment, AppointmentReminder, AppointmentAttachment
+
+# Professional Document Management
+from .professional_documents import (
+    ProfessionalDocumentCategory,
+    ProfessionalDocument,
+    ProfessionalDocumentShare,
+    ProfessionalDocumentAccessLog,
+    ProfessionalDocumentTemplate,
+    ProfessionalDocumentInstance,
+    ProfessionalDocumentAssignment,
+    ProfessionalDocumentApproval
+)
+
+# Messaging System
+from .message import Message, MessageAttachment
+
+# Payment System
+from .payment import SubscriptionPlan, UserSubscription, PaymentTransaction
+
+# Health Records System
+from .health_record import (
+    # Health Record Types
+    HealthRecordType,
+    HealthRecordSection,
+    HealthRecordMetric,
+    HealthRecord,
+    
+    # Medical Records
+    MedicalDocument,
+    MedicalCondition,
+    FamilyMedicalHistory,
+    
+    # iOS Integration
+    IOSDevice,
+    HealthDataPermission,
+    IOSSyncLog,
+    
+    # Enums
+    VitalMetric,
+    LifestyleMetric,
+    BodyMetric,
+    MedicalConditionStatus,
+    FamilyHistoryStatus,
+    DocumentType,
+    AnalysisCategory,
+    VitalStatus,
+    LifestyleStatus,
+    BodyStatus,
+    ConditionSeverity,
+    ConditionSource,
+    FamilyRelation,
+    FamilyHistorySource,
+    DocumentSource,
+    AnalysisStatus,
+    AnalysisSource
+)
+
+# Health Plans & Goals System
+from .health_plans import (
+    HealthPlan,
+    HealthPlanAssignment,
+    Goal,
+    GoalTracking,
+    GoalTrackingDetail,
+    Task,
+    TaskTracking,
+    TaskTrackingDetail,
+    HealthPlanRecommendation
+)
+
+# Medical Condition Updates
+from .medical_condition_updates import MedicalConditionUpdate
+
+# Permission System
+from .permissions import (
+    DataResourceType,
+    DataAccessType,
+    DataPermission,
+    DataAccessLog
+)
+
+# Legacy Models (to be removed or updated)
+from .medication import Medication
 from .health_plan_progress import HealthPlanProgress
 from .patient_insight import PatientInsight
 from .statistics import ProfessionalStatistics
 
 __all__ = [
+    "Base",
+    
+    # Core User Models
     "User",
     "Patient", 
-    "Appointment",
-    "HealthRecord",
-    "Medication",
-    "Message",
     "Professional",
+    
+    # Professional Practice System
+    "ProfessionalPractice",
+    "ProfessionalLocation",
+    "ProfessionalAvailabilitySchedule",
+    "ProfessionalAppointmentSlot",
+    
+    # Appointment System
+    "AppointmentType",
+    "AppointmentTypePricing",
+    "ManualAppointment",
+    "Appointment",
+    "AppointmentReminder",
+    "AppointmentAttachment",
+    
+    # Professional Document Management
+    "ProfessionalDocumentCategory",
+    "ProfessionalDocument",
+    "ProfessionalDocumentShare",
+    "ProfessionalDocumentAccessLog",
+    "ProfessionalDocumentTemplate",
+    "ProfessionalDocumentInstance",
+    "ProfessionalDocumentAssignment",
+    "ProfessionalDocumentApproval",
+    
+    # Messaging System
+    "Message",
+    "MessageAttachment",
+    
+    # Payment System
+    "SubscriptionPlan",
+    "UserSubscription",
+    "PaymentTransaction",
+    
+    # Health Records System
+    "HealthRecordType",
+    "HealthRecordSection",
+    "HealthRecordMetric",
+    "HealthRecord",
+    "MedicalDocument",
+    "MedicalCondition",
+    "FamilyMedicalHistory",
+    "IOSDevice",
+    "HealthDataPermission",
+    "IOSSyncLog",
+    
+    # Health Record Enums
+    "VitalMetric",
+    "LifestyleMetric",
+    "BodyMetric",
+    "MedicalConditionStatus",
+    "FamilyHistoryStatus",
+    "DocumentType",
+    "AnalysisCategory",
+    "VitalStatus",
+    "LifestyleStatus",
+    "BodyStatus",
+    "ConditionSeverity",
+    "ConditionSource",
+    "FamilyRelation",
+    "FamilyHistorySource",
+    "DocumentSource",
+    "AnalysisStatus",
+    "AnalysisSource",
+    
+    # Health Plans & Goals System
     "HealthPlan",
+    "HealthPlanAssignment",
+    "Goal",
+    "GoalTracking",
+    "GoalTrackingDetail",
+    "Task",
+    "TaskTracking",
+    "TaskTrackingDetail",
+    "HealthPlanRecommendation",
+    
+    # Medical Condition Updates
+    "MedicalConditionUpdate",
+    
+    # Permission System
+    "DataResourceType",
+    "DataAccessType",
+    "DataPermission",
+    "DataAccessLog",
+    
+    # Legacy Models
+    "Medication",
     "HealthPlanProgress",
     "PatientInsight",
     "ProfessionalStatistics"

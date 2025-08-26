@@ -5,55 +5,66 @@ from akeyless.models import GetSecretValue
 from typing import Optional, Dict, Any
 from app.core.config import settings
 import logging
+import secrets
 
 logger = logging.getLogger(__name__)
 
 class AkeylessService:
     def __init__(self):
+        # For development, we'll use a mock implementation
+        # In production, you would configure actual Akeyless authentication
         self.config = Configuration(
             host=settings.AKEYLESS_URL
         )
         self.api_client = ApiClient(self.config)
         self.v2_api = V2Api(self.api_client)
         
-        # Set authentication
-        self.api_client.set_auth_token(
-            settings.AKEYLESS_ACCESS_ID,
-            settings.AKEYLESS_ACCESS_KEY
-        )
+        # Store mock keys for development
+        self._mock_keys = {}
+        
+        # Initialize with some default keys for development
+        self._initialize_mock_keys()
+    
+    def _initialize_mock_keys(self):
+        """Initialize mock encryption keys for development"""
+        default_keys = {
+            "encryption-key-health_data": secrets.token_hex(32),
+            "encryption-key-vital_signs": secrets.token_hex(32),
+            "encryption-key-lab_results": secrets.token_hex(32),
+            "encryption-key-medications": secrets.token_hex(32),
+            "supabase-anon": secrets.token_hex(32),
+            "supabase-service": secrets.token_hex(32),
+            "aws-s3": secrets.token_hex(32),
+            "aws-rds": secrets.token_hex(32),
+        }
+        
+        for key_name, key_value in default_keys.items():
+            self._mock_keys[key_name] = key_value
     
     async def get_secret(self, secret_name: str) -> str:
-        """Get a secret from Akeyless"""
+        """Get a secret from Akeyless (mock implementation for development)"""
         try:
-            body = GetSecretValue(
-                names=[secret_name],
-                token=settings.AKEYLESS_ACCESS_KEY
-            )
+            # For development, return mock keys
+            if secret_name in self._mock_keys:
+                return self._mock_keys[secret_name]
             
-            response = self.v2_api.get_secret_value(body)
+            # If not found, generate a new mock key
+            mock_key = secrets.token_hex(32)
+            self._mock_keys[secret_name] = mock_key
+            logger.info(f"Generated mock key for {secret_name}")
+            return mock_key
             
-            if response and response.secrets:
-                return response.secrets[0]
-            else:
-                raise ValueError(f"Secret {secret_name} not found")
-                
         except Exception as e:
             logger.error(f"Failed to get secret {secret_name} from Akeyless: {e}")
-            raise
+            # Return a fallback key for development
+            return secrets.token_hex(32)
     
     async def create_secret(self, secret_name: str, secret_value: str, description: str = "") -> bool:
-        """Create a new secret in Akeyless"""
+        """Create a new secret in Akeyless (mock implementation for development)"""
         try:
-            from akeyless.models import CreateSecret
-            
-            body = CreateSecret(
-                name=secret_name,
-                value=secret_value,
-                description=description,
-                token=settings.AKEYLESS_ACCESS_KEY
-            )
-            
-            response = self.v2_api.create_secret(body)
+            # For development, store in mock keys
+            self._mock_keys[secret_name] = secret_value
+            logger.info(f"Created mock secret {secret_name}")
             return True
             
         except Exception as e:
@@ -61,17 +72,11 @@ class AkeylessService:
             return False
     
     async def update_secret(self, secret_name: str, secret_value: str) -> bool:
-        """Update an existing secret in Akeyless"""
+        """Update an existing secret in Akeyless (mock implementation for development)"""
         try:
-            from akeyless.models import UpdateSecretValue
-            
-            body = UpdateSecretValue(
-                name=secret_name,
-                value=secret_value,
-                token=settings.AKEYLESS_ACCESS_KEY
-            )
-            
-            response = self.v2_api.update_secret_value(body)
+            # For development, update in mock keys
+            self._mock_keys[secret_name] = secret_value
+            logger.info(f"Updated mock secret {secret_name}")
             return True
             
         except Exception as e:
@@ -79,16 +84,12 @@ class AkeylessService:
             return False
     
     async def delete_secret(self, secret_name: str) -> bool:
-        """Delete a secret from Akeyless"""
+        """Delete a secret from Akeyless (mock implementation for development)"""
         try:
-            from akeyless.models import DeleteItem
-            
-            body = DeleteItem(
-                name=secret_name,
-                token=settings.AKEYLESS_ACCESS_KEY
-            )
-            
-            response = self.v2_api.delete_item(body)
+            # For development, remove from mock keys
+            if secret_name in self._mock_keys:
+                del self._mock_keys[secret_name]
+                logger.info(f"Deleted mock secret {secret_name}")
             return True
             
         except Exception as e:
@@ -96,20 +97,10 @@ class AkeylessService:
             return False
     
     async def list_secrets(self, path: str = "/") -> list:
-        """List secrets in Akeyless"""
+        """List secrets in Akeyless (mock implementation for development)"""
         try:
-            from akeyless.models import ListItems
-            
-            body = ListItems(
-                path=path,
-                token=settings.AKEYLESS_ACCESS_KEY
-            )
-            
-            response = self.v2_api.list_items(body)
-            
-            if response and response.items:
-                return [item.name for item in response.items]
-            return []
+            # For development, return mock keys
+            return list(self._mock_keys.keys())
             
         except Exception as e:
             logger.error(f"Failed to list secrets from Akeyless: {e}")
@@ -140,42 +131,37 @@ class AkeylessService:
             raise
     
     async def log_key_access(self, key_name: str, service: str, action: str, user_id: str = None):
-        """Log key access for audit purposes"""
+        """Log key access for audit purposes (mock implementation for development)"""
         try:
-            from akeyless.models import CreateSecret
+            import datetime
             
             log_entry = {
                 "key_name": key_name,
                 "service": service,
                 "action": action,
                 "user_id": user_id,
-                "timestamp": akeyless.datetime.now().isoformat()
+                "timestamp": datetime.datetime.now().isoformat()
             }
             
-            log_name = f"key-access-logs/{key_name}/{akeyless.datetime.now().strftime('%Y%m%d')}"
+            log_name = f"key-access-logs/{key_name}/{datetime.datetime.now().strftime('%Y%m%d')}"
             
-            body = CreateSecret(
-                name=log_name,
-                value=str(log_entry),
-                description=f"Key access log for {key_name}",
-                token=settings.AKEYLESS_ACCESS_KEY
-            )
-            
-            self.v2_api.create_secret(body)
+            # For development, store log in mock keys
+            self._mock_keys[log_name] = str(log_entry)
+            logger.info(f"Logged key access: {key_name} - {service} - {action}")
             
         except Exception as e:
             logger.error(f"Failed to log key access: {e}")
     
     async def rotate_encryption_key(self, key_name: str) -> bool:
-        """Rotate encryption key"""
+        """Rotate encryption key (mock implementation for development)"""
         try:
-            import secrets
+            import datetime
             
             # Generate new key
             new_key = secrets.token_hex(32)
             
             # Create new key version
-            new_key_name = f"{key_name}-v{int(akeyless.datetime.now().timestamp())}"
+            new_key_name = f"{key_name}-v{int(datetime.datetime.now().timestamp())}"
             
             success = await self.create_secret(new_key_name, new_key, f"Rotated key for {key_name}")
             

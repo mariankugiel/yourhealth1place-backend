@@ -1,6 +1,5 @@
 from typing import List
 from pydantic_settings import BaseSettings
-from pydantic import validator
 import os
 
 class Settings(BaseSettings):
@@ -14,7 +13,6 @@ class Settings(BaseSettings):
     AWS_SECRET_ACCESS_KEY: str = "your-aws-secret-key"
     AWS_REGION: str = "us-east-1"
     AWS_S3_BUCKET: str = "yourhealth1place-documents"
-    DATABASE_URL: str = "postgresql://health_admin:password@yourhealth1place-dev-health-data.region.rds.amazonaws.com:5432/health_data"
     AWS_ATHENA_DATABASE: str = "yourhealth1place_analytics"
     AWS_ATHENA_WORKGROUP: str = "primary"
     
@@ -45,20 +43,11 @@ class Settings(BaseSettings):
     # Application
     DEBUG: bool = True
     ENVIRONMENT: str = "development"
-    CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:3001"]
     
     # API
     API_V1_STR: str = "/api/v1"
     PROJECT_NAME: str = "YourHealth1Place API"
     VERSION: str = "1.0.0"
-    
-    @validator("CORS_ORIGINS", pre=True)
-    def assemble_cors_origins(cls, v):
-        if isinstance(v, str) and not v.startswith("["):
-            return [i.strip() for i in v.split(",")]
-        elif isinstance(v, (list, str)):
-            return v
-        raise ValueError(v)
     
     class Config:
         env_file = ".env"
