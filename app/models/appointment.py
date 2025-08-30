@@ -1,7 +1,22 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Boolean, JSON, Numeric, Date
+from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Boolean, JSON, Numeric, Date, Enum
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.core.database import Base
+import enum
+
+class AppointmentStatus(enum.Enum):
+    SCHEDULED = "SCHEDULED"
+    CONFIRMED = "CONFIRMED"
+    IN_PROGRESS = "IN_PROGRESS"
+    COMPLETED = "COMPLETED"
+    CANCELLED = "CANCELLED"
+    NO_SHOW = "NO_SHOW"
+
+class AppointmentType(enum.Enum):
+    CONSULTATION = "consultation"
+    FOLLOW_UP = "follow_up"
+    EMERGENCY = "emergency"
+    ROUTINE_CHECKUP = "routine_checkup"
 
 class ManualAppointment(Base):
     __tablename__ = "manual_appointments"
@@ -125,7 +140,7 @@ class Appointment(Base):
     patient = relationship("Patient", backref="appointments")
     professional = relationship("Professional", backref="appointments")
     location = relationship("ProfessionalLocation", back_populates="appointments")
-    health_plan = relationship("HealthPlan", backref="appointments")
+    health_plan = relationship("HealthPlan", back_populates="appointments")
     appointment_type_pricing = relationship("AppointmentTypePricing", backref="appointments")
     manual_appointment = relationship("ManualAppointment", back_populates="appointments")
     reminders = relationship("AppointmentReminder", back_populates="appointment")

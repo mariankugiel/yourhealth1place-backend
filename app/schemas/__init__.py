@@ -29,6 +29,12 @@ from .professional import ProfessionalCreate, ProfessionalUpdate, Professional, 
 from .health_plan import HealthPlanCreate, HealthPlanUpdate, HealthPlan, HealthPlanList
 from .patient_insight import PatientInsightCreate, PatientInsightUpdate, PatientInsight, PatientInsightList
 from .statistics import ProfessionalStatistics, DashboardStatistics
+from .professional_document import (
+    ProfessionalDocumentCreate, ProfessionalDocumentUpdate, ProfessionalDocument, ProfessionalDocumentList,
+    DocumentAssignmentCreate, DocumentAssignmentUpdate, DocumentAssignment, DocumentAssignmentList,
+    CreateDocumentFromTemplate, PatientDataForDocument,
+    AppointmentDocumentSummary, AppointmentWithDocuments
+)
 
 __all__ = [
     "UserCreate", "UserUpdate", "UserResponse", "UserLogin", "Token",
@@ -51,5 +57,10 @@ __all__ = [
     "ProfessionalCreate", "ProfessionalUpdate", "Professional", "ProfessionalList",
     "HealthPlanCreate", "HealthPlanUpdate", "HealthPlan", "HealthPlanList",
     "PatientInsightCreate", "PatientInsightUpdate", "PatientInsight", "PatientInsightList",
-    "ProfessionalStatistics", "DashboardStatistics"
+    "ProfessionalStatistics", "DashboardStatistics",
+    # Professional Document Schemas
+    "ProfessionalDocumentCreate", "ProfessionalDocumentUpdate", "ProfessionalDocument", "ProfessionalDocumentList",
+    "DocumentAssignmentCreate", "DocumentAssignmentUpdate", "DocumentAssignment", "DocumentAssignmentList",
+    "CreateDocumentFromTemplate", "PatientDataForDocument",
+    "AppointmentDocumentSummary", "AppointmentWithDocuments"
 ] 

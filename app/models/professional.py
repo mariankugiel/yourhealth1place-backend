@@ -18,4 +18,5 @@ class Professional(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
     # Relationships
-    user = relationship("User", backref="professional") 
+    user = relationship("User", back_populates="professional")
+    created_health_plans = relationship("HealthPlan", back_populates="doctor") 

@@ -4,34 +4,20 @@ from datetime import datetime
 
 class UserBase(BaseModel):
     email: EmailStr
-    username: str
-    full_name: Optional[str] = None
-    phone: Optional[str] = None
-    date_of_birth: Optional[datetime] = None
-    address: Optional[str] = None
-    emergency_contact: Optional[str] = None
-    emergency_phone: Optional[str] = None
 
 class UserCreate(UserBase):
     password: str
-    role: str = "patient"
+    # Personal data will be stored in Supabase, not in this schema
 
 class UserUpdate(BaseModel):
     email: Optional[EmailStr] = None
-    username: Optional[str] = None
-    full_name: Optional[str] = None
-    phone: Optional[str] = None
-    date_of_birth: Optional[datetime] = None
-    address: Optional[str] = None
-    emergency_contact: Optional[str] = None
-    emergency_phone: Optional[str] = None
     is_active: Optional[bool] = None
+    is_superuser: Optional[bool] = None
 
 class UserResponse(UserBase):
     id: int
     is_active: bool
     is_superuser: bool
-    role: str
     created_at: datetime
     updated_at: Optional[datetime] = None
 
@@ -50,4 +36,37 @@ class Token(BaseModel):
 
 class TokenData(BaseModel):
     email: Optional[str] = None
-    user_id: Optional[int] = None 
+    user_id: Optional[int] = None
+
+# Schema for personal data (stored in Supabase)
+class UserProfile(BaseModel):
+    full_name: Optional[str] = None
+    date_of_birth: Optional[str] = None  # ISO format string
+    phone_number: Optional[str] = None
+    address: Optional[str] = None
+    emergency_contact_name: Optional[str] = None
+    emergency_contact_phone: Optional[str] = None
+    gender: Optional[str] = None
+    blood_type: Optional[str] = None
+    allergies: Optional[str] = None
+    current_medications: Optional[dict] = None
+    emergency_medical_info: Optional[str] = None
+
+# Combined schema for registration
+class UserRegistration(BaseModel):
+    # User authentication data
+    email: EmailStr
+    password: str
+    
+    # Personal profile data
+    full_name: Optional[str] = None
+    date_of_birth: Optional[str] = None  # ISO format string
+    phone_number: Optional[str] = None
+    address: Optional[str] = None
+    emergency_contact_name: Optional[str] = None
+    emergency_contact_phone: Optional[str] = None
+    gender: Optional[str] = None
+    blood_type: Optional[str] = None
+    allergies: Optional[str] = None
+    current_medications: Optional[dict] = None
+    emergency_medical_info: Optional[str] = None 

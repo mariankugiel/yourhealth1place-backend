@@ -1,7 +1,22 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Boolean
+from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Boolean, Enum
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.core.database import Base
+import enum
+
+class MessageType(str, enum.Enum):
+    GENERAL = "GENERAL"
+    TEXT = "TEXT"
+    IMAGE = "IMAGE"
+    FILE = "FILE"
+    AUDIO = "AUDIO"
+    VIDEO = "VIDEO"
+
+class MessageStatus(str, enum.Enum):
+    SENT = "SENT"
+    DELIVERED = "DELIVERED"
+    READ = "READ"
+    FAILED = "FAILED"
 
 class Message(Base):
     __tablename__ = "messages"
@@ -44,9 +59,9 @@ class Message(Base):
     sender = relationship("User", foreign_keys=[sender_id], backref="sent_messages")
     receiver = relationship("User", foreign_keys=[receiver_id], backref="received_messages")
     appointment = relationship("Appointment", backref="messages")
-    health_plan = relationship("HealthPlan", backref="messages")
-    task = relationship("Task", backref="messages")
-    goal = relationship("Goal", backref="messages")
+    health_plan = relationship("HealthPlan", back_populates="messages")
+    task = relationship("Task", back_populates="messages")
+    goal = relationship("Goal", back_populates="messages")
     attachments = relationship("MessageAttachment", back_populates="message")
 
 class MessageAttachment(Base):

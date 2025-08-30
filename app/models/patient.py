@@ -17,4 +17,9 @@ class Patient(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
     # Relationships
-    user = relationship("User", backref="patient") 
+    user = relationship("User", back_populates="patient")
+    health_plan_assignments = relationship("HealthPlanAssignment", back_populates="patient")
+    goal_tracking = relationship("GoalTracking", back_populates="patient")
+    goal_tracking_details = relationship("GoalTrackingDetail", back_populates="patient")
+    task_tracking = relationship("TaskTracking", back_populates="patient")
+    task_tracking_details = relationship("TaskTrackingDetail", back_populates="patient") 

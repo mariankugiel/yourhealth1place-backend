@@ -62,7 +62,7 @@ class PatientInsight(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
     # Relationships
-    patient = relationship("Patient", back_populates="insights")
+    patient = relationship("Patient", backref="insights")
     professional = relationship("Professional")
     related_health_record = relationship("HealthRecord")
     related_appointment = relationship("Appointment")

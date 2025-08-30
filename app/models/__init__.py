@@ -20,10 +20,7 @@ from .professional_documents import (
     ProfessionalDocument,
     ProfessionalDocumentShare,
     ProfessionalDocumentAccessLog,
-    ProfessionalDocumentTemplate,
-    ProfessionalDocumentInstance,
-    ProfessionalDocumentAssignment,
-    ProfessionalDocumentApproval
+    ProfessionalDocumentAssignment
 )
 
 # Messaging System
@@ -127,10 +124,7 @@ __all__ = [
     "ProfessionalDocument",
     "ProfessionalDocumentShare",
     "ProfessionalDocumentAccessLog",
-    "ProfessionalDocumentTemplate",
-    "ProfessionalDocumentInstance",
     "ProfessionalDocumentAssignment",
-    "ProfessionalDocumentApproval",
     
     # Messaging System
     "Message",

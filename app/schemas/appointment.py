@@ -1,14 +1,14 @@
 from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
-from app.models.appointment import AppointmentStatus, AppointmentType
+from app.models.appointment import AppointmentStatus, AppointmentType as AppointmentTypeEnum
 
 class AppointmentBase(BaseModel):
     patient_id: int
     doctor_id: int
     appointment_date: datetime
     duration_minutes: int = 30
-    appointment_type: AppointmentType
+    appointment_type: AppointmentTypeEnum
     reason: Optional[str] = None
     symptoms: Optional[str] = None
     is_urgent: bool = False
@@ -19,7 +19,7 @@ class AppointmentCreate(AppointmentBase):
 class AppointmentUpdate(BaseModel):
     appointment_date: Optional[datetime] = None
     duration_minutes: Optional[int] = None
-    appointment_type: Optional[AppointmentType] = None
+    appointment_type: Optional[AppointmentTypeEnum] = None
     status: Optional[AppointmentStatus] = None
     reason: Optional[str] = None
     symptoms: Optional[str] = None

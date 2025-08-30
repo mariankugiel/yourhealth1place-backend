@@ -69,5 +69,5 @@ class ProfessionalAppointmentSlot(Base):
     # Relationships
     professional = relationship("Professional", backref="appointment_slots")
     location = relationship("ProfessionalLocation", back_populates="appointment_slots")
-    appointment_type = relationship("AppointmentType", backref="slots")
+    appointment_type = relationship("AppointmentType", back_populates="slots")
     appointment = relationship("Appointment", backref="slot") 

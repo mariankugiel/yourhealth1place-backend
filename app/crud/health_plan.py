@@ -2,7 +2,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_, func
 from typing import List, Optional, Dict, Any
 from datetime import datetime
-from app.models.health_plan import HealthPlan, PlanStatus
+from app.models.health_plans import HealthPlan
 from app.schemas.health_plan import HealthPlanCreate, HealthPlanUpdate
 
 class HealthPlanCRUD:

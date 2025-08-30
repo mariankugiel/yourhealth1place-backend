@@ -2,7 +2,7 @@ from typing import List, Dict, Any, Optional
 from difflib import SequenceMatcher
 import re
 from sqlalchemy.orm import Session
-from app.models.health_record import MetricCategories, MetricSubCategories
+# from app.models.health_record import MetricCategories, MetricSubCategories  # These classes don't exist
 from app.core.config import settings
 import logging
 
@@ -38,42 +38,9 @@ class MetricSimilarityService:
         Returns:
             List of similar categories with similarity scores
         """
-        try:
-            # Get existing categories for this health record type
-            query = db.query(MetricCategories).filter(
-                MetricCategories.health_record_type_id == health_record_type_id,
-                MetricCategories.is_active == True
-            )
-            
-            if exclude_user_id:
-                query = query.filter(MetricCategories.created_by != exclude_user_id)
-            
-            existing_categories = query.all()
-            
-            similar_categories = []
-            
-            for category in existing_categories:
-                similarity_score = self._calculate_similarity(new_name, category.name)
-                
-                if similarity_score >= self.similarity_threshold:
-                    similar_categories.append({
-                        "id": category.id,
-                        "name": category.name,
-                        "display_name": category.display_name,
-                        "similarity_score": round(similarity_score, 3),
-                        "is_default": category.is_default,
-                        "created_by": category.created_by,
-                        "match_type": self._get_match_type(similarity_score)
-                    })
-            
-            # Sort by similarity score (highest first)
-            similar_categories.sort(key=lambda x: x["similarity_score"], reverse=True)
-            
-            return similar_categories
-            
-        except Exception as e:
-            logger.error(f"Error checking similar categories: {str(e)}")
-            return []
+        # TODO: Implement when MetricCategories model is available
+        logger.warning("check_similar_categories method not implemented - MetricCategories model not available")
+        return []
     
     def check_similar_sub_categories(
         self, 
@@ -94,42 +61,9 @@ class MetricSimilarityService:
         Returns:
             List of similar sub-categories with similarity scores
         """
-        try:
-            # Get existing sub-categories for this category
-            query = db.query(MetricSubCategories).filter(
-                MetricSubCategories.category_id == category_id,
-                MetricSubCategories.is_active == True
-            )
-            
-            if exclude_user_id:
-                query = query.filter(MetricSubCategories.created_by != exclude_user_id)
-            
-            existing_sub_categories = query.all()
-            
-            similar_sub_categories = []
-            
-            for sub_category in existing_sub_categories:
-                similarity_score = self._calculate_similarity(new_name, sub_category.name)
-                
-                if similarity_score >= self.similarity_threshold:
-                    similar_sub_categories.append({
-                        "id": sub_category.id,
-                        "name": sub_category.name,
-                        "display_name": sub_category.display_name,
-                        "similarity_score": round(similarity_score, 3),
-                        "is_default": sub_category.is_default,
-                        "created_by": sub_category.created_by,
-                        "match_type": self._get_match_type(similarity_score)
-                    })
-            
-            # Sort by similarity score (highest first)
-            similar_sub_categories.sort(key=lambda x: x["similarity_score"], reverse=True)
-            
-            return similar_sub_categories
-            
-        except Exception as e:
-            logger.error(f"Error checking similar sub-categories: {str(e)}")
-            return []
+        # TODO: Implement when MetricSubCategories model is available
+        logger.warning("check_similar_sub_categories method not implemented - MetricSubCategories model not available")
+        return []
     
     def check_global_similarity(
         self, 
@@ -148,71 +82,9 @@ class MetricSimilarityService:
         Returns:
             Dictionary with similar categories and sub-categories
         """
-        try:
-            # Check categories
-            similar_categories = []
-            categories_query = db.query(MetricCategories).filter(
-                MetricCategories.is_active == True
-            )
-            
-            if exclude_user_id:
-                categories_query = categories_query.filter(
-                    MetricCategories.created_by != exclude_user_id
-                )
-            
-            for category in categories_query.all():
-                similarity_score = self._calculate_similarity(new_name, category.name)
-                
-                if similarity_score >= self.similarity_threshold:
-                    similar_categories.append({
-                        "id": category.id,
-                        "name": category.name,
-                        "display_name": category.display_name,
-                        "health_record_type_id": category.health_record_type_id,
-                        "similarity_score": round(similarity_score, 3),
-                        "is_default": category.is_default,
-                        "created_by": category.created_by,
-                        "match_type": self._get_match_type(similarity_score)
-                    })
-            
-            # Check sub-categories
-            similar_sub_categories = []
-            sub_categories_query = db.query(MetricSubCategories).filter(
-                MetricSubCategories.is_active == True
-            )
-            
-            if exclude_user_id:
-                sub_categories_query = sub_categories_query.filter(
-                    MetricSubCategories.created_by != exclude_user_id
-                )
-            
-            for sub_category in sub_categories_query.all():
-                similarity_score = self._calculate_similarity(new_name, sub_category.name)
-                
-                if similarity_score >= self.similarity_threshold:
-                    similar_sub_categories.append({
-                        "id": sub_category.id,
-                        "name": sub_category.name,
-                        "display_name": sub_category.display_name,
-                        "category_id": sub_category.category_id,
-                        "similarity_score": round(similarity_score, 3),
-                        "is_default": sub_category.is_default,
-                        "created_by": sub_category.created_by,
-                        "match_type": self._get_match_type(similarity_score)
-                    })
-            
-            # Sort by similarity score
-            similar_categories.sort(key=lambda x: x["similarity_score"], reverse=True)
-            similar_sub_categories.sort(key=lambda x: x["similarity_score"], reverse=True)
-            
-            return {
-                "similar_categories": similar_categories,
-                "similar_sub_categories": similar_sub_categories
-            }
-            
-        except Exception as e:
-            logger.error(f"Error checking global similarity: {str(e)}")
-            return {"similar_categories": [], "similar_sub_categories": []}
+        # TODO: Implement when MetricCategories and MetricSubCategories models are available
+        logger.warning("check_global_similarity method not implemented - required models not available")
+        return {"similar_categories": [], "similar_sub_categories": []}
     
     def _calculate_similarity(self, name1: str, name2: str) -> float:
         """

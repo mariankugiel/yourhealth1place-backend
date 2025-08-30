@@ -52,7 +52,7 @@ class UserSubscription(Base):
     updated_by = Column(Integer, ForeignKey("users.id"))
     
     # Relationships
-    user = relationship("User", backref="subscriptions")
+    user = relationship("User", foreign_keys=[user_id], backref="subscriptions")
     subscription_plan = relationship("SubscriptionPlan", back_populates="subscriptions")
 
 class PaymentTransaction(Base):
@@ -83,7 +83,7 @@ class PaymentTransaction(Base):
     
     # Metadata
     description = Column(Text)
-    metadata = Column(JSON)  # Additional metadata
+    transaction_metadata = Column(JSON)  # Additional metadata
     
     # Audit fields
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -92,4 +92,4 @@ class PaymentTransaction(Base):
     # Relationships
     appointment = relationship("Appointment", backref="payment_transactions")
     subscription = relationship("UserSubscription", backref="payment_transactions")
-    user = relationship("User", backref="payment_transactions") 
+    user = relationship("User", foreign_keys=[user_id], backref="payment_transactions") 

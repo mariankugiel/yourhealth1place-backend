@@ -33,6 +33,6 @@ class MedicalConditionUpdate(Base):
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)  # Professional who made the update
     
     # Relationships
-    appointment = relationship("Appointment", backref="medical_condition_updates")
+    appointment = relationship("Appointment", backref="condition_updates")
     condition = relationship("MedicalCondition", backref="updates")
     created_by_user = relationship("User", foreign_keys=[created_by]) 

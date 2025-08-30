@@ -65,11 +65,12 @@ class SupabaseService:
             return False
     
     async def store_personal_info(self, user_id: str, personal_info: Dict[str, Any]) -> bool:
-        """Store personal information in Supabase database"""
+        """Store personal information in Supabase user_profiles table"""
         try:
-            response = self.client.table("user_profiles").upsert({
+            # Store in user_profiles table with profile_data field
+            response = self.client.table("user_profiles").insert({
                 "user_id": user_id,
-                **personal_info
+                "profile_data": personal_info
             }).execute()
             return True
         except Exception as e:
@@ -77,37 +78,96 @@ class SupabaseService:
             return False
     
     async def get_personal_info(self, user_id: str) -> Optional[Dict[str, Any]]:
-        """Retrieve personal information from Supabase database"""
+        """Retrieve personal information from Supabase user_profiles table"""
         try:
-            response = self.client.table("user_profiles").select("*").eq("user_id", user_id).execute()
-            if response.data:
-                return response.data[0]
+            response = self.client.table("user_profiles").select("profile_data").eq("user_id", user_id).execute()
+            if response.data and len(response.data) > 0:
+                return response.data[0].get("profile_data", {})
             return None
         except Exception as e:
             logger.error(f"Supabase get personal info error: {e}")
             return None
     
     async def store_user_settings(self, user_id: str, settings: Dict[str, Any]) -> bool:
-        """Store lightweight user settings in Supabase database"""
+        """Store lightweight user settings in Supabase user metadata"""
         try:
-            response = self.client.table("user_settings").upsert({
-                "user_id": user_id,
-                **settings
-            }).execute()
+            # Get existing metadata first
+            user_response = self.client.auth.admin.get_user_by_id(user_id)
+            existing_metadata = user_response.user_metadata if user_response else {}
+            
+            # Merge with new settings
+            updated_metadata = {**existing_metadata, "settings": settings}
+            
+            response = self.client.auth.admin.update_user_by_id(
+                user_id,
+                {"user_metadata": updated_metadata}
+            )
             return True
         except Exception as e:
             logger.error(f"Supabase store user settings error: {e}")
             return False
     
     async def get_user_settings(self, user_id: str) -> Optional[Dict[str, Any]]:
-        """Retrieve user settings from Supabase database"""
+        """Retrieve user settings from Supabase user metadata"""
         try:
-            response = self.client.table("user_settings").select("*").eq("user_id", user_id).execute()
-            if response.data:
-                return response.data[0]
+            user_response = self.client.auth.admin.get_user_by_id(user_id)
+            if user_response and user_response.user_metadata and "settings" in user_response.user_metadata:
+                return user_response.user_metadata["settings"]
             return None
         except Exception as e:
             logger.error(f"Supabase get user settings error: {e}")
+            return None
+    
+    async def store_user_profile(self, user_id: str, profile: Dict[str, Any]) -> bool:
+        """Store user profile in Supabase database"""
+        try:
+            # Store in user_profiles table with minimal structure
+            # The table has only id and created_at, so we'll store profile data as JSON
+            response = self.client.table("user_profiles").insert({
+                "user_id": user_id,
+                "profile_data": profile  # Store all profile data as JSON
+            }).execute()
+            return True
+        except Exception as e:
+            logger.error(f"Supabase store user profile error: {e}")
+            return False
+    
+    async def get_user_profile(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve user profile from Supabase database"""
+        try:
+            response = self.client.table("user_profiles").select("profile_data").eq("user_id", user_id).execute()
+            if response.data and len(response.data) > 0:
+                profile_data = response.data[0].get("profile_data", {})
+                return profile_data if profile_data else {}
+            return {}  # Return empty dict instead of None
+        except Exception as e:
+            logger.error(f"Supabase get user profile error: {e}")
+            return {}  # Return empty dict instead of None
+    
+    async def update_user_profile(self, user_id: str, profile: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Update user profile in Supabase database"""
+        try:
+            # First check if profile exists
+            existing_response = self.client.table("user_profiles").select("id").eq("user_id", user_id).execute()
+            
+            if existing_response.data and len(existing_response.data) > 0:
+                # Update existing profile
+                response = self.client.table("user_profiles").update({
+                    "profile_data": profile
+                }).eq("user_id", user_id).execute()
+            else:
+                # Create new profile
+                response = self.client.table("user_profiles").insert({
+                    "user_id": user_id,
+                    "profile_data": profile
+                }).execute()
+            
+            # Return the updated profile data
+            if response.data and len(response.data) > 0:
+                return response.data[0].get("profile_data", profile)
+            return profile
+        except Exception as e:
+            logger.error(f"Supabase update user profile error: {e}")
             return None
 
 # Global instance

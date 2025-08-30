@@ -20,12 +20,14 @@ class HealthPlan(Base):
     updated_by = Column(Integer, ForeignKey("users.id"))
     
     # Relationships
-    doctor = relationship("Professional", backref="created_health_plans")
+    doctor = relationship("Professional", back_populates="created_health_plans")
     assignments = relationship("HealthPlanAssignment", back_populates="health_plan")
     goals = relationship("Goal", back_populates="health_plan")
     recommendations = relationship("HealthPlanRecommendation", back_populates="health_plan")
     appointments = relationship("Appointment", back_populates="health_plan")
     messages = relationship("Message", back_populates="health_plan")
+    tasks = relationship("Task", back_populates="health_plan")
+    plan_progress = relationship("HealthPlanProgress", back_populates="health_plan")
 
 class HealthPlanAssignment(Base):
     __tablename__ = "health_plan_assignments"
@@ -44,7 +46,7 @@ class HealthPlanAssignment(Base):
     
     # Relationships
     health_plan = relationship("HealthPlan", back_populates="assignments")
-    patient = relationship("Patient", backref="health_plan_assignments")
+    patient = relationship("Patient", back_populates="health_plan_assignments")
     assigned_by_professional = relationship("Professional", foreign_keys=[assigned_by])
 
 class Goal(Base):
@@ -75,8 +77,9 @@ class Goal(Base):
     
     # Relationships
     health_plan = relationship("HealthPlan", back_populates="goals")
-    metric = relationship("HealthRecordMetric", backref="goals")
+    metric = relationship("HealthRecordMetric", back_populates="goals")
     tracking = relationship("GoalTracking", back_populates="goal")
+    tracking_details = relationship("GoalTrackingDetail", back_populates="goal")
     tasks = relationship("Task", back_populates="goal")
     messages = relationship("Message", back_populates="goal")
 
@@ -97,7 +100,7 @@ class GoalTracking(Base):
     
     # Relationships
     goal = relationship("Goal", back_populates="tracking")
-    patient = relationship("Patient", backref="goal_tracking")
+    patient = relationship("Patient", back_populates="goal_tracking")
     details = relationship("GoalTrackingDetail", back_populates="goal_tracking")
 
 class GoalTrackingDetail(Base):
@@ -116,9 +119,9 @@ class GoalTrackingDetail(Base):
     
     # Relationships
     goal_tracking = relationship("GoalTracking", back_populates="details")
-    goal = relationship("Goal", backref="tracking_details")
-    patient = relationship("Patient", backref="goal_tracking_details")
-    health_record = relationship("HealthRecord", backref="goal_tracking_details")
+    goal = relationship("Goal", back_populates="tracking_details")
+    patient = relationship("Patient", back_populates="goal_tracking_details")
+    health_record = relationship("HealthRecord", back_populates="goal_tracking_details")
 
 class Task(Base):
     __tablename__ = "tasks"
@@ -147,8 +150,9 @@ class Task(Base):
     
     # Relationships
     goal = relationship("Goal", back_populates="tasks")
-    health_plan = relationship("HealthPlan", backref="tasks")
+    health_plan = relationship("HealthPlan", back_populates="tasks")
     tracking = relationship("TaskTracking", back_populates="task")
+    tracking_details = relationship("TaskTrackingDetail", back_populates="task")
     messages = relationship("Message", back_populates="task")
 
 class TaskTracking(Base):
@@ -167,8 +171,8 @@ class TaskTracking(Base):
     updated_by = Column(Integer, ForeignKey("users.id"))
     
     # Relationships
-    task = relationship("TaskTracking", back_populates="tracking")
-    patient = relationship("Patient", backref="task_tracking")
+    task = relationship("Task", back_populates="tracking")
+    patient = relationship("Patient", back_populates="task_tracking")
     details = relationship("TaskTrackingDetail", back_populates="task_tracking")
 
 class TaskTrackingDetail(Base):
@@ -188,9 +192,9 @@ class TaskTrackingDetail(Base):
     
     # Relationships
     task_tracking = relationship("TaskTracking", back_populates="details")
-    task = relationship("Task", backref="tracking_details")
-    patient = relationship("Patient", backref="task_tracking_details")
-    health_record = relationship("HealthRecord", backref="task_tracking_details")
+    task = relationship("Task", back_populates="tracking_details")
+    patient = relationship("Patient", back_populates="task_tracking_details")
+    health_record = relationship("HealthRecord", back_populates="task_tracking_details")
 
 class HealthPlanRecommendation(Base):
     __tablename__ = "health_plan_recommendations"

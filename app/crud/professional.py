@@ -3,7 +3,7 @@ from sqlalchemy import and_, or_, func
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
 from app.models.professional import Professional
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.schemas.professional import ProfessionalCreate, ProfessionalUpdate
 
 class ProfessionalCRUD:

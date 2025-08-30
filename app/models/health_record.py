@@ -175,6 +175,7 @@ class HealthRecordSection(Base):
     # Relationships
     health_record_type = relationship("HealthRecordType", back_populates="sections")
     metrics = relationship("HealthRecordMetric", back_populates="section")
+    health_records = relationship("HealthRecord", back_populates="section")
 
 class HealthRecordMetric(Base):
     __tablename__ = "health_record_metrics"
@@ -196,6 +197,7 @@ class HealthRecordMetric(Base):
     # Relationships
     section = relationship("HealthRecordSection", back_populates="metrics")
     health_records = relationship("HealthRecord", back_populates="metric")
+    goals = relationship("Goal", back_populates="metric")
 
 class HealthRecord(Base):
     __tablename__ = "health_records"
@@ -220,10 +222,12 @@ class HealthRecord(Base):
     updated_by = Column(Integer, ForeignKey("users.id"))
     
     # Relationships
-    user = relationship("User", foreign_keys=[created_by], backref="health_records")
-    section = relationship("HealthRecordSection", backref="health_records")
+    user = relationship("User", foreign_keys=[created_by], back_populates="health_records")
+    section = relationship("HealthRecordSection", back_populates="health_records")
     metric = relationship("HealthRecordMetric", back_populates="health_records")
-    device = relationship("IOSDevice", backref="health_records")
+    device = relationship("IOSDevice", back_populates="health_records")
+    goal_tracking_details = relationship("GoalTrackingDetail", back_populates="health_record")
+    task_tracking_details = relationship("TaskTrackingDetail", back_populates="health_record")
 
 class MedicalDocument(Base):
     __tablename__ = "medical_documents"
@@ -334,9 +338,10 @@ class IOSDevice(Base):
     updated_by = Column(Integer, ForeignKey("users.id"))
     
     # Relationships
-    user = relationship("User", foreign_keys=[user_id], backref="ios_devices")
+    user = relationship("User", foreign_keys=[user_id], back_populates="ios_devices")
     health_data_permissions = relationship("HealthDataPermission", back_populates="device")
     sync_logs = relationship("IOSSyncLog", back_populates="device")
+    health_records = relationship("HealthRecord", back_populates="device")
 
 class HealthDataPermission(Base):
     __tablename__ = "health_data_permissions"
