@@ -107,10 +107,13 @@ class ConditionSource(str, enum.Enum):
 class FamilyRelation(str, enum.Enum):
     FATHER = "Father"
     MOTHER = "Mother"
-    SIBLING = "Sibling"
-    GRANDPARENT = "Grandparent"
+    BROTHER = "Brother"
+    SISTER = "Sister"
     CHILD = "Child"
-    SPOUSE = "Spouse"
+    MATERNAL_GRANDFATHER = "Maternal Grandfather"
+    MATERNAL_GRANDMOTHER = "Maternal Grandmother"
+    PATERNAL_GRANDFATHER = "Paternal Grandfather"
+    PATERNAL_GRANDMOTHER = "Paternal Grandmother"
 
 class FamilyHistorySource(str, enum.Enum):
     FAMILY_MEMBER = "Family Member"
@@ -137,6 +140,23 @@ class AnalysisSource(str, enum.Enum):
     MANUAL = "Manual"
     AI_ANALYSIS = "AI Analysis"
     DOCTOR_REVIEW = "Doctor Review"
+
+# ============================================================================
+# IMAGE-RELATED ENUMS
+# ============================================================================
+
+class ImageType(str, enum.Enum):
+    X_RAY = "X-Ray"
+    ULTRASOUND = "Ultrasound"
+    MRI = "MRI"
+    CT_SCAN = "CT Scan"
+    ECG = "ECG"
+    OTHERS = "Others"
+
+class ImageFindings(str, enum.Enum):
+    NO_FINDINGS = "No Findings"
+    LOW_RISK_FINDINGS = "Low Risk Findings"
+    RELEVANT_FINDINGS = "Relevant Findings"
 
 # ============================================================================
 # HEALTH RECORD MODELS
@@ -166,6 +186,7 @@ class HealthRecordSection(Base):
     display_name = Column(String(100), nullable=False)
     description = Column(Text)
     health_record_type_id = Column(Integer, ForeignKey("health_record_type.id"), nullable=False)
+    section_template_id = Column(Integer, ForeignKey("health_record_sections_tmp.id"), nullable=True)  # Link to template section
     is_default = Column(Boolean, default=True)  # true = admin, false = user custom
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)  # Admin user for predefined, regular user for custom
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -174,6 +195,7 @@ class HealthRecordSection(Base):
     
     # Relationships
     health_record_type = relationship("HealthRecordType", back_populates="sections")
+    section_template = relationship("HealthRecordSectionTemplate", foreign_keys=[section_template_id])
     metrics = relationship("HealthRecordMetric", back_populates="section")
     health_records = relationship("HealthRecord", back_populates="section")
 
@@ -186,7 +208,7 @@ class HealthRecordMetric(Base):
     display_name = Column(String(100), nullable=False)
     description = Column(Text)
     default_unit = Column(String(20))
-    threshold = Column(JSON)  # Reference ranges
+    reference_data = Column(JSON)  # Reference ranges
     data_type = Column(String(50), nullable=False)  # "number", "json", "text", "boolean"
     is_default = Column(Boolean, default=True)  # true = admin, false = user custom
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -293,6 +315,50 @@ class FamilyMedicalHistory(Base):
     
     # Relationships
     user = relationship("User", foreign_keys=[created_by], backref="family_medical_history")
+
+# ============================================================================
+# HEALTH RECORD IMAGE MODEL
+# ============================================================================
+
+class HealthRecordImage(Base):
+    __tablename__ = "health_record_images"
+    
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)  # User who owns and uploaded this image
+    
+    # Image Classification
+    image_type = Column(Enum(ImageType), nullable=False)  # X-Ray, Ultrasound, MRI, CT Scan, Others
+    body_part = Column(String(100), nullable=False)  # Chest, Left Knee, Brain, etc.
+    image_date = Column(DateTime, nullable=False)  # When the image was taken/created
+    
+    # Medical Analysis
+    findings = Column(Enum(ImageFindings), nullable=False)  # No Findings, Low Risk Findings, Relevant Findings
+    conclusions = Column(Text)  # Text input for conclusions/notes
+    interpretation = Column(Text)  # Medical interpretation of the image
+    
+    # Doctor Information
+    doctor_name = Column(String(200))  # Name of the doctor who analyzed the image
+    doctor_number = Column(String(50))  # Doctor's license/ID number
+    
+    # File Information
+    original_filename = Column(String(255), nullable=False)  # Original uploaded filename
+    file_size_bytes = Column(Integer)  # File size in bytes
+    content_type = Column(String(100))  # MIME type (image/jpeg, image/png, etc.)
+    
+    # Storage Information
+    s3_bucket = Column(String(100))  # S3 bucket name
+    s3_key = Column(String(500))  # S3 object key
+    s3_url = Column(Text)  # Public or presigned URL
+    file_id = Column(String(100))  # Internal file identifier
+    
+    
+    # Audit fields
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    updated_by = Column(Integer, ForeignKey("users.id"))
+    
+    # Relationships
+    user = relationship("User", foreign_keys=[created_by], backref="health_record_images")
 
 # ============================================================================
 # iOS INTEGRATION MODELS
@@ -412,4 +478,6 @@ class IOSSyncLog(Base):
     
     # Relationships
     user = relationship("User", foreign_keys=[user_id], backref="ios_sync_logs")
-    device = relationship("IOSDevice", back_populates="sync_logs") 
+    device = relationship("IOSDevice", back_populates="sync_logs")
+
+# Note: Temporary tables are defined in health_metrics.py as HealthRecordSectionTemplate and HealthRecordMetricTemplate 

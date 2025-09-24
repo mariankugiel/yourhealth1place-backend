@@ -51,6 +51,13 @@ class UserProfile(BaseModel):
     allergies: Optional[str] = None
     current_medications: Optional[dict] = None
     emergency_medical_info: Optional[str] = None
+    
+    # Onboarding-related fields
+    onboarding_completed: Optional[bool] = None
+    onboarding_skipped: Optional[bool] = None
+    onboarding_skipped_at: Optional[str] = None  # ISO format string
+    onboarding_completed_at: Optional[str] = None  # ISO format string
+    is_new_user: Optional[bool] = None
 
 # Combined schema for registration
 class UserRegistration(BaseModel):

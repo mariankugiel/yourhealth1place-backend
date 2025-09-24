@@ -73,6 +73,68 @@ class AWSService:
             logger.error(f"Failed to store document: {e}")
             raise
     
+    def generate_presigned_url(self, s3_url: str, expiration: int = 3600) -> str:
+        """Generate a presigned URL for downloading a document from S3"""
+        try:
+            # Parse S3 URL to extract bucket and key
+            # Format: s3://bucket-name/key/path
+            if not s3_url.startswith('s3://'):
+                raise ValueError(f"Invalid S3 URL format: {s3_url}")
+            
+            # Remove s3:// prefix and split bucket and key
+            s3_path = s3_url[5:]  # Remove 's3://'
+            bucket_key = s3_path.split('/', 1)
+            
+            if len(bucket_key) != 2:
+                raise ValueError(f"Invalid S3 URL format: {s3_url}")
+            
+            bucket_name, key = bucket_key
+            
+            # Generate presigned URL with download headers
+            presigned_url = self.s3_client.generate_presigned_url(
+                'get_object',
+                Params={
+                    'Bucket': bucket_name, 
+                    'Key': key,
+                    'ResponseContentDisposition': 'attachment'  # Force download instead of opening in browser
+                },
+                ExpiresIn=expiration
+            )
+            
+            logger.info(f"Generated presigned URL for {s3_url}")
+            return presigned_url
+            
+        except Exception as e:
+            logger.error(f"Failed to generate presigned URL for {s3_url}: {e}")
+            raise
+    
+    def delete_document(self, s3_url: str) -> bool:
+        """Delete a document from S3"""
+        try:
+            # Parse S3 URL to extract bucket and key
+            if not s3_url.startswith('s3://'):
+                logger.error(f"Invalid S3 URL format: {s3_url}")
+                return False
+            
+            # Remove s3:// prefix and split bucket and key
+            s3_path = s3_url[5:]  # Remove 's3://'
+            bucket_key = s3_path.split('/', 1)
+            
+            if len(bucket_key) != 2:
+                logger.error(f"Invalid S3 URL format: {s3_url}")
+                return False
+            
+            bucket_name, key = bucket_key
+            
+            # Delete the object from S3
+            self.s3_client.delete_object(Bucket=bucket_name, Key=key)
+            logger.info(f"Successfully deleted document from S3: {s3_url}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to delete document from S3 {s3_url}: {e}")
+            return False
+    
     async def retrieve_document(self, internal_user_id: str, file_id: str) -> Optional[Dict[str, Any]]:
         """Retrieve user uploaded document from encrypted S3"""
         try:

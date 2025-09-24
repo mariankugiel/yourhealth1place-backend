@@ -7,10 +7,8 @@ import enum
 class MessageType(str, enum.Enum):
     GENERAL = "GENERAL"
     TEXT = "TEXT"
-    IMAGE = "IMAGE"
-    FILE = "FILE"
-    AUDIO = "AUDIO"
-    VIDEO = "VIDEO"
+    # File types are now handled by Document system
+    # IMAGE, FILE, AUDIO, VIDEO removed - use Document.category instead
 
 class MessageStatus(str, enum.Enum):
     SENT = "SENT"
@@ -30,10 +28,6 @@ class Message(Base):
     # Message Details
     message_type = Column(String(20), nullable=False, default="TEXT")  # "TEXT", "IMAGE", "FILE", "AUDIO", "VIDEO"
     content = Column(Text, nullable=False)  # Message content or file description
-    file_url = Column(Text)  # URL to file if message_type is not TEXT
-    file_name = Column(String(255))  # Original file name
-    file_size = Column(Integer)  # File size in bytes
-    file_type = Column(String(50))  # MIME type
     
     # Message Category
     category = Column(String(50), nullable=False, default="GENERAL")  # "GENERAL", "APPOINTMENT", "MEDICATION_REMINDER", "HEALTH_PLAN", "SYSTEM_NOTIFICATION", "EMERGENCY"
@@ -62,19 +56,19 @@ class Message(Base):
     health_plan = relationship("HealthPlan", back_populates="messages")
     task = relationship("Task", back_populates="messages")
     goal = relationship("Goal", back_populates="messages")
-    attachments = relationship("MessageAttachment", back_populates="message")
+    documents = relationship("Document", back_populates="message")
+    
+    # Helper methods for document management
+    def has_attachments(self) -> bool:
+        """Check if message has any document attachments"""
+        return len(self.documents) > 0
+    
+    def get_attachments(self):
+        """Get all document attachments for this message"""
+        return [doc for doc in self.documents if doc.is_message_attachment]
+    
+    def get_attachment_count(self) -> int:
+        """Get count of document attachments"""
+        return len(self.get_attachments())
 
-class MessageAttachment(Base):
-    __tablename__ = "message_attachments"
-    
-    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    message_id = Column(Integer, ForeignKey("messages.id"), nullable=False)
-    file_name = Column(String(255), nullable=False)
-    file_type = Column(String(50), nullable=False)
-    file_size = Column(Integer)  # Size in bytes
-    s3_url = Column(Text)
-    description = Column(Text)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    
-    # Relationships
-    message = relationship("Message", back_populates="attachments") 
+ 

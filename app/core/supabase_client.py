@@ -16,6 +16,21 @@ class SupabaseService:
             settings.SUPABASE_ANON_KEY
         )
     
+    def _get_user_client(self, user_token: str) -> Client:
+        """Create a Supabase client with user's JWT token for RLS enforcement"""
+        from supabase import create_client
+        
+        # Create client with user token
+        client = create_client(
+            settings.SUPABASE_URL,
+            settings.SUPABASE_ANON_KEY
+        )
+        
+        # Set the authorization header manually
+        client.postgrest.auth(user_token)
+        
+        return client
+    
     async def sign_up(self, email: str, password: str, user_metadata: Dict[str, Any]) -> Dict[str, Any]:
         """Register a new user with Supabase Auth"""
         try:
@@ -50,6 +65,24 @@ class SupabaseService:
             return response
         except Exception as e:
             logger.error(f"Supabase get user error: {e}")
+            return None
+    
+    def get_user_from_token(self, token: str) -> Optional[Dict[str, Any]]:
+        """Get user information from JWT token"""
+        try:
+            # Use the admin client to verify the token
+            # This bypasses the need for refresh tokens
+            user = self.client.auth.get_user(token)
+            
+            if user and user.user:
+                return {
+                    "id": user.user.id,
+                    "email": user.user.email,
+                    "user_metadata": user.user.user_metadata
+                }
+            return None
+        except Exception as e:
+            logger.error(f"Supabase get user from token error: {e}")
             return None
     
     async def update_user_metadata(self, user_id: str, metadata: Dict[str, Any]) -> bool:
@@ -118,53 +151,71 @@ class SupabaseService:
             logger.error(f"Supabase get user settings error: {e}")
             return None
     
-    async def store_user_profile(self, user_id: str, profile: Dict[str, Any]) -> bool:
+    async def store_user_profile(self, user_id: str, profile: Dict[str, Any], user_token: Optional[str] = None) -> bool:
         """Store user profile in Supabase database"""
         try:
-            # Store in user_profiles table with minimal structure
-            # The table has only id and created_at, so we'll store profile data as JSON
-            response = self.client.table("user_profiles").insert({
+            # Use user token if provided, otherwise use service role
+            client = self._get_user_client(user_token) if user_token else self.client
+            
+            # Store in user_profiles table with individual columns
+            response = client.table("user_profiles").insert({
                 "user_id": user_id,
-                "profile_data": profile  # Store all profile data as JSON
+                **profile  # Store each field as individual column
             }).execute()
             return True
         except Exception as e:
             logger.error(f"Supabase store user profile error: {e}")
             return False
     
-    async def get_user_profile(self, user_id: str) -> Optional[Dict[str, Any]]:
+    async def get_user_profile(self, user_id: str, user_token: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Retrieve user profile from Supabase database"""
         try:
-            response = self.client.table("user_profiles").select("profile_data").eq("user_id", user_id).execute()
+            # Use user token if provided, otherwise use service role
+            client = self._get_user_client(user_token) if user_token else self.client
+            
+            # Select all columns except user_id and system columns
+            response = client.table("user_profiles").select("*").eq("user_id", user_id).execute()
             if response.data and len(response.data) > 0:
-                profile_data = response.data[0].get("profile_data", {})
+                profile_data = response.data[0]
+                # Remove system columns and user_id
+                profile_data.pop("id", None)
+                profile_data.pop("user_id", None)
+                profile_data.pop("created_at", None)
+                profile_data.pop("updated_at", None)
                 return profile_data if profile_data else {}
             return {}  # Return empty dict instead of None
         except Exception as e:
             logger.error(f"Supabase get user profile error: {e}")
             return {}  # Return empty dict instead of None
     
-    async def update_user_profile(self, user_id: str, profile: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    async def update_user_profile(self, user_id: str, profile: Dict[str, Any], user_token: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Update user profile in Supabase database"""
         try:
+            # Use user token if provided, otherwise use service role
+            client = self._get_user_client(user_token) if user_token else self.client
+            
             # First check if profile exists
-            existing_response = self.client.table("user_profiles").select("id").eq("user_id", user_id).execute()
+            existing_response = client.table("user_profiles").select("id").eq("user_id", user_id).execute()
             
             if existing_response.data and len(existing_response.data) > 0:
-                # Update existing profile
-                response = self.client.table("user_profiles").update({
-                    "profile_data": profile
-                }).eq("user_id", user_id).execute()
+                # Update existing profile with individual columns
+                response = client.table("user_profiles").update(profile).eq("user_id", user_id).execute()
             else:
-                # Create new profile
-                response = self.client.table("user_profiles").insert({
+                # Create new profile with individual columns
+                response = client.table("user_profiles").insert({
                     "user_id": user_id,
-                    "profile_data": profile
+                    **profile
                 }).execute()
             
             # Return the updated profile data
             if response.data and len(response.data) > 0:
-                return response.data[0].get("profile_data", profile)
+                profile_data = response.data[0]
+                # Remove system columns and user_id
+                profile_data.pop("id", None)
+                profile_data.pop("user_id", None)
+                profile_data.pop("created_at", None)
+                profile_data.pop("updated_at", None)
+                return profile_data
             return profile
         except Exception as e:
             logger.error(f"Supabase update user profile error: {e}")

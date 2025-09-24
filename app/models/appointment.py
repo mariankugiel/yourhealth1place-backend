@@ -144,8 +144,22 @@ class Appointment(Base):
     appointment_type_pricing = relationship("AppointmentTypePricing", backref="appointments")
     manual_appointment = relationship("ManualAppointment", back_populates="appointments")
     reminders = relationship("AppointmentReminder", back_populates="appointment")
-    attachments = relationship("AppointmentAttachment", back_populates="appointment")
+    documents = relationship("Document", back_populates="appointment")
     document_assignments = relationship("ProfessionalDocumentAssignment", back_populates="appointment")
+    document_shares = relationship("DocumentShare", back_populates="appointment")
+    
+    # Helper methods for document management
+    def has_documents(self) -> bool:
+        """Check if appointment has any documents"""
+        return len(self.documents) > 0
+    
+    def get_documents(self):
+        """Get all documents for this appointment"""
+        return [doc for doc in self.documents if doc.is_appointment_document]
+    
+    def get_document_count(self) -> int:
+        """Get count of appointment documents"""
+        return len(self.get_documents())
 
 class AppointmentReminder(Base):
     __tablename__ = "appointment_reminders"
@@ -162,18 +176,4 @@ class AppointmentReminder(Base):
     # Relationships
     appointment = relationship("Appointment", back_populates="reminders")
 
-class AppointmentAttachment(Base):
-    __tablename__ = "appointment_attachments"
-    
-    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    appointment_id = Column(Integer, ForeignKey("appointments.id"), nullable=False)
-    file_name = Column(String(255), nullable=False)
-    file_type = Column(String(50), nullable=False)
-    file_size = Column(Integer)  # Size in bytes
-    s3_url = Column(Text)
-    uploaded_by = Column(Integer, ForeignKey("users.id"), nullable=False)
-    description = Column(Text)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    
-    # Relationships
-    appointment = relationship("Appointment", back_populates="attachments") 
+ 

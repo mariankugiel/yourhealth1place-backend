@@ -1,0 +1,964 @@
+import re
+import json
+import logging
+import unicodedata
+from typing import List, Dict, Optional, Any, Tuple, Iterable
+from datetime import datetime
+from pathlib import Path
+from sqlalchemy.orm import Session
+
+from app.crud.health_record import health_record_crud, medical_document_crud, health_record_section_template_crud, health_record_metric_template_crud, health_record_section_crud, health_record_metric_crud
+from app.models.health_record import (
+    HealthRecord, MedicalDocument, HealthRecordSection, 
+    HealthRecordMetric, DocumentType
+)
+from app.schemas.health_record import HealthRecordCreate, MedicalDocumentCreate, HealthRecordSectionCreate, HealthRecordMetricCreate
+
+logger = logging.getLogger(__name__)
+
+class LabDocumentAnalysisService:
+    """Advanced service for analyzing lab report documents with multilingual support"""
+    
+    def __init__(self):
+        self._init_patterns()
+    
+    def _init_patterns(self):
+        """Initialize comprehensive regex patterns for lab report extraction"""
+        
+        # Superscript characters for unit normalization
+        self.SUPERS = "⁰¹²³⁴⁵⁶⁷⁸⁹"
+        
+        # Comprehensive unit patterns
+        self.UNIT_ABS = (
+            r"(?:"
+            r"x\s*10(?:\^?\s*\d+|[" + self.SUPERS + r"]+)(?:/L)?|"
+            r"g/dL|mg/dL|mmol/L|µmol/L|μmol/L|UI/L|U/L|fL|pg|/µL|/uL|/L|seg\.|ng/mL|nmol/L"
+            r")"
+        )
+        self.UNIT_ANY = rf"(?:{self.UNIT_ABS}|%)"
+        
+        # Date patterns
+        self.MULTI_DATE_RE = re.compile(
+            r"\b(?:(?P<d1>\d{2})[./-](?P<m1>\d{2})[./-](?P<y1>\d{2,4})|(?P<y2>\d{4})[./-](?P<m2>\d{2})[./-](?P<d2>\d{2}))\b"
+        )
+        
+        # Comprehensive text value patterns for urine analysis (multilingual)
+        self.TEXT_VALUE_PATTERNS = [
+            # PT/ES/IT/RO
+            r"Não\s+revelou(?:\s*\([^)]+\))?", r"Nao\s+revelou(?:\s*\([^)]+\))?",
+            r"No\s+revel[oó]", r"No\s+detectado", r"No\s+se\s+detect[oó]", r"Ausente",
+            r"Presente", r"Presencia", r"Presenza", r"Prezent",
+            r"Raros(?:\s*\([^)]+\))?", r"Escasos", r"Pocos", r"Occasionali?",
+            r"Vest[ií]gios", r"Vestigios", r"Tracce", r"Urme",
+            r"Límpid[ao]", r"Limpid[eo]", r"Claro", r"Clara", r"Chiaro",
+            r"Amarela(?:\s+clara)?", r"Amarill[oa]", r"Giallo", r"Galben[ăa]?",
+            r"Negativo", r"Positivo",
+            # EN/FR/DE/NL/DK/SE/NO/PL
+            r"Not\s+detected", r"None\s+detected", r"Absent", r"Present",
+            r"Rare", r"Few", r"Occasional",
+            r"Trace(?:s)?", r"Traces?", r"Spur(?:e|en)?", r"Spor", r"Spår", r"Ślad(?:y)?",
+            r"Clear", r"Limpid", r"Clair", r"Klar", r"Helder", r"Bistr[ăa]?",
+            r"Yellow", r"Jaune", r"Gelb", r"Geel", r"Gul", r"Żółty",
+            r"Negativ(?:e|o|t)?", r"Positiv(?:e|o|t)?",
+            # EL / HR / SR / BG / TR
+            r"Αρνητικ[όή]", r"Θετικ[όή]", r"Ίχνη", r"Διαυγές", r"Κίτρινο",
+            r"Negativno", r"Pozitivno", r"Tragovi", r"Bistro", r"Žuto",
+            r"Негативно", r"Позитивно", r"Трагови", r"Бистро", r"Жълт[о]?",
+            r"Negatif", r"Pozitif", r"İz", r"Berrak", r"Sarı",
+            # with /campo / field / HPF
+            r"(?:Raros|Rare|Few|Occasional).*?\(\s*<?\s*\d+\s*/\s*(?:campo|field|HPF)\s*\)",
+        ]
+        self.TEXT_VALUE_RE = re.compile("|".join(self.TEXT_VALUE_PATTERNS), re.IGNORECASE)
+        
+        # Historical value pattern (numeric OR qualitative text)
+        self.HIST_VALUE_RE = re.compile(
+            r"(?:"
+            + self.TEXT_VALUE_RE.pattern +
+            r"|(?:[<>]=?\s*)?[\d.,]+(?:\s*/\s*(?:campo|field|HPF))?"
+            r")",
+            re.IGNORECASE
+        )
+        
+        # Comprehensive meta/header patterns (multilingual)
+        self.META_NAME_RE = re.compile(
+            r"^(?:"
+            # Hospital / Clinic / Lab
+            r"hospital|clin(?:ic|iqu)e|cl[ií]nica|krankenhaus|klin(?:ik|ika)|"
+            r"lab(?:or(?:atorio|atoire|oratorium)|or)|laborat[óo]rio|laboratuvar|"
+            # Phone / Web
+            r"tel(?:ephone|efo[oó]n|[eé]fono|efon|efonnummer)?|tlf\.?|telefon|téléphone|"
+            r"www\.|http|https|e-?mail|correo|mail|email|"
+            # Page
+            r"p[áa]g\.?|page\b|seite|pagina|pagin[ăa]?|strona|stranica|sida|side|σελίδα|страница|sayfa|"
+            r"pag\.|p[oó]lg\.?"
+            r"|"
+            # Date words
+            r"data\b|fecha\b|date\b|datum\b|dato\b|ημερομηνία|дата|tarih\b"
+            r"|"
+            # Method / Methodology
+            r"m[ée]t(?:odo|\.?)|met(?:hod|hode|odo|ode)?\b|méthode|methode|metode|"
+            # Admin / identity
+            r"impress|imprimi|druk|drucken|drukker|drukă|drukăre|drukati|print|"
+            r"epis[óo]dio|episode|episod|akten|dossier|processo|proc[eé]s|"
+            r"utente|pacient|patient|paciente|paziente|"
+            r"n[º°#]\b|num(?:ero)?\b|refer[ée]ncia|ref\.:?|adres[se]?|end[eé]re[cç]o|morada|adresse|indirizzo|adres|adresa|adrese|adresi|adresă|адрес|"
+            r"nif|nie|cif|dni|pesel|oib|egn|tc\s*kimlik|kimlik|"
+            # Section/title-like
+            r"ionogram(?:me|a|m)?|ionograma|hemograma|hemogramme|hemogramma|"
+            r"urina\s*ii.*exame\s+sum[áa]rio"
+            r"|"
+            # Explicit prefixes to drop
+            r"exma|exmo|hfe|phu\b"
+            r")",
+            re.IGNORECASE
+        )
+        
+        # Date labels (multilingual)
+        self.DATE_LABELS = [
+            # Portuguese
+            r"data\s+colheita", r"data\s+da\s+colheita", r"data\s+do\s+relat[oó]rio", r"data\s+do\s+resultado",
+            # Spanish
+            r"fecha\s+de\s+extracci[oó]n", r"fecha\s+de\s+toma\s+de\s+muestra", r"fecha\s+del?\s+informe", r"fecha\s+del?\s+resultado",
+            # English
+            r"(collection|sample\s+collection|specimen\s+collection)\s+date", r"report\s+date", r"result\s+date",
+            # French
+            r"date\s+de\s+pr[ée]l[èe]vement", r"date\s+du\s+rapport", r"date\s+du\s+r[ée]sultat",
+            # German
+            r"entnahme(?:-|\s*)datum", r"berichtsdatum", r"ergebnisdatum",
+            # Italian
+            r"data\s+prelievo", r"data\s+del\s+referto", r"data\s+referto", r"data\s+del\s+rapporto", r"data\s+del\s+risultato",
+            # Polish
+            r"data\s+pobrania", r"data\s+raportu", r"data\s+wyniku",
+            # Dutch
+            r"afnamedatum", r"rapportdatum", r"resultaatdatum",
+            # Danish / Swedish / Norwegian
+            r"pr[øo]vetagningsdato|pr[øo]vetakingsdato", r"rapportdato", r"resultatdato", r"provtagningsdatum",
+            # Greek
+            r"ημερομηνία\s+λήψης", r"ημερομηνία\s+αναφοράς", r"ημερομηνία\s+αποτελέσματος",
+            # Croatian / Serbian (Latin + Cyrillic)
+            r"datum\s+uzorkovanj[ae]", r"datum\s+izv[je]s?ta[ja]", r"datum\s+rezultata",
+            r"датум\s+узорковања", r"датум\s+извештаја", r"датум\s+резултата",
+            # Romanian
+            r"data\s+recolt[ăa]rii", r"data\s+raportului", r"data\s+rezultatului",
+            # Bulgarian
+            r"дата\s+на\s+вземане\s+на\s+пробата", r"дата\s+на\s+отчета", r"дата\s+на\s+резултата",
+            # Turkish
+            r"(?:[öo]rnek|numune)\s+al[ıi]m\s+tarihi", r"rapor\s+tarihi", r"sonu[cç]\s+tarihi",
+        ]
+    
+    # Utility functions
+    def _strip_accents(self, s: str) -> str:
+        if not s:
+            return s
+        return "".join(c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c))
+
+    def _norm(self, s: str) -> str:
+        return self._strip_accents(s or "").lower()
+
+    def _normalize_units(self, s: str) -> str:
+        """Coalesce spaces, fix common x10 variants, and normalize spacing."""
+        if not s:
+            return s
+        s = s.replace("\u00a0", " ")
+        for bad, good in [
+            ("x109 / L", "x10^9/L"), ("x10 9 / L", "x10^9/L"), ("x109/ L", "x10^9/L"),
+            ("x109 /L", "x10^9/L"), ("x 109 / L", "x10^9/L"), (" / ", "/"),
+        ]:
+            s = s.replace(bad, good)
+        # Normalize common caret-less/spacey power-of-ten variants
+        s = re.sub(r"x\s*10\s*\^?\s*9(?:\s*/\s*L)?", "x10^9/L", s, flags=re.IGNORECASE)
+        s = re.sub(r"x\s*109(?:\s*/\s*L)?", "x10^9/L", s, flags=re.IGNORECASE)
+        s = re.sub(r"\s+", " ", s)
+        return s.strip()
+
+    def _protect_x10_units(self, s: str) -> str:
+        # prevent the "10" in x10^… units from being treated as historical tokens
+        return re.sub(r"x\s*10[\^¹²³]?\s*\d*\s*/?\s*[A-Za-zµ/]+", "xTEN", s)
+
+    def _canonicalize_date(self, ds: Any) -> str:
+        """Return dd-mm-yyyy if possible; accept either a string or a tuple from regex .findall()."""
+        if isinstance(ds, tuple):
+            s = next((x for x in ds if x), "")
+        else:
+            s = str(ds or "")
+        if not s:
+            return ""
+        m = self.MULTI_DATE_RE.search(s)
+        if not m:
+            return s
+        if m.group("y2"):  # yyyy-mm-dd
+            y = int(m.group("y2"))
+            mo = int(m.group("m2"))
+            d = int(m.group("d2"))
+        else:             # dd-mm-yyyy or dd-mm-yy
+            d = int(m.group("d1"))
+            mo = int(m.group("m1"))
+            y = int(m.group("y1"))
+            if y < 100:
+                y += 2000 if y < 50 else 1900
+        try:
+            return f"{d:02d}-{mo:02d}-{y:04d}"
+        except Exception:
+            return s
+
+    def _detect_section_type(self, line: str, current_type: str) -> str:
+        """Detect section type with multilingual support"""
+        t = self._norm(line)
+        # Hematology keywords
+        if any(k in t for k in [
+            "hematolog", "hemograma", "hematologe", "hématolog", "hämatolog", "ematolog", "αιματολογ", "хематолог", "hematoloji"
+        ]):
+            return "HEMATOLOGIA"
+        # Biochemistry keywords
+        if any(k in t for k in [
+            "bioquim", "biochim", "biochem", "biokem", "biokjem", "biochemie", "βιοχημ", "биохим", "biyokim"
+        ]):
+            return "BIOQUIMICA"
+        # Urine / urinalysis keywords
+        if any(k in t for k in [
+            "urina", "urine", "urin ", "urin-", "urinalys", "urinaliz", "ουρ", "урин", "idrar", "mocz", "moczu"
+        ]):
+            return "URINA E DOSEAMENTOS URINÁRIOS"
+        return current_type
+
+    def _extract_report_date(self, first_page_text: str, full_text: str) -> str:
+        """Extract report date with multilingual support"""
+        # Look for labeled date on first page
+        t = self._norm(first_page_text)
+        for lbl in self.DATE_LABELS:
+            for m in re.finditer(lbl, t, flags=re.IGNORECASE):
+                start = max(0, m.end())
+                window = first_page_text[start:start+160]
+                md = self.MULTI_DATE_RE.search(window)
+                if md:
+                    return self._canonicalize_date(md.group(0))
+        # fallback: any date on first page
+        md = self.MULTI_DATE_RE.search(first_page_text)
+        if md:
+            return self._canonicalize_date(md.group(0))
+        # last resort: any date anywhere
+        md = self.MULTI_DATE_RE.search(full_text)
+        return self._canonicalize_date(md.group(0)) if md else ""
+
+    def _extract_lab_name(self, full_text: str, override: str = "") -> str:
+        """Extract lab name with multilingual support"""
+        if override:
+            return override
+        # High-priority specific name first (avoid "Certificado" footers)
+        for line in (full_text.splitlines() if full_text else []):
+            l = line.strip()
+            ln = self._norm(l)
+            if ("laboratorio de analises clinicas" in ln or "laboratório de análises clínicas" in ln) and "certific" not in ln:
+                return l
+        # Generic multilingual lab/clinic/hospital lines (avoid certificate lines)
+        for line in (full_text.splitlines() if full_text else []):
+            l = line.strip()
+            ln = self._norm(l)
+            if "certific" in ln:
+                continue
+            if re.search(r"\b(hospital|clin|clinic|clínic|klin|krankenhaus|ospedale|szpital|ziekenhuis|hospitalet|sjukhus|sykehus|spital|болниц|hastane)\b", ln):
+                return l
+            if re.search(r"\b(lab|laborat|laboratuv|laborator|laboratoire|laboratorium)\b", ln):
+                return l
+        return ""
+
+    def _split_name_and_tail(self, line: str) -> Tuple[str, str]:
+        """Split line into metric name and value tail"""
+        # find first digit (not just a dot…), else first known textual urine value
+        m = re.search(r"[<>]?\s*\d", line)
+        if not m:
+            m2 = self.TEXT_VALUE_RE.search(line)
+            if not m2:
+                return None, None
+            idx = m2.start()
+        else:
+            idx = m.start()
+        name = line[:idx].strip().lstrip("-:•·").strip()
+        tail = line[idx:].strip()
+        return name, tail
+
+    def _pick_central_from_left(self, left: str):
+        """Prefer absolute units over % on the same line."""
+        cand_re = re.compile(rf"(?P<val>[<>]?\s*[\d.,]+)\s*(?P<unit>{self.UNIT_ANY})?")
+        cands = list(cand_re.finditer(left))
+        if not cands:
+            return None, None
+        # Prefer absolute unit
+        for m in cands:
+            u = (m.group('unit') or "").strip()
+            if u and re.fullmatch(self.UNIT_ABS, u):
+                val = m.group('val').replace(" ", "").replace(",", ".")
+                return val, self._normalize_units(u)
+        # Fallback: first candidate
+        m = cands[0]
+        val = m.group('val').replace(" ", "").replace(",", ".")
+        return val, self._normalize_units((m.group('unit') or "").strip())
+
+    def _parse_numeric_metric_line(self, line: str, page_hist_dates: List[str], report_date: str):
+        """Parse numeric metric line with historical data support"""
+        line = self._normalize_units(line)
+        name, tail = self._split_name_and_tail(line)
+        if not name:
+            return None
+        nl = self._norm(name)
+        # Drop meta names + explicit prefixes
+        if self.META_NAME_RE.search(name) or nl.startswith("exmo") or nl.startswith("hfe"):
+            return None
+
+        tail_clean = self._protect_x10_units(tail)
+
+        # Reference region (prefer last range; else trailing comparator/number)
+        mref = None
+        for m in re.finditer(r"(?:[<>]=?\s*)?[\d.,]+\s*-\s*[\d.,]+", tail_clean):
+            mref = m
+        if not mref:
+            m2 = re.search(r"(?:[<>]=?\s*)?[\d.,]+\s*$", tail_clean)
+            mref = m2
+        if not mref:
+            return None
+
+        left = tail_clean[:mref.start()].strip()
+        reference = mref.group(0).strip()
+        right = tail_clean[mref.end():].strip()
+
+        left_original = tail[:mref.start()].strip()
+        central_val, central_unit = self._pick_central_from_left(left_original)
+        if not central_val:
+            return None
+
+        # historical values (numeric OR qualitative text)
+        right_vals = [h.strip() for h in self.HIST_VALUE_RE.findall(right)]
+        left_vals = []
+        for m in self.HIST_VALUE_RE.finditer(left):
+            tok = m.group(0).strip()
+            # avoid echoing the central numeric token if same
+            if tok.replace(" ", "").replace(",", ".") == central_val:
+                continue
+            # don't pick the reference range
+            if reference and tok in reference:
+                continue
+            left_vals.append(tok)
+        hist_vals = right_vals if right_vals else left_vals
+
+        rows = []
+        rows.append({
+            "metric_name": name,
+            "date_of_value": report_date,
+            "value": central_val,
+            "unit": central_unit or "",
+            "reference": reference,
+        })
+        if hist_vals and page_hist_dates:
+            for i, hv in enumerate(hist_vals[:2]):
+                if i < len(page_hist_dates):
+                    rows.append({
+                        "metric_name": name,
+                        "date_of_value": page_hist_dates[i],
+                        "value": hv,
+                        "unit": central_unit or "",
+                        "reference": reference,
+                    })
+        return rows
+
+    def _parse_urine_metric_line(self, line: str, report_date: str, page_hist_dates: List[str]):
+        """Parse qualitative urine metrics with historical data support"""
+        name, tail = self._split_name_and_tail(line)
+        if not name or not tail:
+            return None
+        nl = self._norm(name)
+        if self.META_NAME_RE.search(name) or nl.startswith("exmo") or nl.startswith("hfe"):
+            return None
+
+        # Find ALL qualitative tokens across the tail, in order
+        all_texts = [m.group(0).strip() for m in self.TEXT_VALUE_RE.finditer(tail)]
+        if not all_texts:
+            return None
+
+        central_val = all_texts[0]
+        hist_vals = all_texts[1:]  # any further tokens are historical columns (left-to-right)
+
+        rows = [{
+            "metric_name": name,
+            "date_of_value": report_date,
+            "value": central_val,
+            "unit": "",
+            "reference": "",
+        }]
+
+        if hist_vals and page_hist_dates:
+            for i, hv in enumerate(hist_vals[:2]):
+                if i < len(page_hist_dates):
+                    rows.append({
+                        "metric_name": name,
+                        "date_of_value": page_hist_dates[i],
+                        "value": hv,
+                        "unit": "",
+                        "reference": "",
+                    })
+        return rows
+
+    async def analyze_lab_document(
+        self, 
+        db: Session, 
+        user_id: int, 
+        file_data: bytes, 
+        file_name: str, 
+        description: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Analyze lab document with advanced multilingual extraction"""
+        try:
+            logger.info(f"Starting advanced lab document analysis for file: {file_name}")
+            
+            # Extract text from PDF
+            text = self._extract_text_from_pdf(file_data)
+            if not text:
+                raise ValueError("No text could be extracted from the PDF")
+            
+            # Extract lab data using advanced parsing
+            lab_data = self._extract_lab_data_advanced(text)
+            logger.info(f"Extracted {len(lab_data)} lab records")
+            
+            # Upload to S3
+            s3_url = await self._upload_to_s3(file_data, file_name, str(user_id))
+            
+            # Create medical document record
+            medical_doc = await self._create_medical_document(
+                db, user_id, file_name, s3_url, description
+            )
+            
+            # Create health records from extracted data
+            created_records = []
+            for record_data in lab_data:
+                try:
+                    health_record = await self._create_health_record_from_lab_data(
+                        db, user_id, record_data
+                    )
+                    if health_record:
+                        created_records.append(health_record)
+                except Exception as e:
+                    logger.error(f"Failed to create health record for {record_data.get('metric_name', 'Unknown')}: {e}")
+                    continue
+            
+            logger.info(f"Created {len(created_records)} health records")
+            
+            return {
+                "success": True,
+                "message": "Lab document analyzed successfully",
+                "s3_url": s3_url,
+                "lab_data": lab_data,
+                "created_records_count": len(created_records)
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to analyze lab document: {e}")
+            raise
+
+    async def _upload_to_s3(self, file_data: bytes, file_name: str, user_id: str) -> str:
+        """Upload file to S3 and return S3 URL"""
+        try:
+            from app.core.aws_service import aws_service
+            file_id = await aws_service.store_document(
+                internal_user_id=user_id,
+                file_data=file_data,
+                file_name=file_name,
+                content_type="application/pdf"
+            )
+            
+            # Construct the S3 URL from the file_id
+            # The S3 key format is: documents/{user_id}/{file_id}/{file_name}
+            from app.core.config import settings
+            s3_key = f"documents/{user_id}/{file_id}/{file_name}"
+            s3_url = f"s3://{settings.AWS_S3_BUCKET}/{s3_key}"
+            
+            logger.info(f"Uploaded file to S3: {s3_url}")
+            return s3_url
+        except Exception as e:
+            logger.error(f"Failed to upload file to S3: {e}")
+            raise
+
+    def _extract_text_from_pdf(self, file_data: bytes) -> str:
+        """Extract text from PDF bytes"""
+        try:
+            import pdfplumber
+            import io
+            
+            pdf_file = io.BytesIO(file_data)
+            
+            with pdfplumber.open(pdf_file) as pdf:
+                pages_text = []
+                for page in pdf.pages:
+                    text = page.extract_text(x_tolerance=2, y_tolerance=2) or ""
+                    if text:
+                        pages_text.append(text)
+                
+                return "\n".join(pages_text)
+                
+        except ImportError:
+            raise ImportError("pdfplumber is required for PDF text extraction")
+        except Exception as e:
+            logger.error(f"Failed to extract text from PDF: {e}")
+            raise
+
+    def _extract_lab_data_advanced(self, text: str) -> List[Dict[str, Any]]:
+        """Extract lab data using advanced multilingual parsing"""
+        try:
+            logger.info("Starting advanced lab data extraction from text")
+            
+            # Split into pages for page-level historical date extraction
+            pages_text = text.split('\n\n')  # Simple page splitting - could be improved
+            
+            if not pages_text:
+                pages_text = [text]
+            
+            first_page = pages_text[0] if pages_text else ""
+            
+            report_date = self._extract_report_date(first_page, text)
+            lab_name = self._extract_lab_name(text)
+            
+            logger.info(f"Extracted report date: {report_date}, lab name: {lab_name}")
+            
+            records: List[Dict] = []
+            current_type = ""
+            
+            # Iterate page-by-page to use page-level historical dates
+            for page_text in pages_text:
+                if not page_text:
+                    continue
+                
+                # Historical dates present on this page (ignore report_date)
+                page_dates = [self._canonicalize_date(m.group(0)) for m in self.MULTI_DATE_RE.finditer(page_text)]
+                page_hist_dates = [d for d in page_dates if d and d != report_date][-2:]  # use the two rightmost dates if present
+                
+                # Process lines in this page
+                raw_lines = [self._normalize_units(l) for l in page_text.splitlines() if l.strip()]
+                last_metric_name = ""
+                started_section = False
+                
+                for raw in raw_lines:
+                    # Track section (mapped to PT canonical names)
+                    current_type = self._detect_section_type(raw, current_type)
+                    
+                    # Skip obvious meta lines early
+                    if self.META_NAME_RE.search(raw.strip(": ").strip()):
+                        continue
+                    
+                    # Numeric lines (usual center + reference + historical numbers)
+                    rowset = self._parse_numeric_metric_line(raw, page_hist_dates, report_date)
+                    
+                    # Urine qualitative fallback (only within urine section)
+                    if not rowset and current_type == "URINA E DOSEAMENTOS URINÁRIOS":
+                        rowset = self._parse_urine_metric_line(raw, report_date, page_hist_dates)
+                    
+                    if not rowset:
+                        # try multi-line metric (previous line name + current numbers)
+                        if last_metric_name and re.search(r"\d", raw):
+                            combo = f"{last_metric_name} {raw}"
+                            rowset = self._parse_numeric_metric_line(combo, page_hist_dates, report_date)
+                        
+                        # remember plausible metric-only header (require parentheses/colon/comma)
+                        if not rowset and (re.search(r"[A-Za-zÁ-úÀ-ÿ]+", raw) and not re.search(r"\d", raw) and len(raw) < 100):
+                            candidate = raw.strip(': ').strip()
+                            cn = self._norm(candidate)
+                            if not self.META_NAME_RE.search(candidate) and re.search(r"[(:,)]", candidate) and not (cn.startswith("exmo") or cn.startswith("hfe")):
+                                last_metric_name = candidate
+                            else:
+                                last_metric_name = ""
+                    else:
+                        last_metric_name = ""
+                    
+                    if rowset:
+                        started_section = True
+                        for r in rowset:
+                            out = {
+                                "lab_name": lab_name,
+                                "type_of_analysis": current_type,
+                                **r
+                            }
+                            records.append(out)
+                    elif not started_section:
+                        continue
+            
+            # Deduplicate by (type_of_analysis, metric_name, date_of_value, value)
+            seen = set()
+            deduped = []
+            for r in records:
+                key = (r["type_of_analysis"], r["metric_name"], r["date_of_value"], r["value"])
+                if key in seen:
+                    continue
+                seen.add(key)
+                deduped.append(r)
+            
+            logger.info(f"Extracted {len(deduped)} lab records from text")
+            for i, record in enumerate(deduped):
+                logger.info(f"Record {i+1}: {record.get('metric_name', 'Unknown')} = {record.get('value', 'N/A')} {record.get('unit', '')}")
+            
+            return deduped
+            
+        except Exception as e:
+            logger.error(f"Failed to extract lab data: {e}")
+            return []
+
+    def _cleanup_s3_file(self, s3_url: str) -> None:
+        """Clean up S3 file if it exists"""
+        if s3_url:
+            try:
+                from app.core.aws_service import aws_service
+                success = aws_service.delete_document(s3_url)
+                if success:
+                    logger.info(f"Successfully cleaned up S3 file: {s3_url}")
+                else:
+                    logger.warning(f"Failed to clean up S3 file: {s3_url}")
+            except Exception as e:
+                logger.error(f"Error cleaning up S3 file {s3_url}: {e}")
+
+    def _parse_date_string(self, date_str: str) -> Optional[datetime]:
+        """Parse date string in various formats to datetime object"""
+        if not date_str:
+            return None
+            
+        # Common date formats to try
+        date_formats = [
+            '%d-%m-%Y',  # 27-09-2024
+            '%Y-%m-%d',  # 2024-09-27
+            '%d/%m/%Y',  # 27/09/2024
+            '%Y/%m/%d',  # 2024/09/27
+            '%d.%m.%Y',  # 27.09.2024
+            '%Y.%m.%d',  # 2024.09.27
+        ]
+        
+        for fmt in date_formats:
+            try:
+                return datetime.strptime(date_str, fmt)
+            except ValueError:
+                continue
+        
+        # If all formats fail, try to parse as ISO format
+        try:
+            return datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+        except ValueError:
+            logger.warning(f"Could not parse date string: {date_str}")
+            return None
+
+    async def _create_medical_document(
+        self, 
+        db: Session, 
+        user_id: int, 
+        file_name: str, 
+        s3_url: str, 
+        description: Optional[str],
+        lab_test_date: Optional[str] = None,
+        lab_test_name: Optional[str] = None,
+        provider: Optional[str] = None
+    ) -> MedicalDocument:
+        """Create a medical document record"""
+        try:
+            logger.info(f"Creating medical document with s3_url: {s3_url}")
+            
+            # Parse the lab test date if provided
+            parsed_lab_test_date = None
+            if lab_test_date:
+                parsed_lab_test_date = self._parse_date_string(lab_test_date)
+                if parsed_lab_test_date:
+                    logger.info(f"Parsed lab_test_date: {lab_test_date} -> {parsed_lab_test_date}")
+                else:
+                    logger.warning(f"Could not parse lab_test_date: {lab_test_date}")
+            
+            doc_data = MedicalDocumentCreate(
+                health_record_type_id=1,
+                document_type=DocumentType.LAB_RESULT,
+                file_name=file_name,
+                s3_url=s3_url,
+                description=description,
+                source="lab_document_upload",
+                lab_test_date=parsed_lab_test_date,
+                lab_test_name=lab_test_name,
+                provider=provider
+            )
+            
+            medical_doc = medical_document_crud.create(db, doc_data, user_id)
+            logger.info(f"Created medical document: {medical_doc.id} with s3_url: {medical_doc.s3_url}")
+            return medical_doc
+            
+        except Exception as e:
+            logger.error(f"Failed to create medical document: {e}")
+            raise
+
+    async def _create_health_record_from_lab_data(
+        self, 
+        db: Session, 
+        user_id: int, 
+        record_data: Dict[str, Any]
+    ) -> Optional[HealthRecord]:
+        """Create health record from extracted lab data"""
+        try:
+            # Get or create section
+            section = await self._get_or_create_section(db, user_id, record_data["type_of_analysis"])
+            
+            # Get or create metric
+            metric = await self._get_or_create_metric(db, user_id, section.id, record_data)
+            
+            # Create health record
+            health_record_data = HealthRecordCreate(
+                section_id=section.id,
+                metric_id=metric.id,
+                value={"value": float(record_data["value"]) if record_data["value"].replace(".", "").replace(",", "").isdigit() else record_data["value"]},
+                status=self._determine_status(record_data["value"], record_data.get("reference", "")),
+                recorded_at=self._parse_date(record_data["date_of_value"]),
+                source="lab_document_upload"
+            )
+            
+            health_record = health_record_crud.create(db, health_record_data, user_id)
+            logger.info(f"Created health record: {health_record.id} for metric: {metric.display_name}")
+            return health_record
+            
+        except Exception as e:
+            logger.error(f"Failed to create health record: {e}")
+            return None
+
+    async def _get_or_create_section(self, db: Session, user_id: int, section_type: str) -> HealthRecordSection:
+        """Get or create health record section (both tmp and main tables)"""
+        try:
+            section_name = section_type.lower().replace(" ", "_")
+            
+            # First, ensure section exists in template table
+            tmp_section = health_record_section_template_crud.get_by_name_and_type(db, section_name, 1)
+            
+            if not tmp_section:
+                # Create in template table
+                tmp_section_data = {
+                    "name": section_name,
+                    "display_name": section_type,
+                    "description": "",
+                    "health_record_type_id": 1,
+                    "is_active": True,
+                    "is_default": False,
+                    "created_by": user_id,
+                    "created_at": datetime.utcnow()
+                }
+                tmp_section = health_record_section_template_crud.create(db, tmp_section_data)
+                logger.info(f"Created new template section: {tmp_section.display_name}")
+            
+            # Then, ensure section exists in main table for UI
+            existing_section = db.query(HealthRecordSection).filter(
+                HealthRecordSection.name == section_name,
+                HealthRecordSection.health_record_type_id == 1,
+                HealthRecordSection.created_by == user_id
+            ).first()
+            
+            if not existing_section:
+                # Create in main table
+                section_data = HealthRecordSectionCreate(
+                    name=section_name,
+                    display_name=section_type,
+                    description="",
+                    health_record_type_id=1,
+                    is_default=False
+                )
+                existing_section = health_record_section_crud.create(db, section_data, user_id)
+                logger.info(f"Created new main section: {existing_section.display_name}")
+            
+            return existing_section
+            
+        except Exception as e:
+            logger.error(f"Failed to get or create section: {e}")
+            raise
+
+    async def _get_or_create_metric(
+        self, 
+        db: Session, 
+        user_id: int, 
+        section_id: int, 
+        record_data: Dict[str, Any]
+    ) -> HealthRecordMetric:
+        """Get or create health record metric (both tmp and main tables)"""
+        try:
+            metric_name = record_data["metric_name"].lower().replace(" ", "_")
+            
+            # Get the template section ID from the main section
+            main_section = db.query(HealthRecordSection).filter(HealthRecordSection.id == section_id).first()
+            if not main_section:
+                raise ValueError(f"Section with ID {section_id} not found")
+            
+            # Find the corresponding template section
+            section_name = main_section.name
+            tmp_section = health_record_section_template_crud.get_by_name_and_type(db, section_name, 1)
+            if not tmp_section:
+                raise ValueError(f"Template section with name {section_name} not found")
+            
+            # First, ensure metric exists in template table
+            tmp_metric = health_record_metric_template_crud.get_by_section_and_name(db, tmp_section.id, metric_name)
+            
+            if not tmp_metric:
+                # Parse reference range
+                normal_range_min, normal_range_max = self._parse_reference_range(record_data.get("reference", ""))
+                
+                # Create in template table
+                tmp_metric_data = {
+                    "section_template_id": tmp_section.id,
+                    "name": metric_name,
+                    "display_name": record_data["metric_name"],
+                    "description": f"Lab metric: {record_data['metric_name']}",
+                    "default_unit": record_data.get("unit", ""),
+                    "data_type": "number" if record_data["value"].replace(".", "").replace(",", "").isdigit() else "text",
+                    "normal_range_min": normal_range_min,
+                    "normal_range_max": normal_range_max,
+                    "is_active": True,
+                    "is_default": False,
+                    "created_by": user_id,
+                    "created_at": datetime.utcnow()
+                }
+                tmp_metric = health_record_metric_template_crud.create(db, tmp_metric_data)
+                logger.info(f"Created new template metric: {tmp_metric.display_name} with range {normal_range_min}-{normal_range_max}")
+            
+            # Then, ensure metric exists in main table for UI
+            existing_metric = db.query(HealthRecordMetric).filter(
+                HealthRecordMetric.section_id == section_id,
+                HealthRecordMetric.name == metric_name
+            ).first()
+            
+            if not existing_metric:
+                # Parse reference range
+                normal_range_min, normal_range_max = self._parse_reference_range(record_data.get("reference", ""))
+                
+                # Create threshold object for main table
+                threshold = None
+                if normal_range_min is not None or normal_range_max is not None:
+                    threshold = {
+                        "min": normal_range_min,
+                        "max": normal_range_max
+                    }
+                
+                # Create in main table
+                metric_data = HealthRecordMetricCreate(
+                    section_id=section_id,
+                    name=metric_name,
+                    display_name=record_data["metric_name"],
+                    description=f"Lab metric: {record_data['metric_name']}",
+                    default_unit=record_data.get("unit", ""),
+                    data_type="number" if record_data["value"].replace(".", "").replace(",", "").isdigit() else "text",
+                    threshold=threshold,
+                    is_default=False
+                )
+                existing_metric = health_record_metric_crud.create(db, metric_data, user_id)
+                logger.info(f"Created new main metric: {existing_metric.display_name} with threshold {threshold}")
+            
+            return existing_metric
+            
+        except Exception as e:
+            logger.error(f"Failed to get or create metric: {e}")
+            raise
+
+    def _parse_reference_range(self, reference_str: str) -> tuple[Optional[float], Optional[float]]:
+        """Parse reference range string like '3.90 - 5.10' into min and max values"""
+        if not reference_str or not reference_str.strip():
+            return None, None
+        
+        try:
+            # Clean the reference string
+            ref_clean = reference_str.strip()
+            
+            # Handle different formats
+            if " - " in ref_clean:
+                # Format: "3.90 - 5.10"
+                parts = ref_clean.split(" - ")
+                if len(parts) == 2:
+                    min_val = float(parts[0].strip())
+                    max_val = float(parts[1].strip())
+                    return min_val, max_val
+            elif "-" in ref_clean:
+                # Format: "3.90-5.10"
+                parts = ref_clean.split("-")
+                if len(parts) == 2:
+                    min_val = float(parts[0].strip())
+                    max_val = float(parts[1].strip())
+                    return min_val, max_val
+            elif ref_clean.startswith("<"):
+                # Format: "< 5.10"
+                max_val = float(ref_clean[1:].strip())
+                return None, max_val
+            elif ref_clean.startswith(">"):
+                # Format: "> 3.90"
+                min_val = float(ref_clean[1:].strip())
+                return min_val, None
+            else:
+                # Try to parse as a single number (might be a threshold)
+                try:
+                    single_val = float(ref_clean)
+                    return single_val, single_val
+                except ValueError:
+                    pass
+            
+            logger.warning(f"Could not parse reference range: '{reference_str}'")
+            return None, None
+            
+        except Exception as e:
+            logger.error(f"Error parsing reference range '{reference_str}': {e}")
+            return None, None
+
+    def _parse_date(self, date_str: str) -> datetime:
+        """Parse date string in multiple formats"""
+        if not date_str:
+            return datetime.utcnow()
+        
+        logger.info(f"Parsing date string: '{date_str}'")
+        
+        # List of possible date formats to try
+        date_formats = [
+            "%d-%m-%Y",      # 27-09-2024
+            "%Y-%m-%d",      # 2024-09-27
+            "%d/%m/%Y",      # 27/09/2024
+            "%Y/%m/%d",      # 2024/09/27
+            "%d.%m.%Y",      # 27.09.2024
+            "%Y.%m.%d",      # 2024.09.27
+        ]
+        
+        for date_format in date_formats:
+            try:
+                parsed_date = datetime.strptime(date_str, date_format)
+                logger.info(f"Successfully parsed date '{date_str}' with format '{date_format}' -> {parsed_date}")
+                return parsed_date
+            except ValueError:
+                continue
+        
+        # If no format matches, try to parse as ISO format
+        try:
+            parsed_date = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+            logger.info(f"Successfully parsed date '{date_str}' with ISO format -> {parsed_date}")
+            return parsed_date
+        except ValueError:
+            pass
+        
+        # If all else fails, return current time
+        logger.warning(f"Could not parse date '{date_str}', using current time")
+        return datetime.utcnow()
+
+    def _determine_status(self, value: str, reference: str) -> str:
+        """Determine status based on value and reference range"""
+        if not reference or not value:
+            return "normal"
+        
+        try:
+            # Handle numeric values
+            if value.replace(".", "").replace(",", "").isdigit():
+                num_value = float(value.replace(",", "."))
+                
+                # Parse reference range (e.g., "3.90 - 5.10" or "74 - 106")
+                range_match = re.search(r"(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)", reference)
+                if range_match:
+                    min_value = float(range_match.group(1))
+                    max_value = float(range_match.group(2))
+                    
+                    if num_value < min_value or num_value > max_value:
+                        return "abnormal"
+                    return "normal"
+            
+            # Handle text values
+            if any(term in value.lower() for term in ["negativo", "negative", "ausente", "absent", "não revelou", "not detected"]):
+                return "normal"
+            if any(term in value.lower() for term in ["positivo", "positive", "presente", "present"]):
+                return "abnormal"
+            
+            return "normal"
+            
+        except Exception:
+            return "normal"

@@ -34,3 +34,6 @@ akeyless==3.0.0
 cryptography==41.0.7
 python-jose[cryptography]==3.3.0
 email-validator==2.1.0 
+
+# AI Analysis Dependencies
+openai>=1.0.0

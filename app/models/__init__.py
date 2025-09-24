@@ -12,9 +12,9 @@ from .professional_availability import ProfessionalAvailabilitySchedule, Profess
 
 # Appointment System
 from .appointment_types import AppointmentType, AppointmentTypePricing
-from .appointment import ManualAppointment, Appointment, AppointmentReminder, AppointmentAttachment
+from .appointment import ManualAppointment, Appointment, AppointmentReminder
 
-# Professional Document Management
+# Professional Document Management (Legacy - to be replaced)
 from .professional_documents import (
     ProfessionalDocumentCategory,
     ProfessionalDocument,
@@ -23,8 +23,29 @@ from .professional_documents import (
     ProfessionalDocumentAssignment
 )
 
+# Centralized Document Management System
+from .documents import (
+    Document,
+    DocumentShare,
+    DocumentAccessLog,
+    LabDocument,
+    ImagingDocument,
+    PrescriptionDocument,
+    DocumentCategory,
+    DocumentStatus,
+    PermissionLevel,
+    ShareType
+)
+
+# S3 Storage Management
+from .s3_storage import (
+    S3StorageInfo,
+    S3BucketInfo,
+    S3AccessLog
+)
+
 # Messaging System
-from .message import Message, MessageAttachment
+from .message import Message
 
 # Payment System
 from .payment import SubscriptionPlan, UserSubscription, PaymentTransaction
@@ -83,12 +104,27 @@ from .health_plans import (
 # Medical Condition Updates
 from .medical_condition_updates import MedicalConditionUpdate
 
+# Health Metrics System (Templates and Analysis only)
+from .health_metrics import (
+    HealthAnalysis,
+    HealthRecordSectionTemplate,
+    HealthRecordMetricTemplate,
+    MetricStatus,
+    MetricTrend
+)
+
+# AI Analysis System
+from .ai_analysis import AIAnalysisHistory
+
 # Permission System
 from .permissions import (
-    DataResourceType,
-    DataAccessType,
-    DataPermission,
-    DataAccessLog
+    Permission,
+    PermissionAuditLog,
+    HealthRecordPermission,
+    DocumentPermission,
+    PermissionType,
+    PermissionLevel,
+    PermissionStatus
 )
 
 # Legacy Models (to be removed or updated)
@@ -117,18 +153,36 @@ __all__ = [
     "ManualAppointment",
     "Appointment",
     "AppointmentReminder",
-    "AppointmentAttachment",
+
     
-    # Professional Document Management
+    # Professional Document Management (Legacy - to be replaced)
     "ProfessionalDocumentCategory",
     "ProfessionalDocument",
     "ProfessionalDocumentShare",
     "ProfessionalDocumentAccessLog",
     "ProfessionalDocumentAssignment",
     
+    # Centralized Document Management System
+    "Document",
+    "DocumentPermission",
+    "DocumentShare",
+    "DocumentAccessLog",
+    "LabDocument",
+    "ImagingDocument",
+    "PrescriptionDocument",
+    "HealthRecordPermission",
+    "DocumentCategory",
+    "DocumentStatus",
+    "PermissionLevel",
+    "ShareType",
+    
+    # S3 Storage Management
+    "S3StorageInfo",
+    "S3BucketInfo",
+    "S3AccessLog",
+    
     # Messaging System
     "Message",
-    "MessageAttachment",
     
     # Payment System
     "SubscriptionPlan",
@@ -180,11 +234,24 @@ __all__ = [
     # Medical Condition Updates
     "MedicalConditionUpdate",
     
+    # Health Metrics System (Templates and Analysis only)
+    "HealthAnalysis",
+    "HealthRecordSectionTemplate",
+    "HealthRecordMetricTemplate",
+    "MetricStatus",
+    "MetricTrend",
+    
+    # AI Analysis System
+    "AIAnalysisHistory",
+    
     # Permission System
-    "DataResourceType",
-    "DataAccessType",
-    "DataPermission",
-    "DataAccessLog",
+    "Permission",
+    "PermissionAuditLog",
+    "HealthRecordPermission",
+    "DocumentPermission",
+    "PermissionType",
+    "PermissionLevel",
+    "PermissionStatus",
     
     # Legacy Models
     "Medication",

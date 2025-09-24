@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     SMTP_USER: str = "your-email@gmail.com"
     SMTP_PASSWORD: str = "your-app-password"
     
+    # OpenAI Configuration
+    OPENAI_API_KEY: str = "your-openai-api-key"
+    
     # Application
     DEBUG: bool = True
     ENVIRONMENT: str = "development"
@@ -48,6 +51,12 @@ class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
     PROJECT_NAME: str = "YourHealth1Place API"
     VERSION: str = "1.0.0"
+
+    # OpenAI Configuration (if needed for future features)
+    OPENAI_API_KEY: str = ""
+    OPENAI_MODEL: str = "gpt-4-turbo-preview"
+    OPENAI_MAX_TOKENS: int = 4000
+    OPENAI_TEMPERATURE: float = 0.1
     
     class Config:
         env_file = ".env"

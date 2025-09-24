@@ -1,7 +1,9 @@
 from datetime import timedelta
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+import jwt
+from jwt.exceptions import InvalidTokenError
+from fastapi import APIRouter, Depends, HTTPException, status, Header
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm, HTTPBearer
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.config import settings
@@ -10,10 +12,87 @@ from app.models.user import User
 from app.schemas.user import Token, UserResponse, UserProfile, UserRegistration
 from app.crud.user import get_user_by_supabase_id
 import logging
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/auth/login")
+
+# Custom authentication scheme for Supabase tokens
+def extract_user_id_from_token(token: str) -> str:
+    """Extract user ID from JWT token"""
+    try:
+        # Decode JWT token without verification (since it's already verified by Supabase)
+        # We just need to extract the user ID
+        decoded = jwt.decode(token, options={"verify_signature": False})
+        user_id = decoded.get("sub")
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token: missing user ID",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        return user_id
+    except InvalidTokenError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token format",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+async def get_supabase_token(authorization: Optional[str] = Header(None)) -> str:
+    """Extract Supabase token from Authorization header and return the actual JWT token"""
+    if not authorization:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authorization header missing",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authorization header format",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    token = authorization.replace("Bearer ", "")
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token missing",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    # Return the actual JWT token for Supabase authentication
+    return token
+
+async def get_user_id_from_token(authorization: Optional[str] = Header(None)) -> str:
+    """Extract user ID from Authorization header JWT token"""
+    if not authorization:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authorization header missing",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authorization header format",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    token = authorization.replace("Bearer ", "")
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token missing",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    # Extract user ID from the JWT token
+    user_id = extract_user_id_from_token(token)
+    return user_id
 
 @router.post("/register", response_model=UserResponse)
 async def register(registration_data: UserRegistration, db: Session = Depends(get_db)):
@@ -124,11 +203,17 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = 
         )
 
 @router.get("/profile", response_model=UserProfile)
-async def get_user_profile(current_user_id: str = Depends(oauth2_scheme)):
+async def get_user_profile(
+    current_user_id: str = Depends(get_user_id_from_token),
+    authorization: Optional[str] = Header(None)
+):
     """Get user profile from Supabase"""
     try:
+        # Extract token from authorization header
+        user_token = authorization.replace("Bearer ", "") if authorization else None
+        
         # Get personal data from Supabase
-        profile_data = await supabase_service.get_user_profile(current_user_id)
+        profile_data = await supabase_service.get_user_profile(current_user_id, user_token)
         
         # Handle case where profile data is None or empty
         if not profile_data:
@@ -146,14 +231,19 @@ async def get_user_profile(current_user_id: str = Depends(oauth2_scheme)):
 @router.put("/profile", response_model=UserProfile)
 async def update_user_profile(
     profile_data: UserProfile, 
-    current_user_id: str = Depends(oauth2_scheme)
+    current_user_id: str = Depends(get_user_id_from_token),
+    authorization: Optional[str] = Header(None)
 ):
     """Update user profile in Supabase"""
     try:
+        # Extract token from authorization header
+        user_token = authorization.replace("Bearer ", "") if authorization else None
+        
         # Update personal data in Supabase
         updated_profile = await supabase_service.update_user_profile(
             user_id=current_user_id,
-            profile=profile_data.dict(exclude_none=True)
+            profile=profile_data.dict(exclude_none=True),
+            user_token=user_token
         )
         
         # Handle case where updated profile is None
@@ -188,23 +278,24 @@ async def refresh_token(refresh_token: str, db: Session = Depends(get_db)):
             detail="Invalid refresh token"
         )
 
-async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+async def get_current_user(token: str = Depends(get_supabase_token), db: Session = Depends(get_db)):
     """Get current authenticated user from Supabase token"""
     try:
         # Verify token with Supabase
-        # This would require implementing token verification with Supabase
-        # For now, returning a placeholder implementation
+        user_info = supabase_service.get_user_from_token(token)
         
-        # In production, you would:
-        # 1. Verify the JWT token with Supabase
-        # 2. Extract user ID from token
-        # 3. Get user from database
+        if not user_info or not user_info.get('id'):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token"
+            )
         
-        raise HTTPException(
-            status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail="Token verification to be implemented with Supabase"
-        )
+        # Get internal user record by Supabase UID
+        db_user = get_user_by_supabase_id(db, supabase_user_id=user_info['id'])
+        return db_user
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Get current user error: {e}")
         raise HTTPException(

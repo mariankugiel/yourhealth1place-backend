@@ -1,105 +1,186 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Boolean, JSON
+from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Boolean, JSON, Enum
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.core.database import Base
+import enum
 
-class DataResourceType(Base):
-    __tablename__ = "data_resource_types"
+# ============================================================================
+# PERMISSION TYPE ENUMS
+# ============================================================================
+
+class PermissionType(str, enum.Enum):
+    DOCUMENT = "document"
+    HEALTH_RECORD = "health_record"
+    APPOINTMENT = "appointment"
+    MESSAGE = "message"
+    HEALTH_PLAN = "health_plan"
+    MEDICATION = "medication"
+    SYSTEM = "system"
+
+class PermissionLevel(str, enum.Enum):
+    VIEW = "view"
+    DOWNLOAD = "download"
+    EDIT = "edit"
+    DELETE = "delete"
+    SHARE = "share"
+    ADMIN = "admin"
+
+class PermissionStatus(str, enum.Enum):
+    ACTIVE = "active"
+    INACTIVE = "inactive"
+    EXPIRED = "expired"
+    REVOKED = "revoked"
+
+# ============================================================================
+# PERMISSION MODELS
+# ============================================================================
+
+class Permission(Base):
+    """Centralized permission system for all resource types"""
+    __tablename__ = "permissions"
     
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    name = Column(String(50), nullable=False, unique=True)  # "medical_history", "health_records", "health_plan", "medications"
-    display_name = Column(String(100), nullable=False)
-    description = Column(Text)
-    is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)  # Admin user
-    updated_by = Column(Integer, ForeignKey("users.id"))
     
-    # Relationships
-    permissions = relationship("DataPermission", back_populates="resource_type")
-
-class DataAccessType(Base):
-    __tablename__ = "data_access_types"
-    
-    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    name = Column(String(50), nullable=False, unique=True)  # "view", "download", "edit"
-    display_name = Column(String(100), nullable=False)
-    description = Column(Text)
-    is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)  # Admin user
-    updated_by = Column(Integer, ForeignKey("users.id"))
-    
-    # Relationships
-    permissions = relationship("DataPermission", back_populates="access_type")
-
-class DataPermission(Base):
-    __tablename__ = "data_permissions"
-    
-    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    # Permission Target
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)  # User getting permission
+    resource_type = Column(Enum(PermissionType), nullable=False)  # Type of resource
+    resource_id = Column(Integer, nullable=False)  # ID of the specific resource
     
     # Permission Details
-    granter_id = Column(Integer, ForeignKey("users.id"), nullable=False)  # User granting permission
-    grantee_id = Column(Integer, ForeignKey("users.id"), nullable=False)  # User receiving permission
-    resource_type_id = Column(Integer, ForeignKey("data_resource_types.id"), nullable=False)
-    access_type_id = Column(Integer, ForeignKey("data_access_types.id"), nullable=False)
+    permission_level = Column(Enum(PermissionLevel), nullable=False)
+    granted_by = Column(Integer, ForeignKey("users.id"), nullable=False)  # Who granted the permission
     
-    # Resource Scope
-    resource_id = Column(Integer)  # Specific resource ID (optional - NULL means all resources of this type)
-    resource_scope = Column(String(50), default="ALL")  # "ALL", "SPECIFIC", "CATEGORY"
-    
-    # Permission Details
-    is_active = Column(Boolean, default=True)
+    # Permission Context
+    granted_for = Column(String(100))  # Context: "appointment_123", "health_record", "ongoing_care"
     expires_at = Column(DateTime)  # When permission expires (NULL = never)
-    granted_at = Column(DateTime(timezone=True), server_default=func.now())
-    revoked_at = Column(DateTime)  # When permission was revoked
+    
+    # Permission Scope (granular permissions)
+    can_view = Column(Boolean, default=False)
+    can_download = Column(Boolean, default=False)
+    can_edit = Column(Boolean, default=False)
+    can_delete = Column(Boolean, default=False)
+    can_share = Column(Boolean, default=False)
     
     # Additional Context
-    reason = Column(Text)  # Why permission was granted
-    conditions = Column(JSON)  # Any conditions for this permission
-    notes = Column(Text)  # Additional notes
+    notes = Column(Text)  # Notes about this permission
+    permission_metadata = Column(JSON)  # Additional metadata specific to resource type
+    
+    # Status
+    status = Column(Enum(PermissionStatus), nullable=False, default=PermissionStatus.ACTIVE)
     
     # Audit fields
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
-    updated_by = Column(Integer, ForeignKey("users.id"))
     
     # Relationships
-    granter = relationship("User", foreign_keys=[granter_id], backref="granted_permissions")
-    grantee = relationship("User", foreign_keys=[grantee_id], backref="received_permissions")
-    resource_type = relationship("DataResourceType", back_populates="permissions")
-    access_type = relationship("DataAccessType", back_populates="permissions")
-    access_logs = relationship("DataAccessLog", back_populates="permission")
+    user = relationship("User", foreign_keys=[user_id], back_populates="permissions")
+    granter = relationship("User", foreign_keys=[granted_by], back_populates="granted_permissions_general")
+    audit_logs = relationship("PermissionAuditLog", back_populates="permission")
 
-class DataAccessLog(Base):
-    __tablename__ = "data_access_logs"
+class PermissionAuditLog(Base):
+    """Audit trail for permission changes"""
+    __tablename__ = "permission_audit_logs"
     
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     
-    # Access Details
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)  # User who accessed the data
-    permission_id = Column(Integer, ForeignKey("data_permissions.id"))  # Permission used for access
-    resource_type_id = Column(Integer, ForeignKey("data_resource_types.id"), nullable=False)
-    resource_id = Column(Integer)  # Specific resource accessed
+    # Permission Reference
+    permission_id = Column(Integer, ForeignKey("permissions.id"), nullable=False)
     
-    # Access Context
-    access_type = Column(String(50), nullable=False)  # "view", "download", "edit", "create", "delete"
-    access_method = Column(String(50))  # "api", "web_interface", "mobile_app", "export"
-    ip_address = Column(String(45))  # IPv4 or IPv6
-    user_agent = Column(Text)
-    session_id = Column(String(255))
+    # Change Details
+    action = Column(String(50), nullable=False)  # "created", "updated", "revoked", "expired"
+    changed_by = Column(Integer, ForeignKey("users.id"), nullable=False)  # Who made the change
     
-    # Access Result
-    access_successful = Column(Boolean, default=True)
-    error_message = Column(Text)  # If access failed
+    # Change Context
+    old_values = Column(JSON)  # Previous permission values
+    new_values = Column(JSON)  # New permission values
+    change_reason = Column(Text)  # Reason for the change
     
     # Audit fields
-    accessed_at = Column(DateTime(timezone=True), server_default=func.now())
+    changed_at = Column(DateTime(timezone=True), server_default=func.now())
     
     # Relationships
-    user = relationship("User", foreign_keys=[user_id], backref="data_access_logs")
-    permission = relationship("DataPermission", back_populates="access_logs")
-    resource_type = relationship("DataResourceType", backref="access_logs") 
+    permission = relationship("Permission", back_populates="audit_logs")
+    changer = relationship("User", foreign_keys=[changed_by])
+
+# ============================================================================
+# HEALTH RECORD SPECIFIC PERMISSIONS
+# ============================================================================
+
+class HealthRecordPermission(Base):
+    """Specialized permissions for health record access by professionals"""
+    __tablename__ = "health_record_permissions"
+    
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    
+    # Permission Details
+    patient_id = Column(Integer, ForeignKey("users.id"), nullable=False)  # Patient whose records are being accessed
+    professional_id = Column(Integer, ForeignKey("users.id"), nullable=False)  # Professional requesting access
+    
+    # Permission Scope
+    can_view_health_records = Column(Boolean, default=False)
+    can_view_medical_history = Column(Boolean, default=False)
+    can_view_health_plans = Column(Boolean, default=False)
+    can_view_medications = Column(Boolean, default=False)
+    can_view_appointments = Column(Boolean, default=False)
+    can_view_messages = Column(Boolean, default=False)
+    can_view_lab_results = Column(Boolean, default=False)
+    can_view_imaging = Column(Boolean, default=False)
+    
+    # Permission Context
+    granted_for = Column(String(100))  # "appointment_123", "ongoing_care", "consultation"
+    expires_at = Column(DateTime)  # When permission expires
+    
+    # Status
+    is_active = Column(Boolean, default=True)
+    
+    # Audit fields
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    granted_by = Column(Integer, ForeignKey("users.id"), nullable=False)  # Usually the patient
+    
+    # Relationships
+    patient = relationship("User", foreign_keys=[patient_id], back_populates="health_record_permissions_given")
+    professional = relationship("User", foreign_keys=[professional_id], back_populates="health_record_permissions_received")
+    granter = relationship("User", foreign_keys=[granted_by], back_populates="health_record_permissions_granted")
+
+# ============================================================================
+# DOCUMENT SPECIFIC PERMISSIONS (Legacy - will be replaced by general Permission table)
+# ============================================================================
+
+class DocumentPermission(Base):
+    """Document-specific permissions (legacy - will be replaced by general Permission table)"""
+    __tablename__ = "document_permissions"
+    
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    document_id = Column(Integer, ForeignKey("documents.id"), nullable=False)
+    
+    # Permission Target
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)  # User getting permission
+    permission_type = Column(Enum(PermissionLevel), nullable=False)
+    
+    # Permission Context
+    granted_by = Column(Integer, ForeignKey("users.id"), nullable=False)  # Who granted the permission
+    granted_for = Column(String(100))  # Context: "appointment_123", "health_record", etc.
+    
+    # Permission Scope
+    can_view = Column(Boolean, default=False)
+    can_download = Column(Boolean, default=False)
+    can_edit = Column(Boolean, default=False)
+    can_delete = Column(Boolean, default=False)
+    can_share = Column(Boolean, default=False)
+    
+    # Permission Details
+    expires_at = Column(DateTime)  # When permission expires (NULL = never)
+    notes = Column(Text)  # Notes about this permission
+    
+    # Status
+    is_active = Column(Boolean, default=True)
+    
+    # Audit fields
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # Relationships
+    document = relationship("Document", back_populates="permissions")
+    user = relationship("User", foreign_keys=[user_id], back_populates="document_permissions")
+    granter = relationship("User", foreign_keys=[granted_by], back_populates="granted_permissions") 
