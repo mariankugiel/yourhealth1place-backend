@@ -228,7 +228,7 @@ class HealthRecord(Base):
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)  # User who owns and created this record
     section_id = Column(Integer, ForeignKey("health_record_sections.id"), nullable=False)
     metric_id = Column(Integer, ForeignKey("health_record_metrics.id"), nullable=False)
-    value = Column(JSON, nullable=False)  # Flexible for numbers, objects, arrays
+    value = Column(Float, nullable=False)  # Direct numeric value storage
     status = Column(String(50))  # "normal", "abnormal", "excellent"
     source = Column(String(100))  # "ios_app", "manual_entry", "lab_result", "apple_watch", "fitbit"
     recorded_at = Column(DateTime, nullable=False)  # When measurement was taken

@@ -21,7 +21,7 @@ from app.models.health_record import (
 class HealthRecordBase(BaseModel):
     section_id: int
     metric_id: int
-    value: Dict[str, Any] = Field(..., description="Flexible JSON value for the health metric")
+    value: float = Field(..., description="Numeric value for the health metric")
     status: Optional[str] = Field(None, description="Status like normal, abnormal, excellent")
     source: Optional[str] = Field(None, description="Source like ios_app, manual_entry, lab_result")
     recorded_at: datetime = Field(..., description="When the measurement was taken")
@@ -36,7 +36,7 @@ class HealthRecordCreate(HealthRecordBase):
 class HealthRecordUpdate(BaseModel):
     section_id: Optional[int] = None
     metric_id: Optional[int] = None
-    value: Optional[Dict[str, Any]] = None
+    value: Optional[float] = None
     status: Optional[str] = None
     source: Optional[str] = None
     recorded_at: Optional[datetime] = None
@@ -365,7 +365,7 @@ class BodyCompositionValue(BaseModel):
 class MetricTrendData(BaseModel):
     """Schema for metric trend data"""
     id: int
-    value: Dict[str, Any]
+    value: float
     status: Optional[str] = None
     recorded_at: datetime
     source: Optional[str] = None
@@ -379,7 +379,7 @@ class MetricSummary(BaseModel):
     default_unit: Optional[str] = None
     recent_records: int
     total_records: int
-    latest_value: Optional[Dict[str, Any]] = None
+    latest_value: Optional[float] = None
     latest_status: Optional[str] = None
     latest_recorded_at: Optional[datetime] = None
 
@@ -402,7 +402,7 @@ class PaginationInfo(BaseModel):
 class MetricRecordResponse(BaseModel):
     """Schema for individual metric record response"""
     id: int
-    value: Dict[str, Any]
+    value: float
     status: Optional[str] = None
     source: Optional[str] = None
     recorded_at: datetime
@@ -446,7 +446,7 @@ class RecentRecord(BaseModel):
     id: int
     section_id: int
     metric_id: int
-    value: Dict[str, Any]
+    value: float
     status: Optional[str] = None
     recorded_at: datetime
     source: Optional[str] = None
