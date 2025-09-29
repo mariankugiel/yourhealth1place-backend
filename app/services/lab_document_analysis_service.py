@@ -698,10 +698,13 @@ class LabDocumentAnalysisService:
             metric = await self._get_or_create_metric(db, user_id, section.id, record_data)
             
             # Create health record
+            # Extract numeric value from the record data
+            numeric_value = self._extract_numeric_value_from_record(record_data["value"])
+            
             health_record_data = HealthRecordCreate(
                 section_id=section.id,
                 metric_id=metric.id,
-                value={"value": float(record_data["value"]) if record_data["value"].replace(".", "").replace(",", "").isdigit() else record_data["value"]},
+                value=numeric_value,
                 status=self._determine_status(record_data["value"], record_data.get("reference", "")),
                 recorded_at=self._parse_date(record_data["date_of_value"]),
                 source="lab_document_upload"
@@ -789,8 +792,9 @@ class LabDocumentAnalysisService:
             tmp_metric = health_record_metric_template_crud.get_by_section_and_name(db, tmp_section.id, metric_name)
             
             if not tmp_metric:
-                # Parse reference range
-                normal_range_min, normal_range_max = self._parse_reference_range(record_data.get("reference", ""))
+                # Parse reference range using new format
+                reference_data = self._parse_reference_range_new(record_data.get("reference", ""))
+                original_reference = record_data.get("reference", "")
                 
                 # Create in template table
                 tmp_metric_data = {
@@ -800,15 +804,15 @@ class LabDocumentAnalysisService:
                     "description": f"Lab metric: {record_data['metric_name']}",
                     "default_unit": record_data.get("unit", ""),
                     "data_type": "number" if record_data["value"].replace(".", "").replace(",", "").isdigit() else "text",
-                    "normal_range_min": normal_range_min,
-                    "normal_range_max": normal_range_max,
+                    "original_reference": original_reference,
+                    "reference_data": reference_data,
                     "is_active": True,
                     "is_default": False,
                     "created_by": user_id,
                     "created_at": datetime.utcnow()
                 }
                 tmp_metric = health_record_metric_template_crud.create(db, tmp_metric_data)
-                logger.info(f"Created new template metric: {tmp_metric.display_name} with range {normal_range_min}-{normal_range_max}")
+                logger.info(f"Created new template metric: {tmp_metric.display_name} with reference: {original_reference}")
             
             # Then, ensure metric exists in main table for UI
             existing_metric = db.query(HealthRecordMetric).filter(
@@ -817,16 +821,19 @@ class LabDocumentAnalysisService:
             ).first()
             
             if not existing_metric:
-                # Parse reference range
-                normal_range_min, normal_range_max = self._parse_reference_range(record_data.get("reference", ""))
+                # Parse reference range using new format
+                reference_data = self._parse_reference_range_new(record_data.get("reference", ""))
+                original_reference = record_data.get("reference", "")
                 
-                # Create threshold object for main table
+                # Create threshold object for main table (backward compatibility)
                 threshold = None
-                if normal_range_min is not None or normal_range_max is not None:
-                    threshold = {
-                        "min": normal_range_min,
-                        "max": normal_range_max
-                    }
+                if reference_data and reference_data.get("male"):
+                    male_range = reference_data["male"]
+                    if male_range.get("min") is not None or male_range.get("max") is not None:
+                        threshold = {
+                            "min": male_range.get("min"),
+                            "max": male_range.get("max")
+                        }
                 
                 # Create in main table
                 metric_data = HealthRecordMetricCreate(
@@ -894,6 +901,161 @@ class LabDocumentAnalysisService:
         except Exception as e:
             logger.error(f"Error parsing reference range '{reference_str}': {e}")
             return None, None
+
+    def _parse_reference_range_new(self, reference_str: str) -> Dict[str, Any]:
+        """
+        Parse reference range string into structured data using new format.
+        Returns format: {"male": {"min": value, "max": value}, "female": {"min": value, "max": value}}
+        """
+        if not reference_str or not reference_str.strip():
+            return {"male": {"min": None, "max": None}, "female": {"min": None, "max": None}}
+        
+        try:
+            ref_clean = reference_str.strip().lower()
+            
+            # Handle gender-specific ranges
+            if "men:" in ref_clean and "female:" in ref_clean:
+                return self._parse_gender_specific_range(ref_clean)
+            
+            # Parse simple range and apply to both genders
+            parsed_range = self._parse_simple_range(ref_clean)
+            return {
+                "male": parsed_range,
+                "female": parsed_range
+            }
+            
+        except Exception as e:
+            logger.error(f"Error parsing reference range '{reference_str}': {e}")
+            return {"male": {"min": None, "max": None}, "female": {"min": None, "max": None}}
+
+    def _parse_gender_specific_range(self, ref_str: str) -> Dict[str, Any]:
+        """Parse gender-specific reference ranges"""
+        result = {"male": {"min": None, "max": None}, "female": {"min": None, "max": None}}
+        
+        # Extract male values
+        male_match = re.search(r'men:\s*([^,]+)', ref_str)
+        if male_match:
+            male_ref = male_match.group(1).strip()
+            result["male"] = self._parse_simple_range(male_ref)
+        
+        # Extract female values
+        female_match = re.search(r'female:\s*([^,]+)', ref_str)
+        if female_match:
+            female_ref = female_match.group(1).strip()
+            result["female"] = self._parse_simple_range(female_ref)
+        
+        return result
+
+    def _parse_simple_range(self, ref_str: str) -> Dict[str, Any]:
+        """Parse simple reference range without gender"""
+        ref_clean = ref_str.strip()
+        
+        # Extract numeric value and operator, ignoring units
+        numeric_value = self._extract_numeric_value(ref_clean)
+        if numeric_value is None:
+            logger.warning(f"Could not extract numeric value from: '{ref_str}'")
+            return {"min": None, "max": None}
+        
+        # Handle range format: "7-9" -> min: 7, max: 9
+        if "-" in ref_clean and not ref_clean.startswith("<") and not ref_clean.startswith(">"):
+            parts = ref_clean.split("-")
+            if len(parts) == 2:
+                try:
+                    min_val = self._extract_numeric_value(parts[0])
+                    max_val = self._extract_numeric_value(parts[1])
+                    if min_val is not None and max_val is not None:
+                        return {"min": min_val, "max": max_val}
+                except ValueError:
+                    pass
+        
+        # Handle >95% -> min: 95.01, max: null
+        elif ref_clean.startswith(">"):
+            return {"min": numeric_value + 0.01, "max": None}
+        
+        # Handle >=2 -> min: 2, max: null
+        elif ref_clean.startswith(">="):
+            return {"min": numeric_value, "max": None}
+        
+        # Handle <94 -> min: null, max: 93.99
+        elif ref_clean.startswith("<") and not ref_clean.startswith("<="):
+            return {"min": None, "max": numeric_value - 0.01}
+        
+        # Handle <=2 -> min: null, max: 2
+        elif ref_clean.startswith("<="):
+            return {"min": None, "max": numeric_value}
+        
+        # Try to parse as single number
+        return {"min": numeric_value, "max": numeric_value}
+
+    def _extract_numeric_value(self, text: str) -> Optional[float]:
+        """Extract numeric value from text, ignoring units like %, cm, etc."""
+        import re
+        # Find the first number in the text (including decimals)
+        match = re.search(r'-?\d+\.?\d*', text)
+        if match:
+            return float(match.group())
+        return None
+
+    def _extract_numeric_value_from_record(self, value: Any) -> float:
+        """Extract numeric value from record data, handling both dict and direct values"""
+        try:
+            # If value is already a number
+            if isinstance(value, (int, float)):
+                return float(value)
+            
+            # If value is a string, try to extract numeric value
+            if isinstance(value, str):
+                # Clean the string and extract numeric value (handles operators like <, >, etc.)
+                cleaned = value.replace(",", ".").strip()
+                
+                # Try to parse as float first (for simple numbers)
+                try:
+                    return float(cleaned)
+                except ValueError:
+                    # If that fails, extract numeric value using regex (handles operators)
+                    numeric_value = self._extract_numeric_value(cleaned)
+                    if numeric_value is not None:
+                        return numeric_value
+                    else:
+                        # If still no numeric value found, try to parse the string differently
+                        # Handle cases like "< 0.13" -> extract "0.13"
+                        import re
+                        match = re.search(r'-?\d+\.?\d*', cleaned)
+                        if match:
+                            return float(match.group())
+                        else:
+                            logger.warning(f"Could not extract numeric value from string: {value}")
+                            return 0.0
+            
+            # If value is a dict with 'value' key (old format)
+            if isinstance(value, dict) and 'value' in value:
+                return self._extract_numeric_value_from_record(value['value'])
+            
+            # If value is a dict with other structure, try to find numeric values
+            if isinstance(value, dict):
+                for key, val in value.items():
+                    if isinstance(val, (int, float)):
+                        return float(val)
+                    elif isinstance(val, str):
+                        # Recursively try to extract from string values
+                        try:
+                            return self._extract_numeric_value_from_record(val)
+                        except:
+                            continue
+            
+            # Fallback: try to convert to string and extract numeric value
+            str_value = str(value)
+            numeric_value = self._extract_numeric_value(str_value)
+            if numeric_value is not None:
+                return numeric_value
+            
+            # If all else fails, return 0
+            logger.warning(f"Could not extract numeric value from: {value}, using 0")
+            return 0.0
+            
+        except Exception as e:
+            logger.error(f"Error extracting numeric value from {value}: {e}")
+            return 0.0
 
     def _parse_date(self, date_str: str) -> datetime:
         """Parse date string in multiple formats"""

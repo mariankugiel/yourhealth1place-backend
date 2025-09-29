@@ -112,8 +112,8 @@ class HealthRecordMetricTemplateCreate(BaseModel):
     display_name: str
     description: Optional[str] = None
     default_unit: Optional[str] = None
-    normal_range_min: Optional[float] = None
-    normal_range_max: Optional[float] = None
+    original_reference: Optional[str] = None
+    reference_data: Optional[Dict[str, Any]] = None
     data_type: str = "number"
 
 class HealthRecordMetricTemplateUpdate(BaseModel):
@@ -121,8 +121,8 @@ class HealthRecordMetricTemplateUpdate(BaseModel):
     display_name: Optional[str] = None
     description: Optional[str] = None
     default_unit: Optional[str] = None
-    normal_range_min: Optional[float] = None
-    normal_range_max: Optional[float] = None
+    original_reference: Optional[str] = None
+    reference_data: Optional[Dict[str, Any]] = None
     data_type: Optional[str] = None
     is_active: Optional[bool] = None
 
@@ -133,8 +133,8 @@ class HealthRecordMetricTemplateResponse(BaseModel):
     display_name: str
     description: Optional[str] = None
     default_unit: Optional[str] = None
-    normal_range_min: Optional[float] = None
-    normal_range_max: Optional[float] = None
+    original_reference: Optional[str] = None
+    reference_data: Optional[Dict[str, Any]] = None
     data_type: str
     is_active: bool
     created_by: int

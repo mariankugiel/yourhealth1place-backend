@@ -116,12 +116,15 @@ async def register(registration_data: UserRegistration, db: Session = Depends(ge
         
         # Extract profile data for Supabase storage
         profile_data = {
+            "email": registration_data.email,  # Store email in profile for easy access
             "full_name": registration_data.full_name,
             "date_of_birth": registration_data.date_of_birth,
             "phone_number": registration_data.phone_number,
             "address": registration_data.address,
+            "country": registration_data.country,
             "emergency_contact_name": registration_data.emergency_contact_name,
             "emergency_contact_phone": registration_data.emergency_contact_phone,
+            "emergency_contact_relationship": registration_data.emergency_contact_relationship,
             "gender": registration_data.gender,
             "blood_type": registration_data.blood_type,
             "allergies": registration_data.allergies,

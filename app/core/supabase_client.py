@@ -157,8 +157,8 @@ class SupabaseService:
             # Use user token if provided, otherwise use service role
             client = self._get_user_client(user_token) if user_token else self.client
             
-            # Store in user_profiles table with individual columns
-            response = client.table("user_profiles").insert({
+            # Use upsert to insert or update existing record
+            response = client.table("user_profiles").upsert({
                 "user_id": user_id,
                 **profile  # Store each field as individual column
             }).execute()
@@ -173,17 +173,39 @@ class SupabaseService:
             # Use user token if provided, otherwise use service role
             client = self._get_user_client(user_token) if user_token else self.client
             
-            # Select all columns except user_id and system columns
-            response = client.table("user_profiles").select("*").eq("user_id", user_id).execute()
-            if response.data and len(response.data) > 0:
-                profile_data = response.data[0]
+            # Get profile data from user_profiles table
+            profile_response = client.table("user_profiles").select("*").eq("user_id", user_id).execute()
+            profile_data = {}
+            
+            if profile_response.data and len(profile_response.data) > 0:
+                profile_data = profile_response.data[0]
                 # Remove system columns and user_id
                 profile_data.pop("id", None)
                 profile_data.pop("user_id", None)
                 profile_data.pop("created_at", None)
                 profile_data.pop("updated_at", None)
-                return profile_data if profile_data else {}
-            return {}  # Return empty dict instead of None
+            
+            # Get email from auth.users table using admin client
+            try:
+                # Use admin client to get user by ID
+                admin_client = self.client
+                user_response = admin_client.auth.admin.get_user_by_id(user_id)
+                if user_response.user and user_response.user.email:
+                    profile_data["email"] = user_response.user.email
+                    logger.info(f"Successfully retrieved email for user {user_id}")
+                else:
+                    logger.warning(f"No email found for user {user_id}")
+            except Exception as admin_error:
+                logger.warning(f"Could not get email from admin auth: {admin_error}")
+                # Try to get email from profile data if it was stored there
+                if "email" in profile_data and profile_data["email"]:
+                    logger.info(f"Using email from profile data for user {user_id}")
+                else:
+                    logger.warning(f"No email available for user {user_id}")
+                    # If we can't get email from auth, we'll return profile without email
+                    # The frontend should handle this case gracefully
+            
+            return profile_data if profile_data else {}
         except Exception as e:
             logger.error(f"Supabase get user profile error: {e}")
             return {}  # Return empty dict instead of None
@@ -194,18 +216,11 @@ class SupabaseService:
             # Use user token if provided, otherwise use service role
             client = self._get_user_client(user_token) if user_token else self.client
             
-            # First check if profile exists
-            existing_response = client.table("user_profiles").select("id").eq("user_id", user_id).execute()
-            
-            if existing_response.data and len(existing_response.data) > 0:
-                # Update existing profile with individual columns
-                response = client.table("user_profiles").update(profile).eq("user_id", user_id).execute()
-            else:
-                # Create new profile with individual columns
-                response = client.table("user_profiles").insert({
-                    "user_id": user_id,
-                    **profile
-                }).execute()
+            # Use upsert to insert or update existing record
+            response = client.table("user_profiles").upsert({
+                "user_id": user_id,
+                **profile
+            }).execute()
             
             # Return the updated profile data
             if response.data and len(response.data) > 0:
