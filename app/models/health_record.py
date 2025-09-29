@@ -39,11 +39,12 @@ class BodyMetric(str, enum.Enum):
     BODY_COMPOSITION = "body_composition"
 
 class MedicalConditionStatus(str, enum.Enum):
-    ACTIVE = "Active"
-    RESOLVED = "Resolved"
-    CHRONIC = "Chronic"
-    REMISSION = "Remission"
-    DECEASED = "Deceased"
+    CONTROLLED = "controlled"
+    PARTIALLY_CONTROLLED = "partiallyControlled"
+    UNCONTROLLED = "uncontrolled"
+    RESOLVED = "resolved"
+    REMISSION = "remission"
+    DECEASED = "deceased"
 
 class FamilyHistoryStatus(str, enum.Enum):
     ALIVE = "Alive"

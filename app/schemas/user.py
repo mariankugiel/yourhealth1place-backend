@@ -40,12 +40,15 @@ class TokenData(BaseModel):
 
 # Schema for personal data (stored in Supabase)
 class UserProfile(BaseModel):
+    email: Optional[str] = None
     full_name: Optional[str] = None
     date_of_birth: Optional[str] = None  # ISO format string
     phone_number: Optional[str] = None
     address: Optional[str] = None
+    country: Optional[str] = None
     emergency_contact_name: Optional[str] = None
     emergency_contact_phone: Optional[str] = None
+    emergency_contact_relationship: Optional[str] = None
     gender: Optional[str] = None
     blood_type: Optional[str] = None
     allergies: Optional[str] = None
@@ -70,8 +73,10 @@ class UserRegistration(BaseModel):
     date_of_birth: Optional[str] = None  # ISO format string
     phone_number: Optional[str] = None
     address: Optional[str] = None
+    country: Optional[str] = None
     emergency_contact_name: Optional[str] = None
     emergency_contact_phone: Optional[str] = None
+    emergency_contact_relationship: Optional[str] = None
     gender: Optional[str] = None
     blood_type: Optional[str] = None
     allergies: Optional[str] = None

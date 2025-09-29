@@ -157,10 +157,36 @@ async def register(registration_data: UserRegistration, db: Session = Depends(ge
         
     except Exception as e:
         logger.error(f"Registration error: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Registration failed"
-        )
+        
+        # Check for specific error types and return appropriate messages
+        error_message = str(e).lower()
+        
+        if "user already registered" in error_message or "email already exists" in error_message or "duplicate" in error_message:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="An account with this email already exists. Please try logging in instead."
+            )
+        elif "invalid email" in error_message or "email format" in error_message:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Please enter a valid email address."
+            )
+        elif "password" in error_message and ("weak" in error_message or "short" in error_message):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Password must be at least 6 characters long."
+            )
+        elif "network" in error_message or "connection" in error_message:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Unable to connect to authentication service. Please try again later."
+            )
+        else:
+            # Generic error for unknown issues
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Registration failed. Please try again."
+            )
 
 @router.post("/login", response_model=Token)
 async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
@@ -197,10 +223,41 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = 
         
     except Exception as e:
         logger.error(f"Login error: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Login failed"
-        )
+        
+        # Check for specific error types and return appropriate messages
+        error_message = str(e).lower()
+        
+        if "invalid credentials" in error_message or "incorrect password" in error_message:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Incorrect email or password. Please check your credentials and try again."
+            )
+        elif "user not found" in error_message or "email not found" in error_message:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="No account found with this email address. Please sign up first."
+            )
+        elif "email not confirmed" in error_message or "verify" in error_message:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Please check your email and click the confirmation link before logging in."
+            )
+        elif "too many requests" in error_message or "rate limit" in error_message:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many login attempts. Please wait a few minutes before trying again."
+            )
+        elif "network" in error_message or "connection" in error_message:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Unable to connect to authentication service. Please try again later."
+            )
+        else:
+            # Generic error for unknown issues
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Login failed. Please check your credentials and try again."
+            )
 
 @router.get("/profile", response_model=UserProfile)
 async def get_user_profile(
