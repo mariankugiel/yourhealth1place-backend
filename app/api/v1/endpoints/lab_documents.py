@@ -37,6 +37,9 @@ class BulkLabRecordsRequest(BaseModel):
 async def upload_and_analyze_lab_document(
     file: UploadFile = File(..., description="Lab report PDF file"),
     description: Optional[str] = Form(None, description="Optional description for the document"),
+    doc_date: Optional[str] = Form(None, description="Document date"),
+    doc_type: Optional[str] = Form(None, description="Document type"),
+    provider: Optional[str] = Form(None, description="Healthcare provider"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -92,7 +95,13 @@ async def upload_and_analyze_lab_document(
             "message": "Lab document analyzed successfully",
             "s3_url": s3_url,
             "lab_data": lab_data,
-            "extracted_records_count": len(lab_data)
+            "extracted_records_count": len(lab_data),
+            "form_data": {
+                "doc_date": doc_date,
+                "doc_type": doc_type,
+                "provider": provider,
+                "description": description
+            }
         }
         
     except HTTPException:

@@ -469,10 +469,11 @@ class HealthRecordImageBase(BaseModel):
     image_date: datetime = Field(..., description="When the image was taken/created")
     findings: ImageFindings = Field(..., description="Findings from the image analysis")
     conclusions: Optional[str] = Field(None, description="Text input for conclusions/notes")
+    interpretation: Optional[str] = Field(None, description="Medical interpretation of the image")
+    notes: Optional[str] = Field(None, description="Additional notes about the exam")
 
 class HealthRecordImageCreate(HealthRecordImageBase):
     """Schema for creating a new health record image (metadata only)"""
-    interpretation: Optional[str] = Field(None, description="Medical interpretation of the image")
     doctor_name: Optional[str] = Field(None, description="Name of the doctor who analyzed the image")
     doctor_number: Optional[str] = Field(None, description="Doctor's license/ID number")
     original_filename: str = Field(..., description="Original filename of the uploaded file")
@@ -498,6 +499,8 @@ class HealthRecordImageUpdate(BaseModel):
     image_date: Optional[datetime] = None
     findings: Optional[ImageFindings] = None
     conclusions: Optional[str] = None
+    interpretation: Optional[str] = None
+    notes: Optional[str] = None
 
 class HealthRecordImageResponse(HealthRecordImageBase):
     """Schema for health record image response"""
@@ -525,6 +528,8 @@ class HealthRecordImageSummary(BaseModel):
     image_date: datetime
     findings: ImageFindings
     conclusions: Optional[str] = None
+    interpretation: Optional[str] = None
+    notes: Optional[str] = None
     original_filename: str
     content_type: str
     file_size_bytes: int

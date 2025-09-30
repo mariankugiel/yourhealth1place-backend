@@ -615,11 +615,19 @@ class LabDocumentAnalysisService:
         """Parse date string in various formats to datetime object"""
         if not date_str:
             return None
+        
+        # First try ISO format (most common from HTML date inputs)
+        try:
+            # Handle ISO date format (YYYY-MM-DD)
+            if len(date_str) == 10 and date_str.count('-') == 2:
+                return datetime.strptime(date_str, '%Y-%m-%d')
+        except ValueError:
+            pass
             
         # Common date formats to try
         date_formats = [
+            '%Y-%m-%d',  # 2024-09-27 (ISO format)
             '%d-%m-%Y',  # 27-09-2024
-            '%Y-%m-%d',  # 2024-09-27
             '%d/%m/%Y',  # 27/09/2024
             '%Y/%m/%d',  # 2024/09/27
             '%d.%m.%Y',  # 27.09.2024
@@ -632,7 +640,7 @@ class LabDocumentAnalysisService:
             except ValueError:
                 continue
         
-        # If all formats fail, try to parse as ISO format
+        # If all formats fail, try to parse as ISO format with timezone
         try:
             return datetime.fromisoformat(date_str.replace('Z', '+00:00'))
         except ValueError:

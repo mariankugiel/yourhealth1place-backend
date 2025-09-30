@@ -336,6 +336,7 @@ class HealthRecordImage(Base):
     findings = Column(Enum(ImageFindings), nullable=False)  # No Findings, Low Risk Findings, Relevant Findings
     conclusions = Column(Text)  # Text input for conclusions/notes
     interpretation = Column(Text)  # Medical interpretation of the image
+    notes = Column(Text)  # Additional notes about the exam
     
     # Doctor Information
     doctor_name = Column(String(200))  # Name of the doctor who analyzed the image
