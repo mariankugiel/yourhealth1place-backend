@@ -7,7 +7,7 @@ class ProfessionalAvailabilitySchedule(Base):
     __tablename__ = "professional_availability_schedules"
     
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    professional_id = Column(Integer, ForeignKey("professionals.id"), nullable=False)
+    professional_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     location_id = Column(Integer, ForeignKey("professional_locations.id"), nullable=False)
     
     # Schedule Type
@@ -32,14 +32,14 @@ class ProfessionalAvailabilitySchedule(Base):
     updated_by = Column(Integer, ForeignKey("users.id"))
     
     # Relationships
-    professional = relationship("Professional", backref="availability_schedules")
+    professional = relationship("User", foreign_keys=[professional_id], backref="availability_schedules")
     location = relationship("ProfessionalLocation", back_populates="availability_schedules")
 
 class ProfessionalAppointmentSlot(Base):
     __tablename__ = "professional_appointment_slots"
     
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    professional_id = Column(Integer, ForeignKey("professionals.id"), nullable=False)
+    professional_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     location_id = Column(Integer, ForeignKey("professional_locations.id"), nullable=False)
     appointment_type_id = Column(Integer, ForeignKey("appointment_types.id"), nullable=False)
     
@@ -67,7 +67,7 @@ class ProfessionalAppointmentSlot(Base):
     updated_by = Column(Integer, ForeignKey("users.id"))
     
     # Relationships
-    professional = relationship("Professional", backref="appointment_slots")
+    professional = relationship("User", foreign_keys=[professional_id], backref="appointment_slots")
     location = relationship("ProfessionalLocation", back_populates="appointment_slots")
     appointment_type = relationship("AppointmentType", back_populates="slots")
     appointment = relationship("Appointment", backref="slot") 

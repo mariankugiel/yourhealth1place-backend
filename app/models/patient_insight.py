@@ -24,8 +24,8 @@ class PatientInsight(Base):
     __tablename__ = "patient_insights"
 
     id = Column(Integer, primary_key=True, index=True)
-    patient_id = Column(Integer, ForeignKey("patients.id"))
-    professional_id = Column(Integer, ForeignKey("professionals.id"))
+    patient_id = Column(Integer, ForeignKey("users.id"))
+    professional_id = Column(Integer, ForeignKey("users.id"))
     
     # Insight Information
     insight_type = Column(Enum(InsightType), nullable=False)
@@ -62,8 +62,8 @@ class PatientInsight(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
     # Relationships
-    patient = relationship("Patient", backref="insights")
-    professional = relationship("Professional")
+    patient = relationship("User", foreign_keys=[patient_id], backref="insights")
+    professional = relationship("User", foreign_keys=[professional_id], backref="professional_insights")
     related_health_record = relationship("HealthRecord")
     related_appointment = relationship("Appointment")
     

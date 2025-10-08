@@ -7,7 +7,7 @@ class ProfessionalLocation(Base):
     __tablename__ = "professional_locations"
     
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    practice_id = Column(Integer, ForeignKey("professional_practices.id"), nullable=False)
+    practice_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     
     # Location Details
     location_name = Column(String(255), nullable=False)  # "Main Office", "Downtown Branch", "Home Office"
@@ -45,7 +45,7 @@ class ProfessionalLocation(Base):
     updated_by = Column(Integer, ForeignKey("users.id"))
     
     # Relationships
-    practice = relationship("ProfessionalPractice", back_populates="locations")
+    practice = relationship("User", foreign_keys=[practice_id], backref="professional_locations")
     availability_schedules = relationship("ProfessionalAvailabilitySchedule", back_populates="location")
     appointment_slots = relationship("ProfessionalAppointmentSlot", back_populates="location")
     appointments = relationship("Appointment", back_populates="location") 

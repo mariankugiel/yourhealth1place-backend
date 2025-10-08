@@ -24,8 +24,8 @@ class ManualAppointment(Base):
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     
     # Basic Appointment Info
-    patient_id = Column(Integer, ForeignKey("patients.id"), nullable=False)
-    professional_id = Column(Integer, ForeignKey("professionals.id"), nullable=False)
+    patient_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    professional_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     location_id = Column(Integer, ForeignKey("professional_locations.id"))  # Optional - if known
     
     # Appointment Details
@@ -54,8 +54,8 @@ class ManualAppointment(Base):
     updated_by = Column(Integer, ForeignKey("users.id"))
     
     # Relationships
-    patient = relationship("Patient", backref="manual_appointments")
-    professional = relationship("Professional", backref="manual_appointments")
+    patient = relationship("User", foreign_keys=[patient_id], backref="patient_manual_appointments")
+    professional = relationship("User", foreign_keys=[professional_id], backref="professional_manual_appointments")
     location = relationship("ProfessionalLocation", backref="manual_appointments")
     appointments = relationship("Appointment", back_populates="manual_appointment")
 
@@ -66,8 +66,8 @@ class Appointment(Base):
     
     # Basic Appointment Info
     appointment_type_id = Column(Integer, ForeignKey("appointment_types.id"), nullable=False)
-    patient_id = Column(Integer, ForeignKey("patients.id"), nullable=False)
-    professional_id = Column(Integer, ForeignKey("professionals.id"), nullable=False)
+    patient_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    professional_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     location_id = Column(Integer, ForeignKey("professional_locations.id"), nullable=False)
     
     # Health Plan and Documents
@@ -137,8 +137,8 @@ class Appointment(Base):
     
     # Relationships
     appointment_type = relationship("AppointmentType", backref="appointments")
-    patient = relationship("Patient", backref="appointments")
-    professional = relationship("Professional", backref="appointments")
+    patient = relationship("User", foreign_keys=[patient_id], backref="patient_appointments")
+    professional = relationship("User", foreign_keys=[professional_id], backref="professional_appointments")
     location = relationship("ProfessionalLocation", back_populates="appointments")
     health_plan = relationship("HealthPlan", back_populates="appointments")
     appointment_type_pricing = relationship("AppointmentTypePricing", backref="appointments")

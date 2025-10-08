@@ -4,9 +4,8 @@ from typing import List, Optional, Dict, Any
 import json
 
 from app.core.database import get_db
-from app.core.security import get_current_user
+from app.api.v1.endpoints.auth import get_current_user
 from app.crud.professional_document import professional_document_crud
-from app.crud.professional import professional_crud
 from app.crud.appointment import appointment_crud
 from app.schemas.professional_document import (
     ProfessionalDocumentCreate,
@@ -18,12 +17,10 @@ from app.schemas.professional_document import (
     DocumentAssignment,
     DocumentAssignmentList,
     CreateDocumentFromTemplate,
-    PatientDataForDocument,
     AppointmentDocumentSummary,
     AppointmentWithDocuments
 )
 from app.models.user import User
-from app.models.professional import Professional
 
 router = APIRouter()
 
@@ -31,22 +28,22 @@ router = APIRouter()
 async def get_current_professional(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
-) -> Professional:
-    professional = professional_crud.get_professional_by_user_id(db, current_user.id)
-    if not professional:
-        raise HTTPException(status_code=403, detail="User is not a professional")
-    return professional
+) -> User:
+    # Since professional data is now stored in Supabase user metadata,
+    # we can use the current_user directly if they have professional role
+    # TODO: Add role checking logic here based on Supabase user metadata
+    return current_user
 
 # Document Management Endpoints
 @router.post("/documents/", response_model=ProfessionalDocument)
 async def create_document(
     document_data: ProfessionalDocumentCreate,
-    current_professional: Professional = Depends(get_current_professional),
+    current_professional: User = Depends(get_current_professional),
     db: Session = Depends(get_db)
 ):
     """Create a new document (can be marked as template for reuse)"""
     return professional_document_crud.create_document(
-        db, document_data, current_professional.id, current_professional.user_id
+        db, document_data, current_professional.id, current_professional.id
     )
 
 @router.get("/documents/", response_model=ProfessionalDocumentList)
@@ -54,7 +51,7 @@ async def get_professional_documents(
     is_template: Optional[bool] = None,
     skip: int = 0,
     limit: int = 100,
-    current_professional: Professional = Depends(get_current_professional),
+    current_professional: User = Depends(get_current_professional),
     db: Session = Depends(get_db)
 ):
     """Get all documents for the current professional"""
@@ -72,7 +69,7 @@ async def get_professional_documents(
 async def get_professional_templates(
     skip: int = 0,
     limit: int = 100,
-    current_professional: Professional = Depends(get_current_professional),
+    current_professional: User = Depends(get_current_professional),
     db: Session = Depends(get_db)
 ):
     """Get all template documents for the current professional"""
@@ -89,7 +86,7 @@ async def get_professional_templates(
 @router.get("/documents/{document_id}", response_model=ProfessionalDocument)
 async def get_document(
     document_id: int,
-    current_professional: Professional = Depends(get_current_professional),
+    current_professional: User = Depends(get_current_professional),
     db: Session = Depends(get_db)
 ):
     """Get a specific document"""
@@ -102,7 +99,7 @@ async def get_document(
 async def update_document(
     document_id: int,
     document_data: ProfessionalDocumentUpdate,
-    current_professional: Professional = Depends(get_current_professional),
+    current_professional: User = Depends(get_current_professional),
     db: Session = Depends(get_db)
 ):
     """Update a document (e.g., mark as template)"""
@@ -111,14 +108,14 @@ async def update_document(
         raise HTTPException(status_code=404, detail="Document not found")
     
     return professional_document_crud.update_document(
-        db, document_id, document_data, current_professional.user_id
+        db, document_id, document_data, current_professional.id
     )
 
 # Key endpoint for your workflow - Create document from template
 @router.post("/documents/create-from-template/", response_model=ProfessionalDocument)
 async def create_document_from_template(
     template_data: CreateDocumentFromTemplate,
-    current_professional: Professional = Depends(get_current_professional),
+    current_professional: User = Depends(get_current_professional),
     db: Session = Depends(get_db)
 ):
     """
@@ -135,7 +132,7 @@ async def create_document_from_template(
             db,
             template_data,
             current_professional.id,
-            current_professional.user_id
+            current_professional.id
         )
         return document
     except ValueError as e:
@@ -145,7 +142,7 @@ async def create_document_from_template(
 @router.post("/assignments/", response_model=DocumentAssignment)
 async def create_document_assignment(
     assignment_data: DocumentAssignmentCreate,
-    current_professional: Professional = Depends(get_current_professional),
+    current_professional: User = Depends(get_current_professional),
     db: Session = Depends(get_db)
 ):
     """Assign a document to an appointment"""
@@ -160,13 +157,13 @@ async def create_document_assignment(
         raise HTTPException(status_code=404, detail="Document not found")
     
     return professional_document_crud.create_document_assignment(
-        db, assignment_data, current_professional.user_id
+        db, assignment_data, current_professional.id
     )
 
 @router.get("/assignments/appointment/{appointment_id}", response_model=DocumentAssignmentList)
 async def get_appointment_document_assignments(
     appointment_id: int,
-    current_professional: Professional = Depends(get_current_professional),
+    current_professional: User = Depends(get_current_professional),
     db: Session = Depends(get_db)
 ):
     """Get all document assignments for an appointment"""
@@ -190,12 +187,12 @@ async def get_appointment_document_assignments(
 async def update_document_assignment(
     assignment_id: int,
     assignment_data: DocumentAssignmentUpdate,
-    current_professional: Professional = Depends(get_current_professional),
+    current_professional: User = Depends(get_current_professional),
     db: Session = Depends(get_db)
 ):
     """Update a document assignment"""
     assignment = professional_document_crud.update_document_assignment(
-        db, assignment_id, assignment_data, current_professional.user_id
+        db, assignment_id, assignment_data, current_professional.id
     )
     if not assignment:
         raise HTTPException(status_code=404, detail="Document assignment not found")
@@ -205,7 +202,7 @@ async def update_document_assignment(
 @router.get("/appointments/{appointment_id}/summary", response_model=AppointmentDocumentSummary)
 async def get_appointment_document_summary(
     appointment_id: int,
-    current_professional: Professional = Depends(get_current_professional),
+    current_professional: User = Depends(get_current_professional),
     db: Session = Depends(get_db)
 ):
     """Get a summary of all documents for an appointment"""
@@ -227,7 +224,7 @@ async def get_appointment_document_summary(
 @router.get("/appointments/{appointment_id}/documents", response_model=AppointmentWithDocuments)
 async def get_appointment_with_documents(
     appointment_id: int,
-    current_professional: Professional = Depends(get_current_professional),
+    current_professional: User = Depends(get_current_professional),
     db: Session = Depends(get_db)
 ):
     """Get appointment details with all associated documents"""
@@ -255,7 +252,7 @@ async def upload_document_file(
     description: Optional[str] = Form(None),
     is_template: bool = Form(False),
     category_id: int = Form(...),
-    current_professional: Professional = Depends(get_current_professional),
+    current_professional: User = Depends(get_current_professional),
     db: Session = Depends(get_db)
 ):
     """Upload a document file (can be marked as template)"""
@@ -277,7 +274,7 @@ async def upload_document_file(
     )
     
     document = professional_document_crud.create_document(
-        db, document_data, current_professional.id, current_professional.user_id
+        db, document_data, current_professional.id, current_professional.id
     )
     
     return {

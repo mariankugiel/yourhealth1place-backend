@@ -413,15 +413,9 @@ class HealthRecordPermissionService:
             
             # Get lab results if permitted
             if permission.can_view_lab_results:
-                lab_documents = document_crud.get_by_category(db, patient_id, "lab_results")
-                result["data"]["lab_results"] = [
-                    {
-                        "id": doc.id,
-                        "title": doc.title,
-                        "file_name": doc.file_name,
-                        "created_at": doc.created_at
-                    } for doc in lab_documents
-                ]
+                # Lab documents now handled through health_record_doc_lab
+                # lab_documents = document_crud.get_by_category(db, patient_id, "lab_results")
+                result["data"]["lab_results"] = []  # TODO: Implement using health_record_doc_lab
             
             # Get imaging if permitted
             if permission.can_view_imaging:

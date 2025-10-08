@@ -4,14 +4,14 @@ from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime, timedelta
 from app.models.health_record import (
     HealthRecord, MedicalCondition, FamilyMedicalHistory, 
-    MedicalDocument, HealthRecordSection, HealthRecordMetric, HealthRecordType, HealthRecordImage
+    HealthRecordDocLab, HealthRecordSection, HealthRecordMetric, HealthRecordType, HealthRecordDocExam
 )
 from app.models.health_metrics import HealthRecordSectionTemplate, HealthRecordMetricTemplate
 from app.schemas.health_record import (
     HealthRecordCreate, HealthRecordUpdate, HealthRecordFilter,
     MedicalConditionCreate, MedicalConditionUpdate,
     FamilyMedicalHistoryCreate, FamilyMedicalHistoryUpdate,
-    MedicalDocumentCreate, MedicalDocumentUpdate
+    HealthRecordDocLabCreate, HealthRecordDocLabUpdate
 )
 import logging
 
@@ -20,9 +20,32 @@ logger = logging.getLogger(__name__)
 class HealthRecordCRUD:
     """CRUD operations for HealthRecord model"""
     
-    def create(self, db: Session, health_record: HealthRecordCreate, user_id: int) -> HealthRecord:
-        """Create a new health record"""
+    def create(self, db: Session, health_record: HealthRecordCreate, user_id: int) -> tuple[HealthRecord, bool]:
+        """Create a new health record with duplicate detection. Returns (record, was_created_new)"""
         try:
+            # Check for duplicate values on the same date/hour
+            duplicate_record = self._check_duplicate_record(
+                db, user_id, health_record.metric_id, health_record.recorded_at
+            )
+            
+            if duplicate_record:
+                # Update existing record instead of creating new one
+                duplicate_record.value = health_record.value
+                duplicate_record.status = health_record.status
+                duplicate_record.source = health_record.source
+                duplicate_record.device_id = health_record.device_id
+                duplicate_record.device_info = health_record.device_info
+                duplicate_record.accuracy = health_record.accuracy
+                duplicate_record.location_data = health_record.location_data
+                duplicate_record.updated_at = func.now()
+                
+                db.commit()
+                db.refresh(duplicate_record)
+                
+                logger.info(f"Updated duplicate health record {duplicate_record.id} for user {user_id}")
+                return duplicate_record, False  # False = was not created new, was updated
+            
+            # Create new record if no duplicate found
             db_health_record = HealthRecord(
                 created_by=user_id,
                 section_id=health_record.section_id,
@@ -42,12 +65,38 @@ class HealthRecordCRUD:
             db.refresh(db_health_record)
             
             logger.info(f"Created health record {db_health_record.id} for user {user_id}")
-            return db_health_record
+            return db_health_record, True  # True = was created new
             
         except Exception as e:
             logger.error(f"Failed to create health record: {e}")
             db.rollback()
             raise
+    
+    def _check_duplicate_record(
+        self, 
+        db: Session, 
+        user_id: int, 
+        metric_id: int, 
+        recorded_at: datetime
+    ) -> Optional[HealthRecord]:
+        """Check for duplicate records on the same date/hour"""
+        try:
+            # Round recorded_at to the nearest hour for comparison
+            recorded_hour = recorded_at.replace(minute=0, second=0, microsecond=0)
+            next_hour = recorded_hour + timedelta(hours=1)
+            
+            return db.query(HealthRecord).filter(
+                and_(
+                    HealthRecord.created_by == user_id,
+                    HealthRecord.metric_id == metric_id,
+                    HealthRecord.recorded_at >= recorded_hour,
+                    HealthRecord.recorded_at < next_hour
+                )
+            ).first()
+            
+        except Exception as e:
+            logger.error(f"Failed to check for duplicate record: {e}")
+            return None
     
     def get_by_id(self, db: Session, record_id: int, user_id: int) -> Optional[HealthRecord]:
         """Get health record by ID for a specific user"""
@@ -474,25 +523,23 @@ class FamilyMedicalHistoryCRUD:
             db.rollback()
             return False
 
-class MedicalDocumentCRUD:
-    """CRUD operations for MedicalDocument model"""
+class HealthRecordDocLabCRUD:
+    """CRUD operations for HealthRecordDocLab model"""
     
-    def create(self, db: Session, document: MedicalDocumentCreate, user_id: int) -> MedicalDocument:
+    def create(self, db: Session, document: HealthRecordDocLabCreate, user_id: int) -> HealthRecordDocLab:
         """Create a new medical document"""
         try:
-            db_document = MedicalDocument(
+            db_document = HealthRecordDocLab(
                 created_by=user_id,
                 health_record_type_id=document.health_record_type_id,
-                document_type=document.document_type,
-                lab_test_name=document.lab_test_name,
-                lab_test_type=document.lab_test_type,
+                lab_doc_type=document.lab_doc_type,
                 lab_test_date=document.lab_test_date,
                 provider=document.provider,
                 file_name=document.file_name,
                 s3_url=document.s3_url,
                 file_type=document.file_type,
                 description=document.description,
-                source=document.source
+                general_doc_type=document.general_doc_type
             )
             
             db.add(db_document)
@@ -507,13 +554,13 @@ class MedicalDocumentCRUD:
             db.rollback()
             raise
     
-    def get_by_id(self, db: Session, document_id: int, user_id: int) -> Optional[MedicalDocument]:
+    def get_by_id(self, db: Session, document_id: int, user_id: int) -> Optional[HealthRecordDocLab]:
         """Get medical document by ID for a specific user"""
         try:
-            return db.query(MedicalDocument).filter(
+            return db.query(HealthRecordDocLab).filter(
                 and_(
-                    MedicalDocument.id == document_id,
-                    MedicalDocument.created_by == user_id
+                    HealthRecordDocLab.id == document_id,
+                    HealthRecordDocLab.created_by == user_id
                 )
             ).first()
         except Exception as e:
@@ -526,12 +573,12 @@ class MedicalDocumentCRUD:
         user_id: int, 
         skip: int = 0, 
         limit: int = 100
-    ) -> List[MedicalDocument]:
+    ) -> List[HealthRecordDocLab]:
         """Get medical documents for a specific user"""
         try:
-            return db.query(MedicalDocument).filter(
-                MedicalDocument.created_by == user_id
-            ).order_by(desc(MedicalDocument.created_at)).offset(skip).limit(limit).all()
+            return db.query(HealthRecordDocLab).filter(
+                HealthRecordDocLab.created_by == user_id
+            ).order_by(desc(HealthRecordDocLab.created_at)).offset(skip).limit(limit).all()
         except Exception as e:
             logger.error(f"Failed to get medical documents for user {user_id}: {e}")
             return []
@@ -540,9 +587,9 @@ class MedicalDocumentCRUD:
         self, 
         db: Session, 
         document_id: int, 
-        document_update: MedicalDocumentUpdate, 
+        document_update: HealthRecordDocLabUpdate, 
         user_id: int
-    ) -> Optional[MedicalDocument]:
+    ) -> Optional[HealthRecordDocLab]:
         """Update a medical document record"""
         try:
             db_document = self.get_by_id(db, document_id, user_id)
@@ -551,6 +598,15 @@ class MedicalDocumentCRUD:
             
             update_data = document_update.dict(exclude_unset=True)
             update_data['updated_by'] = user_id
+            
+            # Handle date string conversion if lab_test_date is provided
+            if 'lab_test_date' in update_data and update_data['lab_test_date']:
+                from app.utils.date_utils import parse_date_string
+                try:
+                    parsed_date = parse_date_string(update_data['lab_test_date'])
+                    update_data['lab_test_date'] = parsed_date
+                except Exception as date_error:
+                    logger.warning(f"Could not parse date string '{update_data['lab_test_date']}': {date_error}")
             
             for field, value in update_data.items():
                 setattr(db_document, field, value)
@@ -766,11 +822,14 @@ class HealthRecordSectionCRUD:
             if not db_section:
                 return False
             
+            # Determine if this is a user-created section or admin template
+            is_user_created = not db_section.is_default
+            
             # First, get all metrics in this section
             from app.models.health_record import HealthRecordMetric, HealthRecord
             metrics = db.query(HealthRecordMetric).filter(
                 HealthRecordMetric.section_id == section_id
-            ).all()
+            ).order_by(HealthRecordMetric.name.asc()).all()
             
             total_deleted_records = 0
             
@@ -788,6 +847,43 @@ class HealthRecordSectionCRUD:
                 # Delete the metric itself
                 db.delete(metric)
                 logger.info(f"Deleted metric {metric.id} from section {section_id}")
+            
+            # Handle template cleanup based on section type
+            if db_section.section_template_id:
+                from app.models.health_metrics import HealthRecordMetricTemplate, HealthRecordSectionTemplate
+                
+                if is_user_created:
+                    # For user-created sections: delete from both normal and template tables
+                    logger.info(f"Deleting user-created section {section_id} from both normal and template tables")
+                    
+                    # Delete user-created metric templates
+                    user_metric_templates = db.query(HealthRecordMetricTemplate).filter(
+                        and_(
+                            HealthRecordMetricTemplate.section_template_id == db_section.section_template_id,
+                            HealthRecordMetricTemplate.created_by == user_id,
+                            HealthRecordMetricTemplate.is_default == False  # User-created templates
+                        )
+                    ).all()
+                    
+                    for metric_template in user_metric_templates:
+                        db.delete(metric_template)
+                        logger.info(f"Deleted user-created metric template {metric_template.id}")
+                    
+                    # Delete user-created section template
+                    section_template = db.query(HealthRecordSectionTemplate).filter(
+                        and_(
+                            HealthRecordSectionTemplate.id == db_section.section_template_id,
+                            HealthRecordSectionTemplate.created_by == user_id,
+                            HealthRecordSectionTemplate.is_default == False  # User-created template
+                        )
+                    ).first()
+                    
+                    if section_template:
+                        db.delete(section_template)
+                        logger.info(f"Deleted user-created section template {section_template.id}")
+                else:
+                    # For admin template sections: delete from normal table only
+                    logger.info(f"Deleting admin template section {section_id} from normal table only")
             
             # Finally, delete the section itself
             db.delete(db_section)
@@ -813,6 +909,7 @@ class HealthRecordMetricCRUD:
         try:
             db_metric = HealthRecordMetric(
                 section_id=metric_data.section_id,
+                metric_tmp_id=metric_data.metric_tmp_id,
                 name=metric_data.name,
                 display_name=metric_data.display_name,
                 description=metric_data.description,
@@ -848,7 +945,7 @@ class HealthRecordMetricCRUD:
         try:
             return db.query(HealthRecordMetric).filter(
                 HealthRecordMetric.section_id == section_id
-            ).offset(skip).limit(limit).all()
+            ).order_by(HealthRecordMetric.name.asc()).offset(skip).limit(limit).all()
         except Exception as e:
             logger.error(f"Failed to get metrics for section {section_id}: {e}")
             return []
@@ -905,6 +1002,9 @@ class HealthRecordMetricCRUD:
             if not db_metric:
                 return False
             
+            # Determine if this is a user-created metric or admin template
+            is_user_created = not db_metric.is_default
+            
             # First, delete all health records associated with this metric
             from app.models.health_record import HealthRecord
             health_records = db.query(HealthRecord).filter(
@@ -915,7 +1015,32 @@ class HealthRecordMetricCRUD:
                 db.delete(record)
                 logger.info(f"Deleted health record {record.id} associated with metric {metric_id}")
             
-            # Then delete the metric itself
+            # Handle template cleanup based on metric type
+            if is_user_created:
+                # For user-created metrics: delete from both normal and template tables
+                logger.info(f"Deleting user-created metric {metric_id} from both normal and template tables")
+                
+                # Delete the corresponding metric template using metric_tmp_id
+                if db_metric.metric_tmp_id:
+                    from app.models.health_metrics import HealthRecordMetricTemplate
+                    metric_template = db.query(HealthRecordMetricTemplate).filter(
+                        and_(
+                            HealthRecordMetricTemplate.id == db_metric.metric_tmp_id,
+                            HealthRecordMetricTemplate.created_by == user_id,
+                            HealthRecordMetricTemplate.is_default == False  # User-created template
+                        )
+                    ).first()
+                    
+                    if metric_template:
+                        db.delete(metric_template)
+                        logger.info(f"Deleted user-created metric template {metric_template.id}")
+                else:
+                    logger.warning(f"User-created metric {metric_id} has no metric_tmp_id - cannot delete template")
+            else:
+                # For admin template metrics: delete from normal table only
+                logger.info(f"Deleting admin template metric {metric_id} from normal table only")
+            
+            # Delete the metric itself
             db.delete(db_metric)
             db.commit()
             
@@ -963,10 +1088,10 @@ class HealthRecordSectionMetricCRUD:
             
             sections_with_metrics = []
             for section in sections:
-                # Get metrics for this section
+                # Get metrics for this section - order by name to maintain consistent order
                 metrics = db.query(HealthRecordMetric).filter(
                     HealthRecordMetric.section_id == section.id
-                ).all()
+                ).order_by(HealthRecordMetric.name.asc()).all()
                 
                 # Get section statistics
                 total_records = db.query(func.count(HealthRecord.id)).filter(
@@ -1152,10 +1277,10 @@ class HealthRecordSectionMetricCRUD:
             sections_with_metrics = []
             for section in sections_with_data:
                 
-                # Get metrics for this section
+                # Get metrics for this section - order by name to maintain consistent order
                 metrics = db.query(HealthRecordMetric).filter(
                     HealthRecordMetric.section_id == section.id
-                ).all()
+                ).order_by(HealthRecordMetric.name.asc()).all()
                 
                 # Get section statistics
                 total_records = db.query(func.count(HealthRecord.id)).filter(
@@ -1302,12 +1427,12 @@ class HealthRecordSectionMetricCRUD:
 # HEALTH RECORD IMAGE CRUD
 # ============================================================================
 
-class HealthRecordImageCRUD:
-    """CRUD operations for HealthRecordImage model"""
+class HealthRecordDocExamCRUD:
+    """CRUD operations for HealthRecordDocExam model"""
     
-    def create_image(self, db: Session, image_data: dict, user_id: int) -> HealthRecordImage:
+    def create_image(self, db: Session, image_data: dict, user_id: int) -> HealthRecordDocExam:
         """Create a new health record image"""
-        db_image = HealthRecordImage(
+        db_image = HealthRecordDocExam(
             created_by=user_id,
             **image_data
         )
@@ -1316,11 +1441,11 @@ class HealthRecordImageCRUD:
         db.refresh(db_image)
         return db_image
     
-    def get_image_by_id(self, db: Session, image_id: int, user_id: int) -> Optional[HealthRecordImage]:
+    def get_image_by_id(self, db: Session, image_id: int, user_id: int) -> Optional[HealthRecordDocExam]:
         """Get a specific image by ID for a user"""
-        return db.query(HealthRecordImage).filter(
-            HealthRecordImage.id == image_id,
-            HealthRecordImage.created_by == user_id
+        return db.query(HealthRecordDocExam).filter(
+            HealthRecordDocExam.id == image_id,
+            HealthRecordDocExam.created_by == user_id
         ).first()
     
     def get_user_images(
@@ -1332,20 +1457,20 @@ class HealthRecordImageCRUD:
         image_type: Optional[str] = None,
         body_part: Optional[str] = None,
         findings: Optional[str] = None
-    ) -> List[HealthRecordImage]:
+    ) -> List[HealthRecordDocExam]:
         """Get paginated images for a user with optional filters"""
-        query = db.query(HealthRecordImage).filter(HealthRecordImage.created_by == user_id)
+        query = db.query(HealthRecordDocExam).filter(HealthRecordDocExam.created_by == user_id)
         
         # Apply filters
         if image_type:
-            query = query.filter(HealthRecordImage.image_type == image_type)
+            query = query.filter(HealthRecordDocExam.image_type == image_type)
         if body_part:
-            query = query.filter(HealthRecordImage.body_part.ilike(f"%{body_part}%"))
+            query = query.filter(HealthRecordDocExam.body_part.ilike(f"%{body_part}%"))
         if findings:
-            query = query.filter(HealthRecordImage.findings == findings)
+            query = query.filter(HealthRecordDocExam.findings == findings)
         
         # Order by most recent first
-        query = query.order_by(HealthRecordImage.image_date.desc())
+        query = query.order_by(HealthRecordDocExam.image_date.desc())
         
         return query.offset(skip).limit(limit).all()
     
@@ -1355,7 +1480,7 @@ class HealthRecordImageCRUD:
         image_id: int, 
         user_id: int, 
         update_data: dict
-    ) -> Optional[HealthRecordImage]:
+    ) -> Optional[HealthRecordDocExam]:
         """Update an existing image"""
         db_image = self.get_image_by_id(db, image_id, user_id)
         if not db_image:
@@ -1380,53 +1505,53 @@ class HealthRecordImageCRUD:
         db.commit()
         return True
     
-    def get_images_by_type(self, db: Session, user_id: int, image_type: str) -> List[HealthRecordImage]:
+    def get_images_by_type(self, db: Session, user_id: int, image_type: str) -> List[HealthRecordDocExam]:
         """Get all images of a specific type for a user"""
-        return db.query(HealthRecordImage).filter(
-            HealthRecordImage.created_by == user_id,
-            HealthRecordImage.image_type == image_type
-        ).order_by(HealthRecordImage.image_date.desc()).all()
+        return db.query(HealthRecordDocExam).filter(
+            HealthRecordDocExam.created_by == user_id,
+            HealthRecordDocExam.image_type == image_type
+        ).order_by(HealthRecordDocExam.image_date.desc()).all()
     
-    def get_images_by_body_part(self, db: Session, user_id: int, body_part: str) -> List[HealthRecordImage]:
+    def get_images_by_body_part(self, db: Session, user_id: int, body_part: str) -> List[HealthRecordDocExam]:
         """Get all images for a specific body part for a user"""
-        return db.query(HealthRecordImage).filter(
-            HealthRecordImage.created_by == user_id,
-            HealthRecordImage.body_part.ilike(f"%{body_part}%")
-        ).order_by(HealthRecordImage.image_date.desc()).all()
+        return db.query(HealthRecordDocExam).filter(
+            HealthRecordDocExam.created_by == user_id,
+            HealthRecordDocExam.body_part.ilike(f"%{body_part}%")
+        ).order_by(HealthRecordDocExam.image_date.desc()).all()
     
-    def get_recent_images(self, db: Session, user_id: int, limit: int = 10) -> List[HealthRecordImage]:
+    def get_recent_images(self, db: Session, user_id: int, limit: int = 10) -> List[HealthRecordDocExam]:
         """Get recent images for a user"""
-        return db.query(HealthRecordImage).filter(
-            HealthRecordImage.created_by == user_id
-        ).order_by(HealthRecordImage.created_at.desc()).limit(limit).all()
+        return db.query(HealthRecordDocExam).filter(
+            HealthRecordDocExam.created_by == user_id
+        ).order_by(HealthRecordDocExam.created_at.desc()).limit(limit).all()
     
     def get_image_statistics(self, db: Session, user_id: int) -> dict:
         """Get statistics about user's images"""
-        total_images = db.query(HealthRecordImage).filter(
-            HealthRecordImage.created_by == user_id
+        total_images = db.query(HealthRecordDocExam).filter(
+            HealthRecordDocExam.created_by == user_id
         ).count()
         
         # Count by image type
         type_counts = db.query(
-            HealthRecordImage.image_type,
-            func.count(HealthRecordImage.id)
+            HealthRecordDocExam.image_type,
+            func.count(HealthRecordDocExam.id)
         ).filter(
-            HealthRecordImage.created_by == user_id
-        ).group_by(HealthRecordImage.image_type).all()
+            HealthRecordDocExam.created_by == user_id
+        ).group_by(HealthRecordDocExam.image_type).all()
         
         # Count by findings
         findings_counts = db.query(
-            HealthRecordImage.findings,
-            func.count(HealthRecordImage.id)
+            HealthRecordDocExam.findings,
+            func.count(HealthRecordDocExam.id)
         ).filter(
-            HealthRecordImage.created_by == user_id
-        ).group_by(HealthRecordImage.findings).all()
+            HealthRecordDocExam.created_by == user_id
+        ).group_by(HealthRecordDocExam.findings).all()
         
         # Recent activity (last 30 days)
         thirty_days_ago = datetime.utcnow() - timedelta(days=30)
-        recent_images = db.query(HealthRecordImage).filter(
-            HealthRecordImage.created_by == user_id,
-            HealthRecordImage.created_at >= thirty_days_ago
+        recent_images = db.query(HealthRecordDocExam).filter(
+            HealthRecordDocExam.created_by == user_id,
+            HealthRecordDocExam.created_at >= thirty_days_ago
         ).count()
         
         return {
@@ -1440,12 +1565,12 @@ class HealthRecordImageCRUD:
 health_record_crud = HealthRecordCRUD()
 medical_condition_crud = MedicalConditionCRUD()
 family_medical_history_crud = FamilyMedicalHistoryCRUD()
-medical_document_crud = MedicalDocumentCRUD()
+health_record_doc_lab_crud = HealthRecordDocLabCRUD()
 health_record_type_crud = HealthRecordTypeCRUD()
 health_record_section_crud = HealthRecordSectionCRUD()
 health_record_metric_crud = HealthRecordMetricCRUD()
 health_record_section_metric_crud = HealthRecordSectionMetricCRUD()
-health_record_image_crud = HealthRecordImageCRUD()
+health_record_doc_exam_crud = HealthRecordDocExamCRUD()
 
 # ============================================================================
 # TEMPORARY TABLE CRUD OPERATIONS

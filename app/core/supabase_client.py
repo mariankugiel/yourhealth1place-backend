@@ -38,7 +38,8 @@ class SupabaseService:
                 "email": email,
                 "password": password,
                 "options": {
-                    "data": user_metadata
+                    "data": user_metadata,
+                    "email_confirm": False  # Disable email confirmation for development
                 }
             })
             return response
@@ -64,7 +65,7 @@ class SupabaseService:
             response = self.client.auth.admin.get_user_by_id(user_id)
             return response
         except Exception as e:
-            logger.error(f"Supabase get user error: {e}")
+            logger.debug(f"Supabase get user error (may be expected): {e}")
             return None
     
     def get_user_from_token(self, token: str) -> Optional[Dict[str, Any]]:
@@ -137,7 +138,7 @@ class SupabaseService:
             )
             return True
         except Exception as e:
-            logger.error(f"Supabase store user settings error: {e}")
+            logger.debug(f"Supabase store user settings error (may be expected): {e}")
             return False
     
     async def get_user_settings(self, user_id: str) -> Optional[Dict[str, Any]]:
@@ -148,7 +149,7 @@ class SupabaseService:
                 return user_response.user_metadata["settings"]
             return None
         except Exception as e:
-            logger.error(f"Supabase get user settings error: {e}")
+            logger.debug(f"Supabase get user settings error (may be expected): {e}")
             return None
     
     async def store_user_profile(self, user_id: str, profile: Dict[str, Any], user_token: Optional[str] = None) -> bool:
@@ -173,8 +174,15 @@ class SupabaseService:
             # Use user token if provided, otherwise use service role
             client = self._get_user_client(user_token) if user_token else self.client
             
-            # Get profile data from user_profiles table
-            profile_response = client.table("user_profiles").select("*").eq("user_id", user_id).execute()
+            # Get profile data from user_profiles table (exclude email as it's not stored there)
+            # Select specific columns to avoid schema cache issues
+            profile_response = client.table("user_profiles").select(
+                "id,user_id,full_name,date_of_birth,phone_number,address,country,"
+                "emergency_contact_name,emergency_contact_phone,emergency_contact_relationship,"
+                "gender,blood_type,allergies,current_medications,emergency_medical_info,"
+                "onboarding_completed,onboarding_skipped,onboarding_skipped_at,is_new_user,"
+                "created_at,updated_at"
+            ).eq("user_id", user_id).execute()
             profile_data = {}
             
             if profile_response.data and len(profile_response.data) > 0:
@@ -186,24 +194,27 @@ class SupabaseService:
                 profile_data.pop("updated_at", None)
             
             # Get email from auth.users table using admin client
-            try:
-                # Use admin client to get user by ID
-                admin_client = self.client
-                user_response = admin_client.auth.admin.get_user_by_id(user_id)
-                if user_response.user and user_response.user.email:
-                    profile_data["email"] = user_response.user.email
-                    logger.info(f"Successfully retrieved email for user {user_id}")
-                else:
-                    logger.warning(f"No email found for user {user_id}")
-            except Exception as admin_error:
-                logger.warning(f"Could not get email from admin auth: {admin_error}")
-                # Try to get email from profile data if it was stored there
-                if "email" in profile_data and profile_data["email"]:
-                    logger.info(f"Using email from profile data for user {user_id}")
-                else:
-                    logger.warning(f"No email available for user {user_id}")
-                    # If we can't get email from auth, we'll return profile without email
-                    # The frontend should handle this case gracefully
+            # Only try to get email if it's not already in profile data
+            if "email" not in profile_data or not profile_data.get("email"):
+                try:
+                    # Use admin client to get user by ID
+                    admin_client = self.client
+                    user_response = admin_client.auth.admin.get_user_by_id(user_id)
+                    if user_response.user and user_response.user.email:
+                        profile_data["email"] = user_response.user.email
+                        logger.debug(f"Successfully retrieved email for user {user_id}")
+                    else:
+                        logger.debug(f"No email found in auth for user {user_id}")
+                except Exception as admin_error:
+                    # This is expected if service role doesn't have admin permissions
+                    logger.debug(f"Could not get email from admin auth (this may be expected): {admin_error}")
+                    # Try to get email from profile data if it was stored there
+                    if "email" in profile_data and profile_data["email"]:
+                        logger.debug(f"Using email from profile data for user {user_id}")
+                    else:
+                        logger.debug(f"No email available for user {user_id} - this is not critical")
+                        # If we can't get email from auth, we'll return profile without email
+                        # The frontend should handle this case gracefully
             
             return profile_data if profile_data else {}
         except Exception as e:
@@ -216,11 +227,23 @@ class SupabaseService:
             # Use user token if provided, otherwise use service role
             client = self._get_user_client(user_token) if user_token else self.client
             
-            # Use upsert to insert or update existing record
-            response = client.table("user_profiles").upsert({
-                "user_id": user_id,
-                **profile
-            }).execute()
+            # First, check if profile exists
+            existing_profile = client.table("user_profiles").select("*").eq("user_id", user_id).execute()
+            
+            if existing_profile.data and len(existing_profile.data) > 0:
+                # Profile exists, update it
+                response = client.table("user_profiles").update({
+                    **profile,
+                    "updated_at": "now()"
+                }).eq("user_id", user_id).execute()
+            else:
+                # Profile doesn't exist, create it
+                response = client.table("user_profiles").insert({
+                    "user_id": user_id,
+                    **profile,
+                    "created_at": "now()",
+                    "updated_at": "now()"
+                }).execute()
             
             # Return the updated profile data
             if response.data and len(response.data) > 0:

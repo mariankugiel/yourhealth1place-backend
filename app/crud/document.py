@@ -12,7 +12,7 @@ from app.models.documents import (
 from app.models.permissions import (
     DocumentPermission, HealthRecordPermission
 )
-from app.models.s3_storage import S3StorageInfo
+# S3StorageInfo model removed during migration
 from app.schemas.document import (
     DocumentCreate, DocumentUpdate, DocumentPermissionCreate,
     DocumentShareCreate, DocumentAccessLogCreate
@@ -47,6 +47,50 @@ class DocumentCRUD:
             Document.owner_id == owner_id,
             Document.status != DocumentStatus.DELETED
         ).offset(skip).limit(limit).all()
+    
+    def check_duplicate_file(
+        self, 
+        db: Session, 
+        user_id: int, 
+        filename: str, 
+        file_size: int
+    ) -> Optional[Document]:
+        """Check for duplicate files by filename, extension, and size"""
+        try:
+            # Extract file extension
+            file_extension = filename.split('.')[-1].lower() if '.' in filename else ''
+            
+            # Check for exact filename match
+            exact_match = db.query(Document).filter(
+                and_(
+                    Document.owner_id == user_id,
+                    Document.file_name == filename,
+                    Document.status != DocumentStatus.DELETED
+                )
+            ).first()
+            
+            if exact_match:
+                return exact_match
+            
+            # Check for same size and extension
+            if file_size > 0 and file_extension:
+                size_extension_match = db.query(Document).filter(
+                    and_(
+                        Document.owner_id == user_id,
+                        Document.file_size == file_size,
+                        Document.file_name.endswith(f'.{file_extension}'),
+                        Document.status != DocumentStatus.DELETED
+                    )
+                ).first()
+                
+                if size_extension_match:
+                    return size_extension_match
+            
+            return None
+            
+        except Exception as e:
+            print(f"Error checking for duplicate file: {e}")
+            return None
     
     def get_by_category(self, db: Session, category: DocumentCategory, skip: int = 0, limit: int = 100) -> List[Document]:
         """Get documents by category"""

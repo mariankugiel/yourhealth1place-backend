@@ -1,74 +1,117 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Boolean, Enum
-from sqlalchemy.sql import func
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, JSON, ForeignKey, Enum
 from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
 from app.core.database import Base
 import enum
 
 class MessageType(str, enum.Enum):
-    GENERAL = "GENERAL"
-    TEXT = "TEXT"
-    # File types are now handled by Document system
-    # IMAGE, FILE, AUDIO, VIDEO removed - use Document.category instead
+    HEALTH_PLAN_SUPPORT = "health_plan_support"
+    MEDICATION_REMINDER = "medication_reminder"
+    APPOINTMENT_REMINDER = "appointment_reminder"
+    LAB_RESULTS = "lab_results"
+    DOCTOR_MESSAGE = "doctor_message"
+    SYSTEM_ANNOUNCEMENT = "system_announcement"
+    PRESCRIPTION_UPDATE = "prescription_update"
+    INSURANCE_UPDATE = "insurance_update"
+    GENERAL = "general"
+
+class MessagePriority(str, enum.Enum):
+    LOW = "low"
+    NORMAL = "normal"
+    HIGH = "high"
+    URGENT = "urgent"
 
 class MessageStatus(str, enum.Enum):
-    SENT = "SENT"
-    DELIVERED = "DELIVERED"
-    READ = "READ"
-    FAILED = "FAILED"
+    SENT = "sent"
+    DELIVERED = "delivered"
+    READ = "read"
+    FAILED = "failed"
+
+class SenderType(str, enum.Enum):
+    USER = "user"
+    DOCTOR = "doctor"
+    ADMIN = "admin"
+    SYSTEM = "system"
 
 class Message(Base):
     __tablename__ = "messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    conversation_id = Column(Integer, ForeignKey("conversations.id"), nullable=False)
+    sender_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    sender_name = Column(String(255), nullable=False)
+    sender_role = Column(String(100), nullable=False)
+    sender_type = Column(Enum(SenderType), nullable=False, default=SenderType.USER)
+    sender_avatar = Column(String(500), nullable=True)
     
-    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    content = Column(Text, nullable=False)
+    message_type = Column(Enum(MessageType), nullable=False, default=MessageType.GENERAL)
+    priority = Column(Enum(MessagePriority), nullable=False, default=MessagePriority.NORMAL)
+    status = Column(Enum(MessageStatus), nullable=False, default=MessageStatus.SENT)
     
-    # Message Participants
-    sender_id = Column(Integer, ForeignKey("users.id"), nullable=False)  # User ID of sender (can be system user for notifications)
-    receiver_id = Column(Integer, ForeignKey("users.id"), nullable=False)  # User ID of receiver
+    # Metadata for message-specific data
+    message_metadata = Column(JSON, nullable=True)
     
-    # Message Details
-    message_type = Column(String(20), nullable=False, default="TEXT")  # "TEXT", "IMAGE", "FILE", "AUDIO", "VIDEO"
-    content = Column(Text, nullable=False)  # Message content or file description
-    
-    # Message Category
-    category = Column(String(50), nullable=False, default="GENERAL")  # "GENERAL", "APPOINTMENT", "MEDICATION_REMINDER", "HEALTH_PLAN", "SYSTEM_NOTIFICATION", "EMERGENCY"
-    
-    # Message Status
-    status = Column(String(20), nullable=False, default="SENT")  # "SENT", "DELIVERED", "READ", "FAILED"
-    read_at = Column(DateTime)  # When message was read
-    
-    # Related Context
-    appointment_id = Column(Integer, ForeignKey("appointments.id"))  # Link to appointment if message is appointment-related
-    health_plan_id = Column(Integer, ForeignKey("health_plans.id"))  # Link to health plan if message is plan-related
-    task_id = Column(Integer, ForeignKey("tasks.id"))  # Link to task if message is task-related
-    goal_id = Column(Integer, ForeignKey("goals.id"))  # Link to goal if message is goal-related
-    
-    # External Integration
-    external_message_id = Column(String(255))  # ID from external messaging service if applicable
-    
-    # Audit fields
+    # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    read_at = Column(DateTime(timezone=True), nullable=True)
     
     # Relationships
-    sender = relationship("User", foreign_keys=[sender_id], backref="sent_messages")
-    receiver = relationship("User", foreign_keys=[receiver_id], backref="received_messages")
-    appointment = relationship("Appointment", backref="messages")
-    health_plan = relationship("HealthPlan", back_populates="messages")
-    task = relationship("Task", back_populates="messages")
-    goal = relationship("Goal", back_populates="messages")
+    conversation = relationship("Conversation", back_populates="messages")
+    sender = relationship("User", foreign_keys=[sender_id])
     documents = relationship("Document", back_populates="message")
-    
-    # Helper methods for document management
-    def has_attachments(self) -> bool:
-        """Check if message has any document attachments"""
-        return len(self.documents) > 0
-    
-    def get_attachments(self):
-        """Get all document attachments for this message"""
-        return [doc for doc in self.documents if doc.is_message_attachment]
-    
-    def get_attachment_count(self) -> int:
-        """Get count of document attachments"""
-        return len(self.get_attachments())
 
- 
+class Conversation(Base):
+    __tablename__ = "conversations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    contact_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    contact_name = Column(String(255), nullable=False)
+    contact_role = Column(String(100), nullable=False)
+    contact_avatar = Column(String(500), nullable=True)
+    contact_type = Column(Enum(SenderType), nullable=False, default=SenderType.USER)
+    
+    # Conversation metadata
+    is_archived = Column(Boolean, default=False)
+    is_pinned = Column(Boolean, default=False)
+    tags = Column(JSON, nullable=True)  # Array of tag strings
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    last_message_time = Column(DateTime(timezone=True), nullable=True)
+    
+    # Relationships
+    user = relationship("User", foreign_keys=[user_id])
+    contact = relationship("User", foreign_keys=[contact_id])
+    messages = relationship("Message", back_populates="conversation", cascade="all, delete-orphan")
+
+class MessageDeliveryLog(Base):
+    __tablename__ = "message_delivery_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    message_id = Column(Integer, ForeignKey("messages.id"), nullable=False)
+    delivery_method = Column(String(50), nullable=False)  # websocket, email, sms, push
+    status = Column(String(50), nullable=False)  # sent, delivered, failed
+    error_message = Column(Text, nullable=True)
+    delivered_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    # Relationships
+    message = relationship("Message")
+
+class MessageAction(Base):
+    __tablename__ = "message_actions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    message_id = Column(Integer, ForeignKey("messages.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    action_type = Column(String(50), nullable=False)  # taken, snooze, confirm, reschedule, etc.
+    action_data = Column(JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    # Relationships
+    message = relationship("Message")
+    user = relationship("User", foreign_keys=[user_id])

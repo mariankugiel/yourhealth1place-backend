@@ -7,7 +7,7 @@ class HealthPlan(Base):
     __tablename__ = "health_plans"
     
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    doctor_id = Column(Integer, ForeignKey("professionals.id"), nullable=False)  # Doctor who created the plan
+    doctor_id = Column(Integer, ForeignKey("users.id"), nullable=False)  # Doctor who created the plan
     title = Column(String(200), nullable=False)
     description = Column(Text)
     plan_type = Column(String(50), nullable=False)  # "treatment", "prevention", "rehabilitation", "lifestyle"
@@ -20,12 +20,11 @@ class HealthPlan(Base):
     updated_by = Column(Integer, ForeignKey("users.id"))
     
     # Relationships
-    doctor = relationship("Professional", back_populates="created_health_plans")
+    doctor = relationship("User", foreign_keys=[doctor_id], backref="created_health_plans")
     assignments = relationship("HealthPlanAssignment", back_populates="health_plan")
     goals = relationship("Goal", back_populates="health_plan")
     recommendations = relationship("HealthPlanRecommendation", back_populates="health_plan")
     appointments = relationship("Appointment", back_populates="health_plan")
-    messages = relationship("Message", back_populates="health_plan")
     tasks = relationship("Task", back_populates="health_plan")
     plan_progress = relationship("HealthPlanProgress", back_populates="health_plan")
 
@@ -34,8 +33,8 @@ class HealthPlanAssignment(Base):
     
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     health_plan_id = Column(Integer, ForeignKey("health_plans.id"), nullable=False)  # Link to doctor's plan
-    patient_id = Column(Integer, ForeignKey("patients.id"), nullable=False)  # Patient assigned to this plan
-    assigned_by = Column(Integer, ForeignKey("professionals.id"), nullable=False)  # Doctor who assigned the plan
+    patient_id = Column(Integer, ForeignKey("users.id"), nullable=False)  # Patient assigned to this plan
+    assigned_by = Column(Integer, ForeignKey("users.id"), nullable=False)  # Doctor who assigned the plan
     assigned_at = Column(DateTime(timezone=True), server_default=func.now())
     start_date = Column(Date, nullable=False)
     end_date = Column(Date)
@@ -46,8 +45,8 @@ class HealthPlanAssignment(Base):
     
     # Relationships
     health_plan = relationship("HealthPlan", back_populates="assignments")
-    patient = relationship("Patient", back_populates="health_plan_assignments")
-    assigned_by_professional = relationship("Professional", foreign_keys=[assigned_by])
+    patient = relationship("User", foreign_keys=[patient_id], backref="health_plan_assignments")
+    assigned_by_professional = relationship("User", foreign_keys=[assigned_by], backref="assigned_health_plans")
 
 class Goal(Base):
     __tablename__ = "goals"
@@ -81,14 +80,13 @@ class Goal(Base):
     tracking = relationship("GoalTracking", back_populates="goal")
     tracking_details = relationship("GoalTrackingDetail", back_populates="goal")
     tasks = relationship("Task", back_populates="goal")
-    messages = relationship("Message", back_populates="goal")
 
 class GoalTracking(Base):
     __tablename__ = "goal_tracking"
     
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     goal_id = Column(Integer, ForeignKey("goals.id"), nullable=False)
-    patient_id = Column(Integer, ForeignKey("patients.id"), nullable=False)
+    patient_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     tracking_date = Column(Date, nullable=False)  # The date being tracked
     target_count = Column(Integer, nullable=False)  # How many times should be done (e.g., 3)
     completed_count = Column(Integer, default=0)  # How many times actually done
@@ -100,7 +98,7 @@ class GoalTracking(Base):
     
     # Relationships
     goal = relationship("Goal", back_populates="tracking")
-    patient = relationship("Patient", back_populates="goal_tracking")
+    patient = relationship("User", foreign_keys=[patient_id], backref="goal_tracking")
     details = relationship("GoalTrackingDetail", back_populates="goal_tracking")
 
 class GoalTrackingDetail(Base):
@@ -109,7 +107,7 @@ class GoalTrackingDetail(Base):
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     goal_tracking_id = Column(Integer, ForeignKey("goal_tracking.id"), nullable=False)  # Link to goal_tracking
     goal_id = Column(Integer, ForeignKey("goals.id"), nullable=False)
-    patient_id = Column(Integer, ForeignKey("patients.id"), nullable=False)
+    patient_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     measurement_time = Column(DateTime, nullable=False)  # When this specific measurement was taken
     measurement_value = Column(JSON)  # The actual measurement value
     health_record_id = Column(Integer, ForeignKey("health_records.id"))  # Link to health_records if applicable
@@ -120,7 +118,7 @@ class GoalTrackingDetail(Base):
     # Relationships
     goal_tracking = relationship("GoalTracking", back_populates="details")
     goal = relationship("Goal", back_populates="tracking_details")
-    patient = relationship("Patient", back_populates="goal_tracking_details")
+    patient = relationship("User", foreign_keys=[patient_id], backref="goal_tracking_details")
     health_record = relationship("HealthRecord", back_populates="goal_tracking_details")
 
 class Task(Base):
@@ -153,14 +151,13 @@ class Task(Base):
     health_plan = relationship("HealthPlan", back_populates="tasks")
     tracking = relationship("TaskTracking", back_populates="task")
     tracking_details = relationship("TaskTrackingDetail", back_populates="task")
-    messages = relationship("Message", back_populates="task")
 
 class TaskTracking(Base):
     __tablename__ = "task_tracking"
     
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     task_id = Column(Integer, ForeignKey("tasks.id"), nullable=False)
-    patient_id = Column(Integer, ForeignKey("patients.id"), nullable=False)
+    patient_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     tracking_date = Column(Date, nullable=False)  # The date being tracked
     target_count = Column(Integer, nullable=False)  # How many times should be done today
     completed_count = Column(Integer, default=0)  # How many times actually done today
@@ -172,7 +169,7 @@ class TaskTracking(Base):
     
     # Relationships
     task = relationship("Task", back_populates="tracking")
-    patient = relationship("Patient", back_populates="task_tracking")
+    patient = relationship("User", foreign_keys=[patient_id], backref="task_tracking")
     details = relationship("TaskTrackingDetail", back_populates="task_tracking")
 
 class TaskTrackingDetail(Base):
@@ -181,7 +178,7 @@ class TaskTrackingDetail(Base):
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     task_tracking_id = Column(Integer, ForeignKey("task_tracking.id"), nullable=False)  # Link to task_tracking
     task_id = Column(Integer, ForeignKey("tasks.id"), nullable=False)
-    patient_id = Column(Integer, ForeignKey("patients.id"), nullable=False)
+    patient_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     completion_time = Column(DateTime, nullable=False)  # When this specific task was completed
     completion_value = Column(JSON)  # Any data about the completion (e.g., actual dosage taken)
     health_record_id = Column(Integer, ForeignKey("health_records.id"))  # Link to health_records if applicable
@@ -193,7 +190,7 @@ class TaskTrackingDetail(Base):
     # Relationships
     task_tracking = relationship("TaskTracking", back_populates="details")
     task = relationship("Task", back_populates="tracking_details")
-    patient = relationship("Patient", back_populates="task_tracking_details")
+    patient = relationship("User", foreign_keys=[patient_id], backref="task_tracking_details")
     health_record = relationship("HealthRecord", back_populates="task_tracking_details")
 
 class HealthPlanRecommendation(Base):

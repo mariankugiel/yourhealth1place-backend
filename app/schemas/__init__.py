@@ -1,5 +1,4 @@
 from .user import UserCreate, UserUpdate, UserResponse, UserLogin, Token
-from .patient import PatientCreate, PatientUpdate, PatientResponse
 from .appointment import AppointmentCreate, AppointmentUpdate, AppointmentResponse
 from .health_record import (
     # Base Health Record
@@ -9,7 +8,7 @@ from .health_record import (
     # Family Medical History
     FamilyMedicalHistoryCreate, FamilyMedicalHistoryUpdate, FamilyMedicalHistoryResponse,
     # Medical Documents
-    MedicalDocumentCreate, MedicalDocumentUpdate, MedicalDocumentResponse,
+    HealthRecordDocLabCreate, HealthRecordDocLabUpdate, HealthRecordDocLabResponse,
     # Health Record Types
     HealthRecordTypeCreate, HealthRecordTypeUpdate, HealthRecordTypeResponse,
     # Health Record Sections
@@ -17,17 +16,17 @@ from .health_record import (
     # Health Record Metrics
     HealthRecordMetricCreate, HealthRecordMetricUpdate, HealthRecordMetricResponse,
     # Composite Schemas
-    HealthRecordWithDetails, MedicalConditionWithDetails, FamilyMedicalHistoryWithDetails, MedicalDocumentWithDetails,
+    HealthRecordWithDetails, MedicalConditionWithDetails, FamilyMedicalHistoryWithDetails, HealthRecordDocLabWithDetails,
     # Bulk Operations
     BulkHealthRecordCreate, BulkHealthRecordResponse,
     # Health Record Images
-    HealthRecordImageCreate, HealthRecordImageUpdate, HealthRecordImageResponse, HealthRecordImageSummary,
+    HealthRecordDocExamCreate, HealthRecordDocExamUpdate, HealthRecordDocExamResponse, HealthRecordDocExamSummary,
     # Statistics and Analytics
     MetricRecordResponse, PaginatedImageResponse
 )
 from .medication import MedicationCreate, MedicationUpdate, MedicationResponse
-from .message import MessageCreate, MessageUpdate, MessageResponse
-from .professional import ProfessionalCreate, ProfessionalUpdate, Professional, ProfessionalList
+from .message import MessageCreate, MessageUpdate, Message
+# Professional schemas removed - data now stored in Supabase user metadata
 from .health_plan import HealthPlanCreate, HealthPlanUpdate, HealthPlan, HealthPlanList
 from .patient_insight import PatientInsightCreate, PatientInsightUpdate, PatientInsight, PatientInsightList
 from .statistics import ProfessionalStatistics, DashboardStatistics
@@ -66,17 +65,17 @@ __all__ = [
     "HealthRecordCreate", "HealthRecordUpdate", "HealthRecordResponse",
     "MedicalConditionCreate", "MedicalConditionUpdate", "MedicalConditionResponse",
     "FamilyMedicalHistoryCreate", "FamilyMedicalHistoryUpdate", "FamilyMedicalHistoryResponse",
-    "MedicalDocumentCreate", "MedicalDocumentUpdate", "MedicalDocumentResponse",
+    "HealthRecordDocLabCreate", "HealthRecordDocLabUpdate", "HealthRecordDocLabResponse",
     "HealthRecordTypeCreate", "HealthRecordTypeUpdate", "HealthRecordTypeResponse",
     "HealthRecordSectionCreate", "HealthRecordSectionUpdate", "HealthRecordSectionResponse",
     "HealthRecordMetricCreate", "HealthRecordMetricUpdate", "HealthRecordMetricResponse",
-    "HealthRecordWithDetails", "MedicalConditionWithDetails", "FamilyMedicalHistoryWithDetails", "MedicalDocumentWithDetails",
+    "HealthRecordWithDetails", "MedicalConditionWithDetails", "FamilyMedicalHistoryWithDetails", "HealthRecordDocLabWithDetails",
     "BulkHealthRecordCreate", "BulkHealthRecordResponse",
-    "HealthRecordImageCreate", "HealthRecordImageUpdate", "HealthRecordImageResponse", "HealthRecordImageSummary",
+    "HealthRecordDocExamCreate", "HealthRecordDocExamUpdate", "HealthRecordDocExamResponse", "HealthRecordDocExamSummary",
     "MetricRecordResponse", "PaginatedImageResponse",
     # Other Schemas
     "MedicationCreate", "MedicationUpdate", "MedicationResponse",
-    "MessageCreate", "MessageUpdate", "MessageResponse",
+    "MessageCreate", "MessageUpdate", "Message",
     "ProfessionalCreate", "ProfessionalUpdate", "Professional", "ProfessionalList",
     "HealthPlanCreate", "HealthPlanUpdate", "HealthPlan", "HealthPlanList",
     "PatientInsightCreate", "PatientInsightUpdate", "PatientInsight", "PatientInsightList",

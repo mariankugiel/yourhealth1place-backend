@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.models.health_record import HealthRecord, HealthRecordMetric, HealthRecordSection, HealthRecordImage
+from app.models.health_record import HealthRecord, HealthRecordMetric, HealthRecordSection, HealthRecordDocExam
 from app.crud.health_record import health_record_section_metric_crud
 from app.crud.medical_images import MedicalImageCRUD
 from app.crud.ai_analysis import ai_analysis_history_crud
@@ -503,9 +503,9 @@ class AIAnalysisService:
         """Get medical images data for AI analysis"""
         try:
             # Get all medical images for the user
-            medical_images = db.query(HealthRecordImage).filter(
-                HealthRecordImage.created_by == user_id
-            ).order_by(HealthRecordImage.image_date.desc()).all()
+            medical_images = db.query(HealthRecordDocExam).filter(
+                HealthRecordDocExam.created_by == user_id
+            ).order_by(HealthRecordDocExam.image_date.desc()).all()
             
             if not medical_images:
                 return {}

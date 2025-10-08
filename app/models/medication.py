@@ -20,7 +20,7 @@ class Medication(Base):
     __tablename__ = "medications"
     
     id = Column(Integer, primary_key=True, index=True)
-    patient_id = Column(Integer, ForeignKey("patients.id"), nullable=False)
+    patient_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     
     # Basic metadata only - sensitive data stored in AWS S3
     medication_name = Column(String(255), nullable=False)
@@ -40,8 +40,8 @@ class Medication(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
     # Relationships
-    patient = relationship("Patient")
-    prescriber = relationship("User", foreign_keys=[prescribed_by])
+    patient = relationship("User", foreign_keys=[patient_id], backref="medications")
+    prescriber = relationship("User", foreign_keys=[prescribed_by], backref="prescribed_medications")
     
     def __repr__(self):
         return f"<Medication(id={self.id}, name='{self.medication_name}', patient_id={self.patient_id}, aws_file_id='{self.aws_file_id}')>" 

@@ -2,11 +2,9 @@ from app.core.database import Base
 
 # Core User Models
 from .user import User
-from .patient import Patient
-from .professional import Professional
 
 # Professional Practice System
-from .professional_practices import ProfessionalPractice
+# ProfessionalPractice model removed - data now stored in Supabase user metadata
 from .professional_locations import ProfessionalLocation
 from .professional_availability import ProfessionalAvailabilitySchedule, ProfessionalAppointmentSlot
 
@@ -28,7 +26,6 @@ from .documents import (
     Document,
     DocumentShare,
     DocumentAccessLog,
-    LabDocument,
     ImagingDocument,
     PrescriptionDocument,
     DocumentCategory,
@@ -37,15 +34,10 @@ from .documents import (
     ShareType
 )
 
-# S3 Storage Management
-from .s3_storage import (
-    S3StorageInfo,
-    S3BucketInfo,
-    S3AccessLog
-)
+# S3 Storage Management - REMOVED
 
 # Messaging System
-from .message import Message
+from .message import Message, Conversation, MessageDeliveryLog, MessageAction, MessageType, MessagePriority, MessageStatus, SenderType
 
 # Payment System
 from .payment import SubscriptionPlan, UserSubscription, PaymentTransaction
@@ -59,7 +51,7 @@ from .health_record import (
     HealthRecord,
     
     # Medical Records
-    MedicalDocument,
+    HealthRecordDocLab,
     MedicalCondition,
     FamilyMedicalHistory,
     
@@ -74,7 +66,7 @@ from .health_record import (
     BodyMetric,
     MedicalConditionStatus,
     FamilyHistoryStatus,
-    DocumentType,
+    GeneralDocumentType,
     AnalysisCategory,
     VitalStatus,
     LifestyleStatus,
@@ -101,8 +93,7 @@ from .health_plans import (
     HealthPlanRecommendation
 )
 
-# Medical Condition Updates
-from .medical_condition_updates import MedicalConditionUpdate
+# Medical Condition Updates - REMOVED (duplicate of medical_conditions)
 
 # Health Metrics System (Templates and Analysis only)
 from .health_metrics import (
@@ -111,6 +102,13 @@ from .health_metrics import (
     HealthRecordMetricTemplate,
     MetricStatus,
     MetricTrend
+)
+
+# Surgery & Hospitalization System
+from .surgery_hospitalization import (
+    ProcedureType,
+    RecoveryStatus,
+    SurgeryHospitalization
 )
 
 # AI Analysis System
@@ -133,16 +131,22 @@ from .health_plan_progress import HealthPlanProgress
 from .patient_insight import PatientInsight
 from .statistics import ProfessionalStatistics
 
+# Medication Reminder System
+from .medication_reminder import MedicationReminder, ReminderStatus
+from .notification import Notification, NotificationType, NotificationStatus, NotificationPriority
+from .notification_channel import NotificationChannel
+from .websocket_connection import WebSocketConnection
+from .web_push_subscription import WebPushSubscription
+from .notification_delivery_log import NotificationDeliveryLog, DeliveryChannel, DeliveryStatus
+
 __all__ = [
     "Base",
     
     # Core User Models
     "User",
-    "Patient", 
-    "Professional",
     
     # Professional Practice System
-    "ProfessionalPractice",
+    # ProfessionalPractice model removed
     "ProfessionalLocation",
     "ProfessionalAvailabilitySchedule",
     "ProfessionalAppointmentSlot",
@@ -167,7 +171,6 @@ __all__ = [
     "DocumentPermission",
     "DocumentShare",
     "DocumentAccessLog",
-    "LabDocument",
     "ImagingDocument",
     "PrescriptionDocument",
     "HealthRecordPermission",
@@ -176,13 +179,17 @@ __all__ = [
     "PermissionLevel",
     "ShareType",
     
-    # S3 Storage Management
-    "S3StorageInfo",
-    "S3BucketInfo",
-    "S3AccessLog",
+    # S3 Storage Management - REMOVED
     
     # Messaging System
     "Message",
+    "Conversation",
+    "MessageDeliveryLog",
+    "MessageAction",
+    "MessageType",
+    "MessagePriority",
+    "MessageStatus",
+    "SenderType",
     
     # Payment System
     "SubscriptionPlan",
@@ -194,7 +201,7 @@ __all__ = [
     "HealthRecordSection",
     "HealthRecordMetric",
     "HealthRecord",
-    "MedicalDocument",
+    "HealthRecordDocLab",
     "MedicalCondition",
     "FamilyMedicalHistory",
     "IOSDevice",
@@ -207,7 +214,7 @@ __all__ = [
     "BodyMetric",
     "MedicalConditionStatus",
     "FamilyHistoryStatus",
-    "DocumentType",
+    "GeneralDocumentType",
     "AnalysisCategory",
     "VitalStatus",
     "LifestyleStatus",
@@ -231,8 +238,7 @@ __all__ = [
     "TaskTrackingDetail",
     "HealthPlanRecommendation",
     
-    # Medical Condition Updates
-    "MedicalConditionUpdate",
+    # Medical Condition Updates - REMOVED
     
     # Health Metrics System (Templates and Analysis only)
     "HealthAnalysis",
@@ -257,5 +263,24 @@ __all__ = [
     "Medication",
     "HealthPlanProgress",
     "PatientInsight",
-    "ProfessionalStatistics"
+    "ProfessionalStatistics",
+    
+    # Surgery & Hospitalization System
+    "ProcedureType",
+    "RecoveryStatus",
+    "SurgeryHospitalization",
+    
+    # Medication Reminder System
+    "MedicationReminder",
+    "ReminderStatus",
+    "Notification",
+    "NotificationType",
+    "NotificationStatus",
+    "NotificationPriority",
+    "NotificationChannel",
+    "WebSocketConnection",
+    "WebPushSubscription",
+    "NotificationDeliveryLog",
+    "DeliveryChannel",
+    "DeliveryStatus"
 ] 

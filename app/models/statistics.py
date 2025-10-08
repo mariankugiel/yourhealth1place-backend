@@ -7,7 +7,7 @@ class ProfessionalStatistics(Base):
     __tablename__ = "professional_statistics"
 
     id = Column(Integer, primary_key=True, index=True)
-    professional_id = Column(Integer, ForeignKey("professionals.id"))
+    professional_id = Column(Integer, ForeignKey("users.id"))
     
     # Time Period
     period_type = Column(String(50))  # daily, weekly, monthly, yearly
@@ -58,7 +58,7 @@ class ProfessionalStatistics(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
     # Relationships
-    professional = relationship("Professional")
+    professional = relationship("User", foreign_keys=[professional_id], backref="statistics")
     
     def __repr__(self):
         return f"<ProfessionalStatistics(id={self.id}, professional_id={self.professional_id}, period='{self.period_type}')>" 

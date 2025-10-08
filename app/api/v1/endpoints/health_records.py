@@ -5,24 +5,29 @@ from typing import List, Optional, Dict, Any
 from app.core.database import get_db
 from app.crud.health_record import (
     health_record_crud, medical_condition_crud, 
-    family_medical_history_crud, medical_document_crud,
-    health_record_section_metric_crud, health_record_metric_crud, health_record_image_crud,
+    family_medical_history_crud, health_record_doc_lab_crud,
+    health_record_section_metric_crud, health_record_metric_crud, health_record_doc_exam_crud,
     health_record_section_crud, HealthRecordTypeCRUD
 )
+from app.crud.surgery_hospitalization import surgery_hospitalization_crud
 from app.models.user import User
-from app.models.health_record import HealthRecordSection
+from app.models.health_record import HealthRecordSection, HealthRecordDocLab, HealthRecordDocExam
 from app.schemas.health_record import (
     HealthRecordCreate, HealthRecordUpdate, HealthRecordResponse, HealthRecordWithDetails,
     MedicalConditionCreate, MedicalConditionUpdate, MedicalConditionResponse,
     FamilyMedicalHistoryCreate, FamilyMedicalHistoryUpdate, FamilyMedicalHistoryResponse,
-    MedicalDocumentCreate, MedicalDocumentUpdate, MedicalDocumentResponse,
+    HealthRecordDocLabCreate, HealthRecordDocLabUpdate, HealthRecordDocLabResponse,
     HealthRecordFilter, HealthRecordSearch, HealthRecordStats,
     BulkHealthRecordCreate, BulkHealthRecordResponse,
-    HealthRecordImageCreate, HealthRecordImageUpdate, 
-    HealthRecordImageResponse, HealthRecordImageSummary, PaginatedImageResponse,
+    HealthRecordDocExamCreate, HealthRecordDocExamUpdate, 
+    HealthRecordDocExamResponse, HealthRecordDocExamSummary, PaginatedImageResponse,
     PaginationInfo, ImageType, ImageFindings,
-    HealthRecordMetricCreate, HealthRecordSectionUpdate,
+    HealthRecordMetricCreate, HealthRecordMetricUpdate, HealthRecordSectionUpdate,
     HealthRecordTypeCreate, HealthRecordTypeUpdate, HealthRecordTypeResponse
+)
+from app.schemas.surgery_hospitalization import (
+    SurgeryHospitalizationCreate, SurgeryHospitalizationUpdate, 
+    SurgeryHospitalizationResponse, SurgeryHospitalizationListResponse
 )
 from app.api.v1.endpoints.auth import get_current_user
 from datetime import datetime
@@ -44,9 +49,9 @@ async def create_health_record(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Create a new health record"""
+    """Create a new health record with duplicate detection"""
     try:
-        db_health_record = health_record_crud.create(db, health_record, current_user.id)
+        db_health_record, was_created = health_record_crud.create(db, health_record, current_user.id)
         
         return HealthRecordResponse(
             id=db_health_record.id,
@@ -73,6 +78,46 @@ async def create_health_record(
             detail=f"Failed to create health record: {str(e)}"
         )
 
+@router.post("/check-duplicate")
+async def check_duplicate_health_record(
+    metric_id: int,
+    recorded_at: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Check for duplicate health records on the same date/hour"""
+    try:
+        from datetime import datetime
+        recorded_datetime = datetime.fromisoformat(recorded_at.replace('Z', '+00:00'))
+        
+        duplicate_record = health_record_crud._check_duplicate_record(
+            db, current_user.id, metric_id, recorded_datetime
+        )
+        
+        if duplicate_record:
+            return {
+                "duplicate_found": True,
+                "existing_record": {
+                    "id": duplicate_record.id,
+                    "value": duplicate_record.value,
+                    "recorded_at": duplicate_record.recorded_at.isoformat(),
+                    "status": duplicate_record.status
+                },
+                "message": f"A value already exists for this metric on {recorded_datetime.strftime('%Y-%m-%d at %H:00')}"
+            }
+        
+        return {
+            "duplicate_found": False,
+            "message": "No duplicate found"
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to check for duplicate health record: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to check for duplicate: {str(e)}"
+        )
+
 @router.post("/bulk", response_model=BulkHealthRecordResponse)
 async def create_bulk_health_records(
     bulk_data: BulkHealthRecordCreate,
@@ -86,7 +131,7 @@ async def create_bulk_health_records(
         
         for record in bulk_data.records:
             try:
-                db_record = health_record_crud.create(db, record, current_user.id)
+                db_record, was_created = health_record_crud.create(db, record, current_user.id)
                 created_records.append(HealthRecordResponse(
                     id=db_record.id,
                     section_id=db_record.section_id,
@@ -654,7 +699,7 @@ async def get_medical_documents(
 ):
     """Get medical documents for the current user"""
     try:
-        documents = medical_document_crud.get_by_user(db, current_user.id, skip, limit)
+        documents = health_record_doc_lab_crud.get_by_user(db, current_user.id, skip, limit)
         logger.info(f"Found {len(documents)} total documents for user {current_user.id}")
         
         # Filter by document type if provided
@@ -680,7 +725,27 @@ async def get_medical_documents(
             detail=f"Failed to get medical documents: {str(e)}"
         )
 
-@router.get("/medical-documents/{document_id}", response_model=MedicalDocumentResponse)
+@router.get("/health-record-doc-lab")
+async def get_health_record_doc_lab(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    document_type: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get health record lab documents for the current user"""
+    try:
+        documents = health_record_doc_lab_crud.get_by_user(db, current_user.id, skip, limit)
+        logger.info(f"Found {len(documents)} health record lab documents for user {current_user.id}")
+        return documents
+    except Exception as e:
+        logger.error(f"Failed to get health record lab documents: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get health record lab documents: {str(e)}"
+        )
+
+@router.get("/health-record-doc-lab/{document_id}", response_model=HealthRecordDocLabResponse)
 async def get_medical_document(
     document_id: int,
     current_user: User = Depends(get_current_user),
@@ -688,7 +753,7 @@ async def get_medical_document(
 ):
     """Get a specific medical document by ID"""
     try:
-        document = medical_document_crud.get_by_id(db, document_id, current_user.id)
+        document = health_record_doc_lab_crud.get_by_id(db, document_id, current_user.id)
         if not document:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -704,15 +769,15 @@ async def get_medical_document(
             detail=f"Failed to get medical document: {str(e)}"
         )
 
-@router.post("/medical-documents", response_model=MedicalDocumentResponse)
-async def create_medical_document(
-    document_data: MedicalDocumentCreate,
+@router.post("/health-record-doc-lab", response_model=HealthRecordDocLabResponse)
+async def create_health_record_doc_lab(
+    document_data: HealthRecordDocLabCreate,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Create a new medical document"""
     try:
-        document = medical_document_crud.create(db, document_data, current_user.id)
+        document = health_record_doc_lab_crud.create(db, document_data, current_user.id)
         return document
     except Exception as e:
         logger.error(f"Failed to create medical document: {e}")
@@ -721,24 +786,24 @@ async def create_medical_document(
             detail=f"Failed to create medical document: {str(e)}"
         )
 
-@router.put("/medical-documents/{document_id}", response_model=MedicalDocumentResponse)
-async def update_medical_document(
+@router.put("/health-record-doc-lab/{document_id}", response_model=HealthRecordDocLabResponse)
+async def update_health_record_doc_lab(
     document_id: int,
-    document_data: MedicalDocumentUpdate,
+    document_data: HealthRecordDocLabUpdate,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Update a medical document"""
     try:
         # Check if document exists and belongs to user
-        existing_document = medical_document_crud.get_by_id(db, document_id, current_user.id)
+        existing_document = health_record_doc_lab_crud.get_by_id(db, document_id, current_user.id)
         if not existing_document:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Medical document not found"
             )
         
-        document = medical_document_crud.update(db, document_id, document_data, current_user.id)
+        document = health_record_doc_lab_crud.update(db, document_id, document_data, current_user.id)
         return document
     except HTTPException:
         raise
@@ -747,6 +812,155 @@ async def update_medical_document(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to update medical document: {str(e)}"
+        )
+
+@router.put("/health-record-doc-lab/{document_id}/replace-file")
+async def replace_health_record_doc_lab_file(
+    document_id: int,
+    file: UploadFile = File(..., description="New lab report PDF file"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Replace the file of an existing medical document while preserving health records"""
+    try:
+        # Check if document exists and belongs to user
+        existing_document = health_record_doc_lab_crud.get_by_id(db, document_id, current_user.id)
+        if not existing_document:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Medical document not found"
+            )
+        
+        # Validate file type
+        if not file.filename.lower().endswith('.pdf'):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Only PDF files are supported for lab document replacement"
+            )
+        
+        # Validate file size (max 10MB)
+        if file.size and file.size > 10 * 1024 * 1024:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="File size must be less than 10MB"
+            )
+        
+        # Read file content
+        file_content = await file.read()
+        
+        # Upload new file to S3
+        from app.services.lab_document_analysis_service import LabDocumentAnalysisService
+        lab_service = LabDocumentAnalysisService()
+        
+        try:
+            new_s3_url = await lab_service._upload_to_s3(file_content, file.filename, str(current_user.id))
+        except Exception as s3_error:
+            logger.error(f"Failed to upload new file to S3: {s3_error}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to upload new file to S3: {str(s3_error)}"
+            )
+        
+        # Update the document with new file information
+        update_data = HealthRecordDocLabUpdate(
+            file_name=file.filename,
+            s3_url=new_s3_url
+        )
+        
+        updated_document = health_record_doc_lab_crud.update(db, document_id, update_data, current_user.id)
+        
+        logger.info(f"Successfully replaced file for medical document {document_id} for user {current_user.id}")
+        
+        return {
+            "success": True,
+            "message": "File replaced successfully while preserving health records",
+            "document": updated_document,
+            "new_s3_url": new_s3_url
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to replace file for medical document {document_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to replace file: {str(e)}"
+        )
+
+@router.get("/health-record-doc-lab/{document_id}/download")
+async def download_health_record_doc_lab(
+    document_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Download a lab document file"""
+    try:
+        # Get the document
+        document = health_record_doc_lab_crud.get_by_id(db, document_id, current_user.id)
+        if not document:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Lab document not found"
+            )
+        
+        # Check if document has S3 URL
+        if not document.s3_url:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Document file not found"
+            )
+        
+        # Generate presigned URL for download
+        download_url = aws_service.generate_presigned_url(document.s3_url, expiration=3600)
+        
+        logger.info(f"Generated download URL for lab document {document_id} for user {current_user.id}")
+        
+        return {
+            "download_url": download_url,
+            "file_name": document.file_name,
+            "expires_in": 3600
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to generate download URL for lab document {document_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate download URL: {str(e)}"
+        )
+
+@router.delete("/health-record-doc-lab/{document_id}")
+async def delete_health_record_doc_lab(
+    document_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Delete a medical document"""
+    try:
+        # Check if document exists and belongs to user
+        existing_document = health_record_doc_lab_crud.get_by_id(db, document_id, current_user.id)
+        if not existing_document:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Medical document not found"
+            )
+        
+        success = health_record_doc_lab_crud.delete(db, document_id, current_user.id)
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Medical document not found"
+            )
+        
+        return {"message": "Medical document deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete medical document {document_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete medical document: {str(e)}"
         )
 
 @router.delete("/medical-documents/{document_id}")
@@ -758,14 +972,14 @@ async def delete_medical_document(
     """Delete a medical document"""
     try:
         # Check if document exists and belongs to user
-        existing_document = medical_document_crud.get_by_id(db, document_id, current_user.id)
+        existing_document = health_record_doc_lab_crud.get_by_id(db, document_id, current_user.id)
         if not existing_document:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Medical document not found"
             )
         
-        success = medical_document_crud.delete(db, document_id, current_user.id)
+        success = health_record_doc_lab_crud.delete(db, document_id, current_user.id)
         if not success:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -791,7 +1005,7 @@ async def download_medical_document(
     """Download a medical document"""
     try:
         # Check if document exists and belongs to user
-        document = medical_document_crud.get_by_id(db, document_id, current_user.id)
+        document = health_record_doc_lab_crud.get_by_id(db, document_id, current_user.id)
         if not document:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -1188,6 +1402,7 @@ async def create_health_record_section(
                 display_name=section_data["display_name"],
                 description=section_data.get("description", ""),
                 health_record_type_id=section_data["health_record_type_id"],
+                section_template_id=new_template.id,  # Link to the template we just created
                 is_default=False,  # User's active section
                 created_by=current_user.id
             )
@@ -1481,6 +1696,7 @@ async def create_health_record_metric(
             # Then create in normal table for UI
             metric_create_data = HealthRecordMetricCreate(
                 section_id=metric_data['section_id'],
+                metric_tmp_id=new_template.id,  # Link to the template we just created
                 name=metric_data['name'],
                 display_name=metric_data['display_name'],
                 description=metric_data.get('description', ''),
@@ -1518,14 +1734,14 @@ async def create_health_record_metric(
 @router.put("/metrics/{metric_id}", response_model=Dict[str, Any])
 async def update_health_record_metric(
     metric_id: int,
-    metric_data: Dict[str, Any],
+    metric_data: HealthRecordMetricUpdate,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Update a health record metric"""
     try:
         # Check if metric exists and belongs to user
-        existing_metric = health_record_section_metric_crud.get_by_id(db, metric_id)
+        existing_metric = health_record_metric_crud.get_by_id(db, metric_id)
         if not existing_metric:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -1541,7 +1757,7 @@ async def update_health_record_metric(
             )
         
         # Update the metric
-        updated_metric = health_record_section_metric_crud.update(
+        updated_metric = health_record_metric_crud.update(
             db, metric_id, metric_data, current_user.id
         )
         
@@ -1767,7 +1983,7 @@ async def upload_medical_image_pdf(
             detail=f"Failed to upload medical image PDF: {str(e)}"
         )
 
-@router.post("/images/upload", response_model=HealthRecordImageResponse)
+@router.post("/health-record-doc-exam/upload", response_model=HealthRecordDocExamResponse)
 async def upload_health_record_image(
     file: UploadFile = File(..., description="Medical image file (JPEG, PNG, DICOM, etc.)"),
     image_type: ImageType = Form(..., description="Type of medical image"),
@@ -1792,6 +2008,18 @@ async def upload_health_record_image(
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="File size must be less than 50MB"
+            )
+        
+        # Check for duplicate files
+        from app.crud.document import document_crud
+        duplicate_doc = document_crud.check_duplicate_file(
+            db, current_user.id, file.filename, file.size
+        )
+        
+        if duplicate_doc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"A similar file already exists: {duplicate_doc.file_name}"
             )
         
         # Read file content
@@ -1825,9 +2053,9 @@ async def upload_health_record_image(
         }
         
         # Create the image record in database
-        db_image = health_record_image_crud.create_image(db, image_data, current_user.id)
+        db_image = health_record_doc_exam_crud.create_image(db, image_data, current_user.id)
         
-        return HealthRecordImageResponse(
+        return HealthRecordDocExamResponse(
             id=db_image.id,
             created_by=db_image.created_by,
             image_type=db_image.image_type,
@@ -1856,9 +2084,9 @@ async def upload_health_record_image(
             detail=f"Failed to upload health record image: {str(e)}"
         )
 
-@router.post("/images", response_model=HealthRecordImageResponse)
-async def create_health_record_image(
-    image_data: HealthRecordImageCreate,
+@router.post("/health-record-doc-exam", response_model=HealthRecordDocExamResponse)
+async def create_health_record_doc_exam(
+    image_data: HealthRecordDocExamCreate,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -1868,9 +2096,9 @@ async def create_health_record_image(
         image_dict = image_data.dict(exclude_unset=True)
         
         # Create the image record
-        db_image = health_record_image_crud.create_image(db, image_dict, current_user.id)
+        db_image = health_record_doc_exam_crud.create_image(db, image_dict, current_user.id)
         
-        return HealthRecordImageResponse(
+        return HealthRecordDocExamResponse(
             id=db_image.id,
             created_by=db_image.created_by,
             image_type=db_image.image_type,
@@ -1899,8 +2127,8 @@ async def create_health_record_image(
             detail=f"Failed to create health record image: {str(e)}"
         )
 
-@router.get("/images", response_model=PaginatedImageResponse)
-async def get_health_record_images(
+@router.get("/health-record-doc-exam", response_model=PaginatedImageResponse)
+async def get_health_record_doc_exam(
     skip: int = Query(0, ge=0, description="Number of records to skip"),
     limit: int = Query(20, ge=1, le=100, description="Number of records to return"),
     image_type: Optional[ImageType] = Query(None, description="Filter by image type"),
@@ -1912,7 +2140,7 @@ async def get_health_record_images(
     """Get paginated health record images for the current user with optional filters"""
     try:
         # Get total count for pagination
-        total_images = health_record_image_crud.get_user_images(
+        total_images = health_record_doc_exam_crud.get_user_images(
             db, current_user.id, 0, 10000, 
             image_type.value if image_type else None, 
             body_part, 
@@ -1921,7 +2149,7 @@ async def get_health_record_images(
         total_count = len(total_images)
         
         # Get paginated results
-        images = health_record_image_crud.get_user_images(
+        images = health_record_doc_exam_crud.get_user_images(
             db, current_user.id, skip, limit, 
             image_type.value if image_type else None, 
             body_part, 
@@ -1930,7 +2158,7 @@ async def get_health_record_images(
         
         # Convert to response schemas
         image_summaries = [
-            HealthRecordImageSummary(
+            HealthRecordDocExamSummary(
                 id=img.id,
                 image_type=img.image_type,
                 body_part=img.body_part,
@@ -1943,6 +2171,8 @@ async def get_health_record_images(
                 content_type=img.content_type,
                 file_size_bytes=img.file_size_bytes,
                 s3_url=img.s3_url,
+                doctor_name=img.doctor_name,
+                doctor_number=img.doctor_number,
                 created_at=img.created_at
             )
             for img in images
@@ -1974,7 +2204,7 @@ async def get_health_record_images(
             detail=f"Failed to retrieve health record images: {str(e)}"
         )
 
-@router.get("/images/{image_id}", response_model=HealthRecordImageResponse)
+@router.get("/health-record-doc-exam/{image_id}", response_model=HealthRecordDocExamResponse)
 async def get_health_record_image(
     image_id: int,
     current_user: User = Depends(get_current_user),
@@ -1982,7 +2212,7 @@ async def get_health_record_image(
 ):
     """Get a specific health record image by ID"""
     try:
-        image = health_record_image_crud.get_image_by_id(db, image_id, current_user.id)
+        image = health_record_doc_exam_crud.get_image_by_id(db, image_id, current_user.id)
         
         if not image:
             raise HTTPException(
@@ -1990,7 +2220,7 @@ async def get_health_record_image(
                 detail="Health record image not found"
             )
         
-        return HealthRecordImageResponse(
+        return HealthRecordDocExamResponse(
             id=image.id,
             created_by=image.created_by,
             image_type=image.image_type,
@@ -2007,6 +2237,8 @@ async def get_health_record_image(
             s3_key=image.s3_key,
             s3_url=image.s3_url,
             file_id=image.file_id,
+            doctor_name=image.doctor_name,
+            doctor_number=image.doctor_number,
             is_archived=image.is_archived,
             review_status=image.review_status,
             created_at=image.created_at,
@@ -2023,10 +2255,10 @@ async def get_health_record_image(
             detail=f"Failed to retrieve health record image: {str(e)}"
         )
 
-@router.put("/images/{image_id}", response_model=HealthRecordImageResponse)
-async def update_health_record_image(
+@router.put("/health-record-doc-exam/{image_id}", response_model=HealthRecordDocExamResponse)
+async def update_health_record_doc_exam(
     image_id: int,
-    image_update: HealthRecordImageUpdate,
+    image_update: HealthRecordDocExamUpdate,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -2035,7 +2267,7 @@ async def update_health_record_image(
         # Convert Pydantic model to dict, excluding unset fields
         update_dict = image_update.dict(exclude_unset=True)
         
-        updated_image = health_record_image_crud.update_image(
+        updated_image = health_record_doc_exam_crud.update_image(
             db, image_id, current_user.id, update_dict
         )
         
@@ -2045,7 +2277,7 @@ async def update_health_record_image(
                 detail="Health record image not found"
             )
         
-        return HealthRecordImageResponse(
+        return HealthRecordDocExamResponse(
             id=updated_image.id,
             created_by=updated_image.created_by,
             image_type=updated_image.image_type,
@@ -2076,6 +2308,33 @@ async def update_health_record_image(
             detail=f"Failed to update health record image: {str(e)}"
         )
 
+@router.delete("/health-record-doc-exam/{image_id}")
+async def delete_health_record_doc_exam(
+    image_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Delete a health record exam/image"""
+    try:
+        success = health_record_doc_exam_crud.delete_image(db, image_id, current_user.id)
+        
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Health record exam not found"
+            )
+        
+        return {"message": "Health record exam deleted successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete health record exam: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete health record exam"
+        )
+
 @router.delete("/images/{image_id}")
 async def delete_health_record_image(
     image_id: int,
@@ -2084,7 +2343,7 @@ async def delete_health_record_image(
 ):
     """Delete a health record image"""
     try:
-        success = health_record_image_crud.delete_image(db, image_id, current_user.id)
+        success = health_record_doc_exam_crud.delete_image(db, image_id, current_user.id)
         
         if not success:
             raise HTTPException(
@@ -2111,7 +2370,7 @@ async def download_health_record_image(
 ):
     """Download a health record image"""
     try:
-        image = health_record_image_crud.get_image_by_id(db, image_id, current_user.id)
+        image = health_record_doc_exam_crud.get_image_by_id(db, image_id, current_user.id)
         
         if not image:
             raise HTTPException(
@@ -2152,7 +2411,7 @@ async def get_image_statistics(
 ):
     """Get statistics about the current user's health record images"""
     try:
-        stats = health_record_image_crud.get_image_statistics(db, current_user.id)
+        stats = health_record_doc_exam_crud.get_image_statistics(db, current_user.id)
         return stats
         
     except Exception as e:
@@ -2162,7 +2421,7 @@ async def get_image_statistics(
             detail=f"Failed to get image statistics: {str(e)}"
         )
 
-@router.get("/images/recent", response_model=List[HealthRecordImageSummary])
+@router.get("/health-record-doc-exam/recent", response_model=List[HealthRecordDocExamSummary])
 async def get_recent_images(
     limit: int = Query(10, ge=1, le=50, description="Number of recent images to return"),
     current_user: User = Depends(get_current_user),
@@ -2170,10 +2429,10 @@ async def get_recent_images(
 ):
     """Get recent health record images for the current user"""
     try:
-        recent_images = health_record_image_crud.get_recent_images(db, current_user.id, limit)
+        recent_images = health_record_doc_exam_crud.get_recent_images(db, current_user.id, limit)
         
         return [
-            HealthRecordImageSummary(
+            HealthRecordDocExamSummary(
                 id=img.id,
                 image_type=img.image_type,
                 body_part=img.body_part,
@@ -2186,6 +2445,8 @@ async def get_recent_images(
                 content_type=img.content_type,
                 file_size_bytes=img.file_size_bytes,
                 s3_url=img.s3_url,
+                doctor_name=img.doctor_name,
+                doctor_number=img.doctor_number,
                 created_at=img.created_at
             )
             for img in recent_images
@@ -2444,6 +2705,160 @@ async def get_admin_metric_templates(
         )
 
 # ============================================================================
+# SURGERIES & HOSPITALIZATIONS ENDPOINTS (placed before generic routes)
+# ============================================================================
+
+@router.get("/surgeries-hospitalizations", response_model=SurgeryHospitalizationListResponse)
+async def get_surgeries_hospitalizations(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get all surgeries and hospitalizations for the current user"""
+    try:
+        surgeries = surgery_hospitalization_crud.get_by_user(db, current_user.id, skip, limit)
+        total = len(surgery_hospitalization_crud.get_by_user(db, current_user.id, 0, 10000))
+        
+        return SurgeryHospitalizationListResponse(
+            surgeries=surgeries,
+            total=total,
+            skip=skip,
+            limit=limit
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to get surgeries/hospitalizations: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve surgeries and hospitalizations"
+        )
+
+@router.get("/surgeries-hospitalizations/{surgery_id}", response_model=SurgeryHospitalizationResponse)
+async def get_surgery_hospitalization(
+    surgery_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get a specific surgery or hospitalization by ID"""
+    try:
+        surgery = surgery_hospitalization_crud.get_by_id(db, surgery_id, current_user.id)
+        
+        if not surgery:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Surgery or hospitalization not found"
+            )
+        
+        # Check if the surgery belongs to the current user
+        if surgery.user_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied to this surgery/hospitalization"
+            )
+        
+        return surgery
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get surgery/hospitalization: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve surgery/hospitalization"
+        )
+
+@router.post("/surgeries-hospitalizations", response_model=SurgeryHospitalizationResponse)
+async def create_surgery_hospitalization(
+    surgery_data: SurgeryHospitalizationCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Create a new surgery or hospitalization record"""
+    try:
+        surgery = surgery_hospitalization_crud.create(db, surgery_data, current_user.id)
+        return surgery
+        
+    except Exception as e:
+        logger.error(f"Failed to create surgery/hospitalization: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create surgery/hospitalization"
+        )
+
+@router.put("/surgeries-hospitalizations/{surgery_id}", response_model=SurgeryHospitalizationResponse)
+async def update_surgery_hospitalization(
+    surgery_id: int,
+    surgery_data: SurgeryHospitalizationUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Update an existing surgery or hospitalization record"""
+    try:
+        # First check if the surgery exists and belongs to the user
+        existing_surgery = surgery_hospitalization_crud.get_by_id(db, surgery_id, current_user.id)
+        
+        if not existing_surgery:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Surgery or hospitalization not found"
+            )
+        
+        if existing_surgery.user_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied to this surgery/hospitalization"
+            )
+        
+        updated_surgery = surgery_hospitalization_crud.update(db, surgery_id, surgery_data, current_user.id)
+        return updated_surgery
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update surgery/hospitalization: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update surgery/hospitalization"
+        )
+
+@router.delete("/surgeries-hospitalizations/{surgery_id}")
+async def delete_surgery_hospitalization(
+    surgery_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Delete a surgery or hospitalization record"""
+    try:
+        # First check if the surgery exists and belongs to the user
+        existing_surgery = surgery_hospitalization_crud.get_by_id(db, surgery_id, current_user.id)
+        
+        if not existing_surgery:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Surgery or hospitalization not found"
+            )
+        
+        if existing_surgery.user_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied to this surgery/hospitalization"
+            )
+        
+        surgery_hospitalization_crud.delete(db, surgery_id, current_user.id)
+        
+        return {"message": "Surgery/hospitalization deleted successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete surgery/hospitalization: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete surgery/hospitalization"
+        )
+
+# ============================================================================
 # GENERIC HEALTH RECORD ENDPOINTS (moved to end to avoid route conflicts)
 # ============================================================================
 
@@ -2562,3 +2977,280 @@ async def delete_health_record(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to delete health record: {str(e)}"
         )
+
+# ============================================================================
+# LAB DOCUMENT UPLOAD ENDPOINTS (moved from lab_documents.py)
+# ============================================================================
+
+@router.post("/health-record-doc-lab/upload", response_model=dict)
+async def upload_and_analyze_lab_document(
+    file: UploadFile = File(..., description="Lab report PDF file"),
+    description: Optional[str] = Form(None, description="Optional description for the document"),
+    doc_date: Optional[str] = Form(None, description="Document date"),
+    doc_type: Optional[str] = Form(None, description="Document type"),
+    provider: Optional[str] = Form(None, description="Healthcare provider"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Upload and analyze a lab report PDF document (extraction only)
+    
+    This endpoint will:
+    1. Check for duplicate files
+    2. Store the PDF in AWS S3
+    3. Extract text using pdfplumber
+    4. Parse lab metrics using the multilingual extraction logic
+    5. Return extracted data for user review (no health records created)
+    
+    Use /bulk endpoint to create health records after user confirmation.
+    """
+    try:
+        # Validate file type
+        if not file.filename.lower().endswith('.pdf'):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Only PDF files are supported for lab document analysis"
+            )
+        
+        # Validate file size (max 10MB)
+        if file.size and file.size > 10 * 1024 * 1024:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="File size must be less than 10MB"
+            )
+        
+        # Check for duplicate files
+        from app.crud.document import document_crud
+        duplicate_doc = document_crud.check_duplicate_file(
+            db, current_user.id, file.filename, file.size
+        )
+        
+        if duplicate_doc:
+            return {
+                "success": False,
+                "duplicate_found": True,
+                "existing_document": {
+                    "id": duplicate_doc.id,
+                    "file_name": duplicate_doc.original_file_name,
+                    "file_size_bytes": duplicate_doc.file_size,
+                    "created_at": duplicate_doc.created_at.isoformat()
+                },
+                "message": f"A similar file already exists: {duplicate_doc.original_file_name}"
+            }
+        
+        # Import lab service
+        from app.services.lab_document_analysis_service import LabDocumentAnalysisService
+        lab_service = LabDocumentAnalysisService()
+        
+        # Read file content
+        file_content = await file.read()
+        
+
+        # Extract lab data only (no health records created)
+        lab_data = lab_service._extract_lab_data_advanced(
+            lab_service._extract_text_from_pdf(file_content)
+        )
+        
+        # Parse reference ranges for each lab data entry
+        for item in lab_data:
+            if 'reference' in item or 'reference_range' in item:
+                original_reference = item.get('reference') or item.get('reference_range', '')
+                if original_reference:
+                    # Parse the reference range using the existing backend function
+                    parsed_range = lab_service._parse_simple_range(original_reference)
+                    # Add parsed min/max values to the response
+                    item['reference_range_parsed'] = {
+                        'min': parsed_range.get('min'),
+                        'max': parsed_range.get('max'),
+                        'original': original_reference
+                    }
+        
+        # Upload to S3
+        s3_url = None
+        try:
+            s3_url = await lab_service._upload_to_s3(file_content, file.filename, str(current_user.id))
+        except Exception as s3_error:
+            logger.error(f"Failed to upload file to S3: {s3_error}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to upload file to S3: {str(s3_error)}"
+            )
+        
+        logger.info(f"Successfully extracted {len(lab_data)} lab records for user {current_user.id}")
+        
+        return {
+            "success": True,
+            "message": "Lab document analyzed successfully",
+            "s3_url": s3_url,
+            "lab_data": lab_data,
+            "extracted_records_count": len(lab_data),
+            "form_data": {
+                "doc_date": doc_date,
+                "doc_type": doc_type,
+                "provider": provider,
+                "description": description
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to analyze lab document: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to analyze lab document: {str(e)}"
+        )
+
+@router.post("/health-record-doc-lab/bulk", response_model=dict)
+async def bulk_create_lab_records(
+    request: dict,  # Using dict instead of BulkLabRecordsRequest for now
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Bulk create health records from lab document analysis results
+    
+    This endpoint will:
+    1. Create sections and metrics if they don't exist
+    2. Create health records for all provided lab data
+    3. Return summary of created records
+    """
+    try:
+        logger.info(f"Starting bulk creation of {len(request.get('records', []))} lab records for user {current_user.id}")
+        
+        # Import lab service
+        from app.services.lab_document_analysis_service import LabDocumentAnalysisService
+        lab_service = LabDocumentAnalysisService()
+        
+        # Create medical document record first
+        medical_doc = await lab_service._create_medical_document(
+            db=db,
+            user_id=current_user.id,
+            file_name=request.get('file_name', ''),
+            s3_url=request.get('s3_url', ''),
+            description=request.get('description'),
+            lab_test_date=request.get('lab_test_date'),
+            provider=request.get('provider'),
+            document_type=request.get('document_type')
+        )
+        
+        created_records = []
+        updated_records = []
+        created_sections = []
+        created_metrics = []
+        
+        # Process each record
+        for record_data in request.get('records', []):
+            try:
+                # Skip records with missing metric names
+                metric_name = record_data.get('metric_name') or record_data.get('name_of_analysis')
+                if not metric_name:
+                    logger.warning(f"Skipping record with missing metric name: {record_data}")
+                    continue
+                
+                # Get or create section
+                section = await lab_service._get_or_create_section(
+                    db=db,
+                    user_id=current_user.id,
+                    section_type=record_data.get('type_of_analysis')
+                )
+                
+                if section.id not in [s.id for s in created_sections]:
+                    created_sections.append(section)
+                
+                # Get or create metric
+                metric_data = {
+                    'metric_name': metric_name,
+                    'unit': record_data.get('unit'),
+                    'reference_range': record_data.get('reference') or record_data.get('reference_range'),
+                    'value': record_data.get('value')
+                }
+                metric = await lab_service._get_or_create_metric(
+                    db=db,
+                    user_id=current_user.id,
+                    section_id=section.id,
+                    record_data=metric_data
+                )
+                
+                if metric.id not in [m.id for m in created_metrics]:
+                    created_metrics.append(metric)
+                
+                # Create health record
+                from app.schemas.health_record import HealthRecordCreate
+                from datetime import datetime
+                
+                # Convert value to float
+                try:
+                    value = float(record_data.get('value', 0))
+                except (ValueError, TypeError):
+                    value = 0.0
+                
+                # Parse date
+                try:
+                    date_str = record_data.get('date_of_value', '')
+                    if date_str:
+                        # Handle DD-MM-YYYY format
+                        if '-' in date_str and len(date_str.split('-')[0]) == 2:
+                            day, month, year = date_str.split('-')
+                            recorded_at = datetime(int(year), int(month), int(day))
+                        else:
+                            recorded_at = datetime.now()
+                    else:
+                        recorded_at = datetime.now()
+                except (ValueError, TypeError):
+                    recorded_at = datetime.now()
+                
+                health_record_data = HealthRecordCreate(
+                    section_id=section.id,
+                    metric_id=metric.id,
+                    value=value,
+                    recorded_at=recorded_at,
+                    source="lab_result",
+                    status="normal"
+                )
+                
+                health_record, was_created_new = health_record_crud.create(db, health_record_data, current_user.id)
+                
+                record_info = {
+                    "id": health_record.id,
+                    "section": section.name,
+                    "metric": metric.name,
+                    "value": record_data.get('value'),
+                    "unit": record_data.get('unit')
+                }
+                
+                if was_created_new:
+                    created_records.append(record_info)
+                else:
+                    updated_records.append(record_info)
+                
+            except Exception as record_error:
+                logger.error(f"Failed to create record for {record_data.get('metric_name')}: {record_error}")
+                continue
+        
+        logger.info(f"Successfully processed {len(created_records)} new and {len(updated_records)} updated health records for user {current_user.id}")
+        
+        return {
+            "success": True,
+            "message": f"Successfully created {len(created_records)} new health records and updated {len(updated_records)} existing records",
+            "medical_document_id": medical_doc.id if medical_doc else None,
+            "created_records": created_records,
+            "updated_records": updated_records,
+            "created_sections_count": len(created_sections),
+            "created_metrics_count": len(created_metrics),
+            "summary": {
+                "new_records": len(created_records),
+                "updated_records": len(updated_records),
+                "total_records": len(created_records) + len(updated_records),
+                "sections_created": len(created_sections),
+                "metrics_created": len(created_metrics)
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to bulk create lab records: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to bulk create lab records: {str(e)}"
+        )
+

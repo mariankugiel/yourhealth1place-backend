@@ -26,7 +26,7 @@ class ProfessionalDocument(Base):
     __tablename__ = "professional_documents"
     
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    professional_id = Column(Integer, ForeignKey("professionals.id"), nullable=False)
+    professional_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     category_id = Column(Integer, ForeignKey("professional_document_categories.id"), nullable=False)
     
     # Document Details
@@ -67,7 +67,7 @@ class ProfessionalDocument(Base):
     updated_by = Column(Integer, ForeignKey("users.id"))
     
     # Relationships
-    professional = relationship("Professional", backref="documents")
+    professional = relationship("User", foreign_keys=[professional_id], backref="professional_documents")
     category = relationship("ProfessionalDocumentCategory", back_populates="documents")
     assignments = relationship("ProfessionalDocumentAssignment", back_populates="document")
 

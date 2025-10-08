@@ -1,6 +1,7 @@
-from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any, List
-from datetime import datetime
+from pydantic import BaseModel, Field, field_validator
+from typing import Optional, Dict, Any, List, Union
+from datetime import datetime, date
+from app.utils.date_utils import parse_date_string
 
 # ============================================================================
 # ENUM IMPORTS
@@ -8,7 +9,7 @@ from datetime import datetime
 
 from app.models.health_record import (
     MedicalConditionStatus, 
-    FamilyHistoryStatus, DocumentType,
+    FamilyHistoryStatus, GeneralDocumentType,
     ConditionSeverity, ConditionSource,
     FamilyRelation, FamilyHistorySource,
     ImageType, ImageFindings
@@ -135,46 +136,50 @@ class FamilyMedicalHistoryResponse(FamilyMedicalHistoryBase):
 # MEDICAL DOCUMENT SCHEMAS
 # ============================================================================
 
-class MedicalDocumentBase(BaseModel):
+class HealthRecordDocLabBase(BaseModel):
     health_record_type_id: int = Field(..., description="Type of health record")
-    document_type: str = Field(..., description="Type of medical document")
-    lab_test_name: Optional[str] = Field(None, description="Name of the lab test")
-    lab_test_type: Optional[str] = Field(None, description="Type of lab test")
-    lab_test_date: Optional[datetime] = Field(None, description="Date of the lab test")
+    lab_doc_type: str = Field(..., description="Type of lab document (e.g., Comprehensive Metabolic Panel)")
+    lab_test_date: Optional[date] = Field(None, description="Date of the lab test")
     provider: Optional[str] = Field(None, description="Healthcare provider name")
     file_name: str = Field(..., description="Name of the uploaded file")
     s3_url: Optional[str] = Field(None, description="S3 URL of the stored document")
     file_type: Optional[str] = Field(None, description="File type/extension")
     description: Optional[str] = Field(None, description="Document description")
-    source: Optional[str] = Field(None, description="Source of the document")
+    general_doc_type: str = Field(..., description="General document type (e.g., lab_result)")
 
-class MedicalDocumentCreate(BaseModel):
+class HealthRecordDocLabCreate(BaseModel):
     health_record_type_id: int = Field(..., description="Type of health record")
-    document_type: DocumentType = Field(..., description="Type of medical document")
-    lab_test_name: Optional[str] = Field(None, description="Name of the lab test")
-    lab_test_type: Optional[str] = Field(None, description="Type of lab test")
-    lab_test_date: Optional[datetime] = Field(None, description="Date of the lab test")
+    lab_doc_type: str = Field(..., description="Type of lab document (e.g., Comprehensive Metabolic Panel)")
+    lab_test_date: Optional[date] = Field(None, description="Date of the lab test")
     provider: Optional[str] = Field(None, description="Healthcare provider name")
     file_name: str = Field(..., description="Name of the uploaded file")
     s3_url: Optional[str] = Field(None, description="S3 URL of the stored document")
     file_type: Optional[str] = Field(None, description="File type/extension")
     description: Optional[str] = Field(None, description="Document description")
-    source: Optional[str] = Field(None, description="Source of the document")
+    general_doc_type: str = Field(..., description="General document type (e.g., lab_result)")
+    
+    @field_validator('lab_test_date', mode='before')
+    @classmethod
+    def parse_lab_test_date(cls, v):
+        return parse_date_string(v)
 
-class MedicalDocumentUpdate(BaseModel):
+class HealthRecordDocLabUpdate(BaseModel):
     health_record_type_id: Optional[int] = None
-    document_type: Optional[DocumentType] = None
-    lab_test_name: Optional[str] = None
-    lab_test_type: Optional[str] = None
-    lab_test_date: Optional[datetime] = None
+    lab_doc_type: Optional[str] = None
+    lab_test_date: Optional[date] = None
     provider: Optional[str] = None
     file_name: Optional[str] = None
     s3_url: Optional[str] = None
     file_type: Optional[str] = None
     description: Optional[str] = None
-    source: Optional[str] = None
+    general_doc_type: Optional[str] = None
+    
+    @field_validator('lab_test_date', mode='before')
+    @classmethod
+    def parse_lab_test_date(cls, v):
+        return parse_date_string(v)
 
-class MedicalDocumentResponse(MedicalDocumentBase):
+class HealthRecordDocLabResponse(HealthRecordDocLabBase):
     id: int
     created_by: int
     created_at: datetime
@@ -242,6 +247,7 @@ class HealthRecordSectionResponse(HealthRecordSectionBase):
 
 class HealthRecordMetricBase(BaseModel):
     section_id: int = Field(..., description="ID of the parent section")
+    metric_tmp_id: Optional[int] = Field(None, description="ID of the corresponding template metric")
     name: str = Field(..., description="Unique identifier for the metric within a section")
     display_name: str = Field(..., description="Human-readable name for the metric")
     description: Optional[str] = Field(None, description="Detailed description of the metric")
@@ -255,6 +261,7 @@ class HealthRecordMetricCreate(HealthRecordMetricBase):
 
 class HealthRecordMetricUpdate(BaseModel):
     section_id: Optional[int] = None
+    metric_tmp_id: Optional[int] = None
     name: Optional[str] = None
     display_name: Optional[str] = None
     description: Optional[str] = None
@@ -288,7 +295,7 @@ class MedicalConditionWithDetails(MedicalConditionResponse):
 class FamilyMedicalHistoryWithDetails(FamilyMedicalHistoryResponse):
     pass
 
-class MedicalDocumentWithDetails(MedicalDocumentResponse):
+class HealthRecordDocLabWithDetails(HealthRecordDocLabResponse):
     pass
 
 # ============================================================================
@@ -462,7 +469,7 @@ class UserDashboardData(BaseModel):
 # HEALTH RECORD IMAGE SCHEMAS
 # ============================================================================
 
-class HealthRecordImageBase(BaseModel):
+class HealthRecordDocExamBase(BaseModel):
     """Base schema for health record images"""
     image_type: ImageType = Field(..., description="Type of medical image (X-Ray, Ultrasound, MRI, CT Scan, Others)")
     body_part: str = Field(..., description="Body part imaged (e.g., Chest, Left Knee, Brain)")
@@ -472,7 +479,7 @@ class HealthRecordImageBase(BaseModel):
     interpretation: Optional[str] = Field(None, description="Medical interpretation of the image")
     notes: Optional[str] = Field(None, description="Additional notes about the exam")
 
-class HealthRecordImageCreate(HealthRecordImageBase):
+class HealthRecordDocExamCreate(HealthRecordDocExamBase):
     """Schema for creating a new health record image (metadata only)"""
     doctor_name: Optional[str] = Field(None, description="Name of the doctor who analyzed the image")
     doctor_number: Optional[str] = Field(None, description="Doctor's license/ID number")
@@ -484,7 +491,7 @@ class HealthRecordImageCreate(HealthRecordImageBase):
     s3_url: Optional[str] = Field(None, description="S3 URL of the file")
     file_id: Optional[str] = Field(None, description="Unique file identifier")
 
-class HealthRecordImageUpload(BaseModel):
+class HealthRecordDocExamUpload(BaseModel):
     """Schema for file upload with metadata"""
     image_type: ImageType = Field(..., description="Type of medical image")
     body_part: str = Field(..., description="Body part imaged")
@@ -492,7 +499,7 @@ class HealthRecordImageUpload(BaseModel):
     findings: ImageFindings = Field(..., description="Findings from the image analysis")
     conclusions: Optional[str] = Field(None, description="Text input for conclusions/notes")
 
-class HealthRecordImageUpdate(BaseModel):
+class HealthRecordDocExamUpdate(BaseModel):
     """Schema for updating a health record image"""
     image_type: Optional[ImageType] = None
     body_part: Optional[str] = None
@@ -502,7 +509,7 @@ class HealthRecordImageUpdate(BaseModel):
     interpretation: Optional[str] = None
     notes: Optional[str] = None
 
-class HealthRecordImageResponse(HealthRecordImageBase):
+class HealthRecordDocExamResponse(HealthRecordDocExamBase):
     """Schema for health record image response"""
     id: int
     created_by: int
@@ -513,6 +520,8 @@ class HealthRecordImageResponse(HealthRecordImageBase):
     s3_key: str
     s3_url: Optional[str] = None
     file_id: Optional[str] = None
+    doctor_name: Optional[str] = None
+    doctor_number: Optional[str] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
     updated_by: Optional[int] = None
@@ -520,7 +529,7 @@ class HealthRecordImageResponse(HealthRecordImageBase):
     class Config:
         from_attributes = True
 
-class HealthRecordImageSummary(BaseModel):
+class HealthRecordDocExamSummary(BaseModel):
     """Schema for health record image summary (for lists/dashboards)"""
     id: int
     image_type: ImageType
@@ -534,6 +543,8 @@ class HealthRecordImageSummary(BaseModel):
     content_type: str
     file_size_bytes: int
     s3_url: Optional[str] = None
+    doctor_name: Optional[str] = None
+    doctor_number: Optional[str] = None
     created_at: datetime
 
     class Config:
@@ -541,5 +552,5 @@ class HealthRecordImageSummary(BaseModel):
 
 class PaginatedImageResponse(BaseModel):
     """Schema for paginated image records response"""
-    images: List[HealthRecordImageSummary]
+    images: List[HealthRecordDocExamSummary]
     pagination: PaginationInfo 

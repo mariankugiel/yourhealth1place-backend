@@ -7,12 +7,12 @@ from datetime import datetime
 from pathlib import Path
 from sqlalchemy.orm import Session
 
-from app.crud.health_record import health_record_crud, medical_document_crud, health_record_section_template_crud, health_record_metric_template_crud, health_record_section_crud, health_record_metric_crud
+from app.crud.health_record import health_record_crud, health_record_doc_lab_crud, health_record_section_template_crud, health_record_metric_template_crud, health_record_section_crud, health_record_metric_crud
 from app.models.health_record import (
-    HealthRecord, MedicalDocument, HealthRecordSection, 
-    HealthRecordMetric, DocumentType
+    HealthRecord, HealthRecordDocLab, HealthRecordSection, 
+    HealthRecordMetric, GeneralDocumentType, LabDocumentType
 )
-from app.schemas.health_record import HealthRecordCreate, MedicalDocumentCreate, HealthRecordSectionCreate, HealthRecordMetricCreate
+from app.schemas.health_record import HealthRecordCreate, HealthRecordDocLabCreate, HealthRecordSectionCreate, HealthRecordMetricCreate
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ class LabDocumentAnalysisService:
         self.UNIT_ABS = (
             r"(?:"
             r"x\s*10(?:\^?\s*\d+|[" + self.SUPERS + r"]+)(?:/L)?|"
-            r"g/dL|mg/dL|mmol/L|µmol/L|μmol/L|UI/L|U/L|fL|pg|/µL|/uL|/L|seg\.|ng/mL|nmol/L"
+            r"g/dL|mg/dL|mmol/L|µmol/L|μmol/L|nmol/L|pmol/L|ng/mL|pg/mL|mIU/L|mUI/L|UI/L|U/L|/µL|/uL|/L|fL|pg|mEq/L|seg\."
             r")"
         )
         self.UNIT_ANY = rf"(?:{self.UNIT_ABS}|%)"
@@ -113,6 +113,23 @@ class LabDocumentAnalysisService:
             re.IGNORECASE
         )
         
+        # Additional patterns from the new version
+        self.VALUE_WITH_UNIT_RE = re.compile(
+            rf"(?:^|\s)(?P<val>[<>]=?\s*\d[\d.,]*)\s*(?P<u>{self.UNIT_ANY})\b"
+        )
+        self.RANGE_OR_CMP_RE = re.compile(r"(?:[\d.,]+\s*-\s*[\d.,]+|[<>]=?\s*[\d.,]+)")
+        
+        # Blocklist patterns for lines to skip
+        self.START_BLOCKLIST = tuple(
+            self._norm(s) for s in [
+                "Referência", "Referência normal", "ReferÃªncia", "ReferÃªncia normal",
+                "Insuficiência:", "InsuficiÃªncia:",
+                "Recomendações", "Recomendações:", "RecomendaÃ§Ãµes", "RecomendaÃ§Ãµes:",
+                "PHEV",
+                "Deficiência", "Deficiência:", "DeficiÃªncia", "DeficiÃªncia:"  # block entire lines with this header
+            ]
+        )
+        
         # Date labels (multilingual)
         self.DATE_LABELS = [
             # Portuguese
@@ -174,6 +191,25 @@ class LabDocumentAnalysisService:
     def _protect_x10_units(self, s: str) -> str:
         # prevent the "10" in x10^… units from being treated as historical tokens
         return re.sub(r"x\s*10[\^¹²³]?\s*\d*\s*/?\s*[A-Za-zµ/]+", "xTEN", s)
+    
+    def _is_blocklisted_line(self, raw: str) -> bool:
+        """Check if a line should be blocked based on start patterns"""
+        if not raw:
+            return False
+        r = self._norm(raw).strip()
+        for prefix in self.START_BLOCKLIST:
+            if r.startswith(prefix):
+                return True
+        return False
+    
+    def _is_blocklisted_metric_name(self, name: str) -> bool:
+        """Check if a metric name should be blocked (handles exact 'Deficiência' as a name)"""
+        # Normalize: remove accents and trailing punctuation like ":".
+        n = self._norm(name)
+        n = re.sub(r"[:\s]+$", "", n)
+        # Accept both proper encoding and mojibake variants by normalization.
+        # Only block if it's exactly the bare label "deficiencia"
+        return n == "deficiencia"
 
     def _canonicalize_date(self, ds: Any) -> str:
         """Return dd-mm-yyyy if possible; accept either a string or a tuple from regex .findall()."""
@@ -262,20 +298,32 @@ class LabDocumentAnalysisService:
                 return l
         return ""
 
-    def _split_name_and_tail(self, line: str) -> Tuple[str, str]:
-        """Split line into metric name and value tail"""
-        # find first digit (not just a dot…), else first known textual urine value
-        m = re.search(r"[<>]?\s*\d", line)
-        if not m:
-            m2 = self.TEXT_VALUE_RE.search(line)
-            if not m2:
-                return None, None
-            idx = m2.start()
-        else:
-            idx = m.start()
-        name = line[:idx].strip().lstrip("-:•·").strip()
-        tail = line[idx:].strip()
-        return name, tail
+    def _split_name_and_tail_safe(self, line: str) -> Tuple[Optional[str], Optional[str]]:
+        """
+        Safe splitter:
+        1) If we see a value+unit, split there.
+        2) Else if we see a textual value, split there.
+        3) Else try a last-resort numeric split ONLY if the remainder clearly contains a unit or a range/comparator.
+           This prevents cutting names like 'CA 19-9', 'IGF-1', 'T4 Livre (FT4)', etc.
+        """
+        m_val = self.VALUE_WITH_UNIT_RE.search(line)
+        if m_val:
+            idx = m_val.start()
+            return line[:idx].strip().lstrip("-:•·").strip(), line[idx:].strip()
+
+        m_text = self.TEXT_VALUE_RE.search(line)
+        if m_text:
+            idx = m_text.start()
+            return line[:idx].strip().lstrip("-:•·").strip(), line[idx:].strip()
+
+        # Last resort: split at the first number ONLY if unit or range/comparator follows somewhere
+        m_num = re.search(r"[<>]?\s*\d", line)
+        if m_num:
+            tail = line[m_num.start():]
+            if self.VALUE_WITH_UNIT_RE.search(tail) or self.RANGE_OR_CMP_RE.search(tail):
+                return line[:m_num.start()].strip().lstrip("-:•·").strip(), line[m_num.start():].strip()
+
+        return None, None
 
     def _pick_central_from_left(self, left: str):
         """Prefer absolute units over % on the same line."""
@@ -297,9 +345,16 @@ class LabDocumentAnalysisService:
     def _parse_numeric_metric_line(self, line: str, page_hist_dates: List[str], report_date: str):
         """Parse numeric metric line with historical data support"""
         line = self._normalize_units(line)
-        name, tail = self._split_name_and_tail(line)
+        if self._is_blocklisted_line(line):
+            return None
+        
+        name, tail = self._split_name_and_tail_safe(line)
         if not name:
             return None
+        
+        if self._is_blocklisted_metric_name(name):
+            return None
+        
         nl = self._norm(name)
         # Drop meta names + explicit prefixes
         if self.META_NAME_RE.search(name) or nl.startswith("exmo") or nl.startswith("hfe"):
@@ -307,21 +362,30 @@ class LabDocumentAnalysisService:
 
         tail_clean = self._protect_x10_units(tail)
 
-        # Reference region (prefer last range; else trailing comparator/number)
+        # Identify reference part (range or comparator) to the rightmost occurrence
         mref = None
-        for m in re.finditer(r"(?:[<>]=?\s*)?[\d.,]+\s*-\s*[\d.,]+", tail_clean):
-            mref = m
-        if not mref:
-            m2 = re.search(r"(?:[<>]=?\s*)?[\d.,]+\s*$", tail_clean)
-            mref = m2
-        if not mref:
-            return None
+        last_range = None
+        for m in re.finditer(r"[\d.,]+\s*-\s*[\d.,]+", tail_clean):
+            last_range = m
+        if last_range:
+            mref = last_range
+        else:
+            last_cmp = None
+            for m in re.finditer(r"[<>]=?\s*[\d.,]+", tail_clean):
+                last_cmp = m
+            if last_cmp:
+                mref = last_cmp
 
-        left = tail_clean[:mref.start()].strip()
-        reference = mref.group(0).strip()
-        right = tail_clean[mref.end():].strip()
-
-        left_original = tail[:mref.start()].strip()
+        if mref:
+            left = tail_clean[:mref.start()].strip()
+            reference = (mref.group(0) or "").strip()
+            right = tail_clean[mref.end():].strip()
+            left_original = (tail or "")[:mref.start()].strip()
+        else:
+            left = tail_clean
+            right = ""
+            reference = ""
+            left_original = (tail or "")
         central_val, central_unit = self._pick_central_from_left(left_original)
         if not central_val:
             return None
@@ -362,9 +426,16 @@ class LabDocumentAnalysisService:
 
     def _parse_urine_metric_line(self, line: str, report_date: str, page_hist_dates: List[str]):
         """Parse qualitative urine metrics with historical data support"""
-        name, tail = self._split_name_and_tail(line)
+        if self._is_blocklisted_line(line):
+            return None
+        
+        name, tail = self._split_name_and_tail_safe(line)
         if not name or not tail:
             return None
+        
+        if self._is_blocklisted_metric_name(name):
+            return None
+        
         nl = self._norm(name)
         if self.META_NAME_RE.search(name) or nl.startswith("exmo") or nl.startswith("hfe"):
             return None
@@ -535,6 +606,10 @@ class LabDocumentAnalysisService:
                 started_section = False
                 
                 for raw in raw_lines:
+                    # Skip blocklisted lines early
+                    if self._is_blocklisted_line(raw):
+                        continue
+                    
                     # Track section (mapped to PT canonical names)
                     current_type = self._detect_section_type(raw, current_type)
                     
@@ -655,9 +730,9 @@ class LabDocumentAnalysisService:
         s3_url: str, 
         description: Optional[str],
         lab_test_date: Optional[str] = None,
-        lab_test_name: Optional[str] = None,
-        provider: Optional[str] = None
-    ) -> MedicalDocument:
+        provider: Optional[str] = None,
+        document_type: Optional[str] = None
+    ) -> HealthRecordDocLab:
         """Create a medical document record"""
         try:
             logger.info(f"Creating medical document with s3_url: {s3_url}")
@@ -665,25 +740,25 @@ class LabDocumentAnalysisService:
             # Parse the lab test date if provided
             parsed_lab_test_date = None
             if lab_test_date:
-                parsed_lab_test_date = self._parse_date_string(lab_test_date)
-                if parsed_lab_test_date:
+                from app.utils.date_utils import parse_date_string
+                try:
+                    parsed_lab_test_date = parse_date_string(lab_test_date)
                     logger.info(f"Parsed lab_test_date: {lab_test_date} -> {parsed_lab_test_date}")
-                else:
-                    logger.warning(f"Could not parse lab_test_date: {lab_test_date}")
+                except Exception as date_error:
+                    logger.warning(f"Could not parse lab_test_date '{lab_test_date}': {date_error}")
             
-            doc_data = MedicalDocumentCreate(
+            doc_data = HealthRecordDocLabCreate(
                 health_record_type_id=1,
-                document_type=DocumentType.LAB_RESULT,
+                lab_doc_type=document_type or "Other",
                 file_name=file_name,
                 s3_url=s3_url,
                 description=description,
-                source="lab_document_upload",
+                general_doc_type="lab_result",
                 lab_test_date=parsed_lab_test_date,
-                lab_test_name=lab_test_name,
                 provider=provider
             )
             
-            medical_doc = medical_document_crud.create(db, doc_data, user_id)
+            medical_doc = health_record_doc_lab_crud.create(db, doc_data, user_id)
             logger.info(f"Created medical document: {medical_doc.id} with s3_url: {medical_doc.s3_url}")
             return medical_doc
             
@@ -718,7 +793,7 @@ class LabDocumentAnalysisService:
                 source="lab_document_upload"
             )
             
-            health_record = health_record_crud.create(db, health_record_data, user_id)
+            health_record, was_created = health_record_crud.create(db, health_record_data, user_id)
             logger.info(f"Created health record: {health_record.id} for metric: {metric.display_name}")
             return health_record
             
@@ -729,6 +804,8 @@ class LabDocumentAnalysisService:
     async def _get_or_create_section(self, db: Session, user_id: int, section_type: str) -> HealthRecordSection:
         """Get or create health record section (both tmp and main tables)"""
         try:
+            if not section_type:
+                raise ValueError("Section type is required but was None or empty")
             section_name = section_type.lower().replace(" ", "_")
             
             # First, ensure section exists in template table
@@ -783,7 +860,10 @@ class LabDocumentAnalysisService:
     ) -> HealthRecordMetric:
         """Get or create health record metric (both tmp and main tables)"""
         try:
-            metric_name = record_data["metric_name"].lower().replace(" ", "_")
+            metric_name_raw = record_data.get("metric_name")
+            if not metric_name_raw:
+                raise ValueError("Metric name is required but was None or empty")
+            metric_name = metric_name_raw.lower().replace(" ", "_")
             
             # Get the template section ID from the main section
             main_section = db.query(HealthRecordSection).filter(HealthRecordSection.id == section_id).first()
@@ -801,8 +881,8 @@ class LabDocumentAnalysisService:
             
             if not tmp_metric:
                 # Parse reference range using new format
-                reference_data = self._parse_reference_range_new(record_data.get("reference", ""))
-                original_reference = record_data.get("reference", "")
+                original_reference = record_data.get("reference_range", "") or record_data.get("reference", "")
+                reference_data = self._parse_reference_range_new(original_reference)
                 
                 # Create in template table
                 tmp_metric_data = {
@@ -830,8 +910,10 @@ class LabDocumentAnalysisService:
             
             if not existing_metric:
                 # Parse reference range using new format
-                reference_data = self._parse_reference_range_new(record_data.get("reference", ""))
-                original_reference = record_data.get("reference", "")
+                original_reference = record_data.get("reference_range", "") or record_data.get("reference", "")
+                logger.info(f"Original reference string: '{original_reference}'")
+                reference_data = self._parse_reference_range_new(original_reference)
+                logger.info(f"Parsed reference data: {reference_data}")
                 
                 # Create threshold object for main table (backward compatibility)
                 threshold = None
@@ -850,6 +932,7 @@ class LabDocumentAnalysisService:
                     display_name=record_data["metric_name"],
                     description=f"Lab metric: {record_data['metric_name']}",
                     default_unit=record_data.get("unit", ""),
+                    reference_data=reference_data,
                     data_type="number" if record_data["value"].replace(".", "").replace(",", "").isdigit() else "text",
                     threshold=threshold,
                     is_default=False
@@ -916,21 +999,27 @@ class LabDocumentAnalysisService:
         Returns format: {"male": {"min": value, "max": value}, "female": {"min": value, "max": value}}
         """
         if not reference_str or not reference_str.strip():
+            logger.warning(f"Empty reference range string")
             return {"male": {"min": None, "max": None}, "female": {"min": None, "max": None}}
         
         try:
             ref_clean = reference_str.strip().lower()
+            logger.info(f"Parsing reference range: '{reference_str}' -> '{ref_clean}'")
             
             # Handle gender-specific ranges
             if "men:" in ref_clean and "female:" in ref_clean:
-                return self._parse_gender_specific_range(ref_clean)
+                result = self._parse_gender_specific_range(ref_clean)
+                logger.info(f"Parsed gender-specific range: {result}")
+                return result
             
             # Parse simple range and apply to both genders
             parsed_range = self._parse_simple_range(ref_clean)
-            return {
+            result = {
                 "male": parsed_range,
                 "female": parsed_range
             }
+            logger.info(f"Parsed simple range: {result}")
+            return result
             
         except Exception as e:
             logger.error(f"Error parsing reference range '{reference_str}': {e}")
@@ -958,23 +1047,28 @@ class LabDocumentAnalysisService:
         """Parse simple reference range without gender"""
         ref_clean = ref_str.strip()
         
+        # Handle range format: "3.90 - 5.10" -> min: 3.90, max: 5.10
+        if "-" in ref_clean and not ref_clean.startswith("<") and not ref_clean.startswith(">"):
+            # Use regex to split on dash with optional spaces around it
+            import re
+            parts = re.split(r'\s*-\s*', ref_clean)
+            if len(parts) == 2:
+                try:
+                    min_val = self._extract_numeric_value(parts[0].strip())
+                    max_val = self._extract_numeric_value(parts[1].strip())
+                    if min_val is not None and max_val is not None:
+                        logger.info(f"Parsed range '{ref_str}' -> min: {min_val}, max: {max_val}")
+                        return {"min": min_val, "max": max_val}
+                    else:
+                        logger.warning(f"Could not extract numeric values from range parts: '{parts[0]}', '{parts[1]}'")
+                except ValueError as e:
+                    logger.warning(f"Error parsing range parts: {e}")
+        
         # Extract numeric value and operator, ignoring units
         numeric_value = self._extract_numeric_value(ref_clean)
         if numeric_value is None:
             logger.warning(f"Could not extract numeric value from: '{ref_str}'")
             return {"min": None, "max": None}
-        
-        # Handle range format: "7-9" -> min: 7, max: 9
-        if "-" in ref_clean and not ref_clean.startswith("<") and not ref_clean.startswith(">"):
-            parts = ref_clean.split("-")
-            if len(parts) == 2:
-                try:
-                    min_val = self._extract_numeric_value(parts[0])
-                    max_val = self._extract_numeric_value(parts[1])
-                    if min_val is not None and max_val is not None:
-                        return {"min": min_val, "max": max_val}
-                except ValueError:
-                    pass
         
         # Handle >95% -> min: 95.01, max: null
         elif ref_clean.startswith(">"):

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Boolean, JSON, Float, Enum
+from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Boolean, JSON, Float, Enum, Date
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.core.database import Base
@@ -51,7 +51,7 @@ class FamilyHistoryStatus(str, enum.Enum):
     DECEASED = "Deceased"
     UNKNOWN = "Unknown"
 
-class DocumentType(str, enum.Enum):
+class GeneralDocumentType(str, enum.Enum):
     LAB_RESULT = "lab_result"
     IMAGING = "imaging"
     PRESCRIPTION = "prescription"
@@ -62,6 +62,24 @@ class DocumentType(str, enum.Enum):
     VACCINATION_RECORD = "vaccination_record"
     ALLERGY_TEST = "allergy_test"
     GENETIC_TEST = "genetic_test"
+
+class LabDocumentType(str, enum.Enum):
+    COMPREHENSIVE_METABOLIC_PANEL = "Comprehensive Metabolic Panel"
+    COMPLETE_BLOOD_COUNT = "Complete Blood Count"
+    LIPID_PANEL = "Lipid Panel"
+    HEMOGLOBIN_A1C = "Hemoglobin A1C"
+    THYROID_FUNCTION = "Thyroid Function"
+    LIVER_FUNCTION = "Liver Function"
+    KIDNEY_FUNCTION = "Kidney Function"
+    ELECTROLYTES = "Electrolytes"
+    URINALYSIS = "Urinalysis"
+    BLOOD_GLUCOSE = "Blood Glucose"
+    CHOLESTEROL = "Cholesterol"
+    TRIGLYCERIDES = "Triglycerides"
+    VITAMIN_D = "Vitamin D"
+    IRON_STUDIES = "Iron Studies"
+    COAGULATION = "Coagulation"
+    OTHER = "Other"
 
 class AnalysisCategory(str, enum.Enum):
     TREND_ANALYSIS = "trend_analysis"
@@ -205,6 +223,7 @@ class HealthRecordMetric(Base):
     
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     section_id = Column(Integer, ForeignKey("health_record_sections.id"), nullable=False)
+    metric_tmp_id = Column(Integer, ForeignKey("health_record_metrics_tmp.id"), nullable=True)  # Link to template metric
     name = Column(String(100), nullable=False)
     display_name = Column(String(100), nullable=False)
     description = Column(Text)
@@ -219,6 +238,7 @@ class HealthRecordMetric(Base):
     
     # Relationships
     section = relationship("HealthRecordSection", back_populates="metrics")
+    metric_template = relationship("HealthRecordMetricTemplate")
     health_records = relationship("HealthRecord", back_populates="metric")
     goals = relationship("Goal", back_populates="metric")
 
@@ -252,29 +272,27 @@ class HealthRecord(Base):
     goal_tracking_details = relationship("GoalTrackingDetail", back_populates="health_record")
     task_tracking_details = relationship("TaskTrackingDetail", back_populates="health_record")
 
-class MedicalDocument(Base):
-    __tablename__ = "medical_documents"
+class HealthRecordDocLab(Base):
+    __tablename__ = "health_record_doc_lab"
     
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)  # User who owns and uploaded this document
     health_record_type_id = Column(Integer, ForeignKey("health_record_type.id"), nullable=False)
-    document_type = Column(String(50), nullable=False)
-    lab_test_name = Column(String(200))
-    lab_test_type = Column(String(100))
-    lab_test_date = Column(DateTime)
+    lab_doc_type = Column(Enum(LabDocumentType), nullable=False)  # Renamed from document_type
+    lab_test_date = Column(Date)
     provider = Column(String(200))
     file_name = Column(String(255), nullable=False)
     s3_url = Column(Text)
     file_type = Column(String(20))
     description = Column(Text)
-    source = Column(String(100))
+    general_doc_type = Column(Enum(GeneralDocumentType), nullable=False)  # Renamed from source
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     updated_by = Column(Integer, ForeignKey("users.id"))
     
     # Relationships
-    user = relationship("User", foreign_keys=[created_by], backref="medical_documents")
-    health_record_type = relationship("HealthRecordType", backref="medical_documents")
+    user = relationship("User", foreign_keys=[created_by], backref="health_record_doc_lab")
+    health_record_type = relationship("HealthRecordType", backref="health_record_doc_lab")
 
 class MedicalCondition(Base):
     __tablename__ = "medical_conditions"
@@ -321,8 +339,8 @@ class FamilyMedicalHistory(Base):
 # HEALTH RECORD IMAGE MODEL
 # ============================================================================
 
-class HealthRecordImage(Base):
-    __tablename__ = "health_record_images"
+class HealthRecordDocExam(Base):
+    __tablename__ = "health_record_doc_exam"
     
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)  # User who owns and uploaded this image
@@ -360,7 +378,7 @@ class HealthRecordImage(Base):
     updated_by = Column(Integer, ForeignKey("users.id"))
     
     # Relationships
-    user = relationship("User", foreign_keys=[created_by], backref="health_record_images")
+    user = relationship("User", foreign_keys=[created_by], backref="health_record_doc_exam")
 
 # ============================================================================
 # iOS INTEGRATION MODELS

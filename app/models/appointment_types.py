@@ -25,7 +25,7 @@ class AppointmentTypePricing(Base):
     
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     appointment_type_id = Column(Integer, ForeignKey("appointment_types.id"), nullable=False)
-    professional_id = Column(Integer, ForeignKey("professionals.id"), nullable=False)
+    professional_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     
     # Pricing Details
     consultation_type = Column(String(50), nullable=False)  # "in_person", "virtual", "phone"
@@ -52,4 +52,4 @@ class AppointmentTypePricing(Base):
     
     # Relationships
     appointment_type = relationship("AppointmentType", back_populates="pricing")
-    professional = relationship("Professional", backref="pricing") 
+    professional = relationship("User", foreign_keys=[professional_id], backref="pricing") 

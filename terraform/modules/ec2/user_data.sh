@@ -69,6 +69,9 @@ http {
     server {
         listen 80;
         server_name _;
+        
+        # Allow larger file uploads (up to 50MB)
+        client_max_body_size 50M;
 
         location / {
             proxy_pass http://app;
@@ -76,6 +79,11 @@ http {
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto $scheme;
+            
+            # Increase timeout for large file uploads
+            proxy_read_timeout 300s;
+            proxy_connect_timeout 300s;
+            proxy_send_timeout 300s;
         }
     }
 }

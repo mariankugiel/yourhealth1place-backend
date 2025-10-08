@@ -56,6 +56,9 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     OPENAI_MODEL: str = "gpt-4-turbo-preview"
     OPENAI_MAX_TOKENS: int = 4000
+    
+    # Lambda Webhook Configuration
+    LAMBDA_WEBHOOK_TOKEN: str = "your-lambda-webhook-token"
     OPENAI_TEMPERATURE: float = 0.1
     
     class Config:

@@ -11,12 +11,12 @@ class User(Base):
     email = Column(String(255), nullable=False, unique=True, index=True)  # For lookups only
     is_active = Column(Boolean, default=True)  # Application state
     is_superuser = Column(Boolean, default=False)  # Application permissions
+    # timezone is stored in Supabase, not in local PostgreSQL
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
     # Relationships to application data (not personal info)
-    patient = relationship("Patient", back_populates="user")
-    professional = relationship("Professional", back_populates="user")
+    # Patient and Professional data now stored in Supabase user metadata
     health_records = relationship("HealthRecord", foreign_keys="HealthRecord.created_by", back_populates="user")
     ios_devices = relationship("IOSDevice", foreign_keys="IOSDevice.user_id", back_populates="user")
     

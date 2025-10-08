@@ -30,7 +30,6 @@ class BulkLabRecordsRequest(BaseModel):
     description: Optional[str] = None
     s3_url: Optional[str] = None
     lab_test_date: Optional[str] = None
-    lab_test_name: Optional[str] = None
     provider: Optional[str] = None
 
 @router.post("/upload", response_model=dict)
@@ -47,10 +46,11 @@ async def upload_and_analyze_lab_document(
     Upload and analyze a lab report PDF document (extraction only)
     
     This endpoint will:
-    1. Store the PDF in AWS S3
-    2. Extract text using pdfplumber
-    3. Parse lab metrics using the multilingual extraction logic
-    4. Return extracted data for user review (no health records created)
+    1. Check for duplicate files
+    2. Store the PDF in AWS S3
+    3. Extract text using pdfplumber
+    4. Parse lab metrics using the multilingual extraction logic
+    5. Return extracted data for user review (no health records created)
     
     Use /bulk endpoint to create health records after user confirmation.
     """
@@ -68,6 +68,25 @@ async def upload_and_analyze_lab_document(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="File size must be less than 10MB"
             )
+        
+        # Check for duplicate files
+        from app.crud.document import document_crud
+        duplicate_doc = document_crud.check_duplicate_file(
+            db, current_user.id, file.filename, file.size
+        )
+        
+        if duplicate_doc:
+            return {
+                "success": False,
+                "duplicate_found": True,
+                "existing_document": {
+                    "id": duplicate_doc.id,
+                    "file_name": duplicate_doc.file_name,
+                    "file_size_bytes": duplicate_doc.file_size_bytes,
+                    "created_at": duplicate_doc.created_at.isoformat()
+                },
+                "message": f"A similar file already exists: {duplicate_doc.file_name}"
+            }
         
         # Read file content
         file_content = await file.read()
@@ -213,8 +232,8 @@ async def bulk_create_lab_records(
             s3_url=request.s3_url or "",  # Use S3 URL from request
             description=request.description,
             lab_test_date=request.lab_test_date,
-            lab_test_name=request.lab_test_name,
-            provider=request.provider
+            provider=request.provider,
+            document_type="lab_result"  # Default document type
         )
         
         created_records = []

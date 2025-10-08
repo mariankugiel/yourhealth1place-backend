@@ -3,7 +3,7 @@ from sqlalchemy import and_, func
 from typing import List, Optional
 from datetime import datetime
 
-from app.models.health_record import HealthRecordImage, ImageType, ImageFindings
+from app.models.health_record import HealthRecordDocExam, ImageType, ImageFindings
 
 class MedicalImageCRUD:
     def create(
@@ -22,7 +22,7 @@ class MedicalImageCRUD:
         doctor_name: str = "",
         doctor_number: str = "",
         interpretation: str = ""
-    ) -> HealthRecordImage:
+    ) -> HealthRecordDocExam:
         """Create a new medical image record"""
         # Map exam_type to ImageType enum
         image_type_enum = ImageType.Others
@@ -56,7 +56,7 @@ class MedicalImageCRUD:
         else:
             parsed_date = datetime.now()
         
-        medical_image = HealthRecordImage(
+        medical_image = HealthRecordDocExam(
             created_by=user_id,
             image_type=image_type_enum,
             body_part=body_part,
@@ -77,9 +77,9 @@ class MedicalImageCRUD:
         db.refresh(medical_image)
         return medical_image
     
-    def get_by_id(self, db: Session, image_id: int) -> Optional[HealthRecordImage]:
+    def get_by_id(self, db: Session, image_id: int) -> Optional[HealthRecordDocExam]:
         """Get a medical image by ID"""
-        return db.query(HealthRecordImage).filter(HealthRecordImage.id == image_id).first()
+        return db.query(HealthRecordDocExam).filter(HealthRecordDocExam.id == image_id).first()
     
     def get_by_user(
         self,
@@ -87,12 +87,12 @@ class MedicalImageCRUD:
         user_id: int,
         skip: int = 0,
         limit: int = 10
-    ) -> List[HealthRecordImage]:
+    ) -> List[HealthRecordDocExam]:
         """Get medical images for a user with pagination"""
         return (
-            db.query(HealthRecordImage)
-            .filter(HealthRecordImage.created_by == user_id)
-            .order_by(HealthRecordImage.image_date.desc())
+            db.query(HealthRecordDocExam)
+            .filter(HealthRecordDocExam.created_by == user_id)
+            .order_by(HealthRecordDocExam.image_date.desc())
             .offset(skip)
             .limit(limit)
             .all()
@@ -101,14 +101,14 @@ class MedicalImageCRUD:
     def count_by_user(self, db: Session, user_id: int) -> int:
         """Count medical images for a user"""
         return (
-            db.query(func.count(HealthRecordImage.id))
-            .filter(HealthRecordImage.created_by == user_id)
+            db.query(func.count(HealthRecordDocExam.id))
+            .filter(HealthRecordDocExam.created_by == user_id)
             .scalar()
         )
     
     def delete(self, db: Session, image_id: int) -> bool:
         """Delete a medical image"""
-        medical_image = db.query(HealthRecordImage).filter(HealthRecordImage.id == image_id).first()
+        medical_image = db.query(HealthRecordDocExam).filter(HealthRecordDocExam.id == image_id).first()
         if medical_image:
             db.delete(medical_image)
             db.commit()
@@ -120,9 +120,9 @@ class MedicalImageCRUD:
         db: Session,
         image_id: int,
         **kwargs
-    ) -> Optional[HealthRecordImage]:
+    ) -> Optional[HealthRecordDocExam]:
         """Update a medical image"""
-        medical_image = db.query(HealthRecordImage).filter(HealthRecordImage.id == image_id).first()
+        medical_image = db.query(HealthRecordDocExam).filter(HealthRecordDocExam.id == image_id).first()
         if medical_image:
             for key, value in kwargs.items():
                 if hasattr(medical_image, key):

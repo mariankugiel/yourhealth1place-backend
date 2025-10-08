@@ -34,7 +34,14 @@ akeyless==3.0.0
 # Additional utilities
 cryptography==41.0.7
 python-jose[cryptography]==3.3.0
-email-validator==2.1.0 
+email-validator==2.1.0
+pytz==2023.3 
 
 # AI Analysis Dependencies
 openai>=1.0.0
+
+# PDF and Image Processing Dependencies
+pdfplumber==0.10.3
+PyMuPDF==1.23.8
+pytesseract==0.3.10
+Pillow==10.1.0

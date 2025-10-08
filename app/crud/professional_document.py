@@ -10,8 +10,7 @@ from app.models.professional_documents import (
     ProfessionalDocumentCategory
 )
 from app.models.appointment import Appointment
-from app.models.patient import Patient
-from app.models.professional import Professional
+from app.models.user import User
 from app.schemas.professional_document import (
     ProfessionalDocumentCreate,
     ProfessionalDocumentUpdate,
@@ -131,8 +130,8 @@ class ProfessionalDocumentCRUD:
         if not appointment:
             raise ValueError("Appointment not found")
         
-        # Get patient details
-        patient = db.query(Patient).filter(Patient.id == appointment.patient_id).first()
+        # Get patient details from users table
+        patient = db.query(User).filter(User.id == appointment.patient_id).first()
         if not patient:
             raise ValueError("Patient not found")
         
