@@ -21,7 +21,7 @@ def main():
         description='Health analysis and AI insights',
         is_active=True,
         created_at=datetime.utcnow(),
-        created_by=21  # Admin user ID
+        created_by=3  # Admin user ID
     )
     
     db.add(hrt)
@@ -46,7 +46,7 @@ def main():
                 description=description,
                 is_active=True,
                 created_at=datetime.utcnow(),
-                created_by=21  # Admin user ID
+                created_by=3  # Admin user ID
             )
             db.add(hrt)
             print(f"Created health record type with ID {id_val}: {display_name}")
