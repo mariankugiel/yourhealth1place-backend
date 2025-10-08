@@ -7,6 +7,7 @@ import json
 import os
 
 from app.core.database import get_db
+from app.core.config import settings
 from app.models.user import User
 from app.api.v1.endpoints.auth import get_current_user
 from app.schemas.medication_reminder import (
@@ -24,8 +25,8 @@ from app.websocket.notification_service import websocket_notification_service
 
 router = APIRouter()
 
-# Initialize SQS client
-sqs_client = boto3.client('sqs')
+# Initialize SQS client with explicit region
+sqs_client = boto3.client('sqs', region_name=settings.AWS_REGION)
 
 @router.post("/", response_model=MedicationReminderResponse, status_code=status.HTTP_201_CREATED)
 async def create_medication_reminder(
