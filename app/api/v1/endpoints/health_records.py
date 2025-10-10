@@ -2063,6 +2063,10 @@ async def upload_health_record_image(
             image_date=db_image.image_date,
             findings=db_image.findings,
             conclusions=db_image.conclusions,
+            interpretation=db_image.interpretation,
+            notes=db_image.notes,
+            doctor_name=db_image.doctor_name,
+            doctor_number=db_image.doctor_number,
             original_filename=db_image.original_filename,
             file_size_bytes=db_image.file_size_bytes,
             content_type=db_image.content_type,
@@ -2108,6 +2112,8 @@ async def create_health_record_doc_exam(
             conclusions=db_image.conclusions,
             interpretation=db_image.interpretation,
             notes=db_image.notes,
+            doctor_name=db_image.doctor_name,
+            doctor_number=db_image.doctor_number,
             original_filename=db_image.original_filename,
             file_size_bytes=db_image.file_size_bytes,
             content_type=db_image.content_type,
@@ -2156,27 +2162,39 @@ async def get_health_record_doc_exam(
             findings.value if findings else None
         )
         
-        # Convert to response schemas
-        image_summaries = [
-            HealthRecordDocExamSummary(
-                id=img.id,
-                image_type=img.image_type,
-                body_part=img.body_part,
-                image_date=img.image_date,
-                findings=img.findings,
-                conclusions=img.conclusions,
-                interpretation=img.interpretation,
-                notes=img.notes,
-                original_filename=img.original_filename,
-                content_type=img.content_type,
-                file_size_bytes=img.file_size_bytes,
-                s3_url=img.s3_url,
-                doctor_name=img.doctor_name,
-                doctor_number=img.doctor_number,
-                created_at=img.created_at
+        # Convert to response schemas and generate presigned URLs
+        image_summaries = []
+        for img in images:
+            # Generate presigned URL if s3_key exists
+            s3_url = img.s3_url
+            if img.s3_key and not s3_url:
+                try:
+                    from app.core.config import settings
+                    s3_path = f"s3://{settings.AWS_S3_BUCKET}/{img.s3_key}"
+                    s3_url = aws_service.generate_presigned_url(s3_path, expiration=3600)
+                except Exception as e:
+                    logger.warning(f"Failed to generate presigned URL for image {img.id}: {e}")
+                    s3_url = None
+            
+            image_summaries.append(
+                HealthRecordDocExamSummary(
+                    id=img.id,
+                    image_type=img.image_type,
+                    body_part=img.body_part,
+                    image_date=img.image_date,
+                    findings=img.findings,
+                    conclusions=img.conclusions,
+                    interpretation=img.interpretation,
+                    notes=img.notes,
+                    original_filename=img.original_filename,
+                    content_type=img.content_type,
+                    file_size_bytes=img.file_size_bytes,
+                    s3_url=s3_url,
+                    doctor_name=img.doctor_name,
+                    doctor_number=img.doctor_number,
+                    created_at=img.created_at
+                )
             )
-            for img in images
-        ]
         
         # Calculate pagination info
         total_pages = (total_count + limit - 1) // limit
@@ -2220,6 +2238,16 @@ async def get_health_record_image(
                 detail="Health record image not found"
             )
         
+        # Generate presigned URL if s3_key exists and s3_url is not set
+        s3_url = image.s3_url
+        if image.s3_key and not s3_url:
+            try:
+                from app.core.config import settings
+                s3_path = f"s3://{settings.AWS_S3_BUCKET}/{image.s3_key}"
+                s3_url = aws_service.generate_presigned_url(s3_path, expiration=3600)
+            except Exception as e:
+                logger.warning(f"Failed to generate presigned URL for image {image.id}: {e}")
+        
         return HealthRecordDocExamResponse(
             id=image.id,
             created_by=image.created_by,
@@ -2235,7 +2263,7 @@ async def get_health_record_image(
             content_type=image.content_type,
             s3_bucket=image.s3_bucket,
             s3_key=image.s3_key,
-            s3_url=image.s3_url,
+            s3_url=s3_url,
             file_id=image.file_id,
             doctor_name=image.doctor_name,
             doctor_number=image.doctor_number,
@@ -2287,6 +2315,8 @@ async def update_health_record_doc_exam(
             conclusions=updated_image.conclusions,
             interpretation=updated_image.interpretation,
             notes=updated_image.notes,
+            doctor_name=updated_image.doctor_name,
+            doctor_number=updated_image.doctor_number,
             original_filename=updated_image.original_filename,
             file_size_bytes=updated_image.file_size_bytes,
             content_type=updated_image.content_type,
@@ -2362,13 +2392,13 @@ async def delete_health_record_image(
             detail=f"Failed to delete health record image: {str(e)}"
         )
 
-@router.get("/images/{image_id}/download")
-async def download_health_record_image(
+@router.get("/health-record-doc-exam/{image_id}/download")
+async def download_health_record_doc_exam(
     image_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Download a health record image"""
+    """Download a health record exam/image document"""
     try:
         image = health_record_doc_exam_crud.get_image_by_id(db, image_id, current_user.id)
         
@@ -2403,6 +2433,16 @@ async def download_health_record_image(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to download health record image: {str(e)}"
         )
+
+# Legacy endpoint for backward compatibility
+@router.get("/images/{image_id}/download")
+async def download_health_record_image_legacy(
+    image_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Download a health record image (legacy endpoint)"""
+    return await download_health_record_doc_exam(image_id, current_user, db)
 
 @router.get("/images/statistics")
 async def get_image_statistics(

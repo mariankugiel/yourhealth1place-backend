@@ -321,13 +321,27 @@ class FamilyMedicalHistory(Base):
     
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)  # User whose family history this is
-    condition_name = Column(String(200), nullable=False)
-    relation = Column(Enum(FamilyRelation), nullable=False)
-    age_of_onset = Column(Integer)
-    description = Column(Text)
-    outcome = Column(Text)
-    status = Column(Enum(FamilyHistoryStatus))
-    source = Column(Enum(FamilyHistorySource))
+    
+    # Family Member Information
+    relation = Column(Enum(FamilyRelation), nullable=False)  # Father, Mother, Sibling, etc.
+    is_deceased = Column(Boolean, default=False, nullable=False)
+    age_at_death = Column(Integer, nullable=True)
+    cause_of_death = Column(String(500), nullable=True)
+    current_age = Column(Integer, nullable=True)  # For living family members
+    gender = Column(String(20), nullable=True)  # For siblings/children
+    
+    # Condition Information (JSON array for multiple conditions per family member)
+    # Format: [{"disease": "Diabetes", "age_at_diagnosis": "45", "comments": "Type 2"}]
+    chronic_diseases = Column(JSON, nullable=True, default=list)
+    
+    # Legacy fields (for backward compatibility)
+    condition_name = Column(String(200), nullable=True)
+    age_of_onset = Column(Integer, nullable=True)
+    description = Column(Text, nullable=True)
+    outcome = Column(Text, nullable=True)
+    status = Column(Enum(FamilyHistoryStatus), nullable=True)
+    source = Column(Enum(FamilyHistorySource), nullable=True)
+    
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     updated_by = Column(Integer, ForeignKey("users.id"))

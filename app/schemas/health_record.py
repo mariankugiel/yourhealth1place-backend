@@ -101,21 +101,40 @@ class MedicalConditionResponse(MedicalConditionBase):
 # FAMILY MEDICAL HISTORY SCHEMAS
 # ============================================================================
 
+class ChronicDisease(BaseModel):
+    disease: str
+    age_at_diagnosis: str
+    comments: Optional[str] = None
+
 class FamilyMedicalHistoryBase(BaseModel):
-    condition_name: str = Field(..., description="Name of the family medical condition")
     relation: FamilyRelation = Field(..., description="Family relationship")
-    age_of_onset: Optional[int] = Field(None, description="Age when condition started")
-    description: Optional[str] = Field(None, description="Description of the condition")
-    outcome: Optional[str] = Field(None, description="Outcome or current status")
-    status: Optional[FamilyHistoryStatus] = Field(None, description="Current status of family member")
-    source: Optional[FamilyHistorySource] = Field(None, description="Source of the information")
+    is_deceased: bool = Field(default=False, description="Whether the family member is deceased")
+    age_at_death: Optional[int] = Field(None, description="Age at death if deceased")
+    cause_of_death: Optional[str] = Field(None, description="Cause of death if deceased")
+    current_age: Optional[int] = Field(None, description="Current age if alive")
+    gender: Optional[str] = Field(None, description="Gender (for siblings/children)")
+    chronic_diseases: List[ChronicDisease] = Field(default_factory=list, description="List of chronic diseases")
+    
+    # Legacy fields (for backward compatibility)
+    condition_name: Optional[str] = Field(None, description="Name of the family medical condition (legacy)")
+    age_of_onset: Optional[int] = Field(None, description="Age when condition started (legacy)")
+    description: Optional[str] = Field(None, description="Description of the condition (legacy)")
+    outcome: Optional[str] = Field(None, description="Outcome or current status (legacy)")
+    status: Optional[FamilyHistoryStatus] = Field(None, description="Current status of family member (legacy)")
+    source: Optional[FamilyHistorySource] = Field(None, description="Source of the information (legacy)")
 
 class FamilyMedicalHistoryCreate(FamilyMedicalHistoryBase):
     pass
 
 class FamilyMedicalHistoryUpdate(BaseModel):
-    condition_name: Optional[str] = None
     relation: Optional[FamilyRelation] = None
+    is_deceased: Optional[bool] = None
+    age_at_death: Optional[int] = None
+    cause_of_death: Optional[str] = None
+    current_age: Optional[int] = None
+    gender: Optional[str] = None
+    chronic_diseases: Optional[List[ChronicDisease]] = None
+    condition_name: Optional[str] = None
     age_of_onset: Optional[int] = None
     description: Optional[str] = None
     outcome: Optional[str] = None
@@ -508,6 +527,12 @@ class HealthRecordDocExamUpdate(BaseModel):
     conclusions: Optional[str] = None
     interpretation: Optional[str] = None
     notes: Optional[str] = None
+    doctor_name: Optional[str] = None
+    doctor_number: Optional[str] = None
+    s3_key: Optional[str] = None
+    original_filename: Optional[str] = None
+    file_size_bytes: Optional[int] = None
+    content_type: Optional[str] = None
 
 class HealthRecordDocExamResponse(HealthRecordDocExamBase):
     """Schema for health record image response"""

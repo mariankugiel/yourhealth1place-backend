@@ -423,9 +423,19 @@ class FamilyMedicalHistoryCRUD:
     def create(self, db: Session, history: FamilyMedicalHistoryCreate, user_id: int) -> FamilyMedicalHistory:
         """Create a new family medical history record"""
         try:
+            # Convert chronic_diseases to dict format for JSON column
+            chronic_diseases_data = [disease.dict() for disease in history.chronic_diseases] if history.chronic_diseases else []
+            
             db_history = FamilyMedicalHistory(
-                condition_name=history.condition_name,
                 relation=history.relation,
+                is_deceased=history.is_deceased,
+                age_at_death=history.age_at_death,
+                cause_of_death=history.cause_of_death,
+                current_age=history.current_age,
+                gender=history.gender,
+                chronic_diseases=chronic_diseases_data,
+                # Legacy fields
+                condition_name=history.condition_name,
                 age_of_onset=history.age_of_onset,
                 description=history.description,
                 outcome=history.outcome,
@@ -489,6 +499,14 @@ class FamilyMedicalHistoryCRUD:
                 return None
             
             update_data = history_update.dict(exclude_unset=True)
+            
+            # Handle chronic_diseases conversion
+            if 'chronic_diseases' in update_data and update_data['chronic_diseases'] is not None:
+                update_data['chronic_diseases'] = [
+                    disease.dict() if hasattr(disease, 'dict') else disease 
+                    for disease in update_data['chronic_diseases']
+                ]
+            
             update_data['updated_by'] = user_id
             
             for field, value in update_data.items():
