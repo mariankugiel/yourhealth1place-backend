@@ -489,6 +489,19 @@ class LabDocumentAnalysisService:
             lab_data = self._extract_lab_data_advanced(text)
             logger.info(f"Extracted {len(lab_data)} lab records")
             
+            # If no records found, try OCR fallback
+            ocr_used = False
+            if len(lab_data) == 0:
+                logger.warning("No records extracted with standard method, attempting OCR fallback")
+                try:
+                    from app.services.ocr_lab_extractor import extract_lab_data_with_ocr
+                    lab_data = extract_lab_data_with_ocr(file_data, file_name)
+                    ocr_used = True
+                    logger.info(f"OCR extraction completed: {len(lab_data)} records found")
+                except Exception as ocr_error:
+                    logger.error(f"OCR fallback failed: {ocr_error}")
+                    # Continue with empty lab_data
+            
             # Upload to S3
             s3_url = await self._upload_to_s3(file_data, file_name, str(user_id))
             
@@ -517,7 +530,8 @@ class LabDocumentAnalysisService:
                 "message": "Lab document analyzed successfully",
                 "s3_url": s3_url,
                 "lab_data": lab_data,
-                "created_records_count": len(created_records)
+                "created_records_count": len(created_records),
+                "ocr_used": ocr_used
             }
             
         except Exception as e:

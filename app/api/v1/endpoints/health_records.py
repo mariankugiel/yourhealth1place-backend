@@ -3047,9 +3047,21 @@ async def upload_and_analyze_lab_document(
         
 
         # Extract lab data only (no health records created)
-        lab_data = lab_service._extract_lab_data_advanced(
-            lab_service._extract_text_from_pdf(file_content)
-        )
+        text = lab_service._extract_text_from_pdf(file_content)
+        lab_data = lab_service._extract_lab_data_advanced(text)
+        
+        # If no records found, try OCR fallback
+        ocr_used = False
+        if len(lab_data) == 0:
+            logger.info("No records extracted with standard method, attempting OCR fallback")
+            try:
+                from app.services.ocr_lab_extractor import extract_lab_data_with_ocr
+                lab_data = extract_lab_data_with_ocr(file_content, file.filename)
+                ocr_used = True
+                logger.info(f"OCR extraction completed: {len(lab_data)} records found")
+            except Exception as ocr_error:
+                logger.error(f"OCR fallback failed: {ocr_error}")
+                # Continue with empty lab_data
         
         # Parse reference ranges for each lab data entry
         for item in lab_data:
@@ -3084,6 +3096,7 @@ async def upload_and_analyze_lab_document(
             "s3_url": s3_url,
             "lab_data": lab_data,
             "extracted_records_count": len(lab_data),
+            "ocr_used": ocr_used,
             "form_data": {
                 "doc_date": doc_date,
                 "doc_type": doc_type,
