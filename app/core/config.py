@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     AWS_S3_BUCKET: str = "yourhealth1place-documents"
     AWS_ATHENA_DATABASE: str = "yourhealth1place_analytics"
     AWS_ATHENA_WORKGROUP: str = "primary"
+    SQS_EMAIL_QUEUE_URL: str = "your-sqs-email-queue-url"
+    LAMBDA_API_TOKEN: str = "your-lambda-webhook-token"
     
     # Akeyless Configuration (Encryption Keys)
     AKEYLESS_ACCESS_ID: str = "your-akeyless-access-id"

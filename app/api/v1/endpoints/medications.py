@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List
 from app.core.database import get_db
 from app.models.user import User
-from app.schemas.medication import MedicationCreate, MedicationUpdate, MedicationResponse
+from app.schemas.medication import MedicationCreate, MedicationUpdate, MedicationResponse, EndMedicationRequest
 from app.api.v1.endpoints.auth import get_current_user
 from app.crud.medication import medication_crud
 from app.models.medication import MedicationStatus
@@ -172,10 +172,11 @@ def delete_medication(
 @router.patch("/{medication_id}/end")
 def end_medication(
     medication_id: int,
+    end_request: EndMedicationRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """End a medication (set status to discontinued)"""
+    """End a medication (set status to discontinued with optional reason)"""
     try:
         medication = medication_crud.get_by_id(db, medication_id)
         if not medication:
@@ -191,10 +192,18 @@ def end_medication(
                 detail="Access denied"
             )
         
-        # Update status to discontinued
-        updated_medication = medication_crud.update(db, medication_id, {
-            "status": MedicationStatus.DISCONTINUED
-        })
+        from datetime import date
+        
+        # Update status to discontinued with optional reason and set end_date
+        update_data = {
+            "status": MedicationStatus.DISCONTINUED,
+            "end_date": date.today()
+        }
+        
+        if end_request.reason:
+            update_data["reason_ended"] = end_request.reason
+        
+        updated_medication = medication_crud.update(db, medication_id, update_data)
         
         return {"message": "Medication ended successfully", "medication": MedicationResponse.from_orm(updated_medication)}
     except HTTPException:

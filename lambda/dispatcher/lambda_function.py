@@ -7,6 +7,12 @@ import requests
 from datetime import datetime
 import os
 
+# ============================================================================
+# CONFIGURATION - Update these values with your actual configuration
+# ============================================================================
+BACKEND_URL = 'https://your-backend-domain.com'  # Your backend API URL
+LAMBDA_API_TOKEN = 'your-secure-token-here'  # Token for backend authentication
+
 def lambda_handler(event, context):
     """
     EventBridge trigger function
@@ -17,13 +23,12 @@ def lambda_handler(event, context):
     
     try:
         # Backend API endpoint
-        backend_url = os.environ['BACKEND_URL']
-        api_endpoint = f"{backend_url}/api/v1/medication-reminders/check-due"
+        api_endpoint = f"{BACKEND_URL}/api/v1/medication-reminders/check-due"
         
         # Authentication
         headers = {
             'Content-Type': 'application/json',
-            'Authorization': f"Bearer {os.environ['LAMBDA_API_TOKEN']}"
+            'Authorization': f"Bearer {LAMBDA_API_TOKEN}"
         }
         
         # Payload

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, Form, File
+from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, Form, File, BackgroundTasks
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
 from typing import List, Optional, Dict, Any
@@ -3022,6 +3022,63 @@ async def delete_health_record(
 # LAB DOCUMENT UPLOAD ENDPOINTS (moved from lab_documents.py)
 # ============================================================================
 
+# Store OCR processing jobs in memory (in production, use Redis or database)
+ocr_processing_jobs = {}
+
+def process_ocr_background(job_id: str, file_content: bytes, filename: str, s3_url: str, user_id: int, form_data: dict = None):
+    """Background task to process OCR for lab documents"""
+    try:
+        logger.info(f"Starting OCR processing for job {job_id}")
+        ocr_processing_jobs[job_id] = {
+            "status": "processing",
+            "message": "OCR extraction in progress",
+            "progress": 0,
+            "form_data": form_data
+        }
+        
+        from app.services.ocr_lab_extractor import extract_lab_data_with_ocr
+        from app.services.lab_document_analysis_service import LabDocumentAnalysisService
+        
+        lab_service = LabDocumentAnalysisService()
+        
+        # Extract data with OCR
+        lab_data = extract_lab_data_with_ocr(file_content, filename)
+        
+        # Parse reference ranges
+        for item in lab_data:
+            if 'reference' in item or 'reference_range' in item:
+                original_reference = item.get('reference') or item.get('reference_range', '')
+                if original_reference:
+                    parsed_range = lab_service._parse_simple_range(original_reference)
+                    item['reference_range_parsed'] = {
+                        'min': parsed_range.get('min'),
+                        'max': parsed_range.get('max'),
+                        'original': original_reference
+                    }
+        
+        # Update job status
+        ocr_processing_jobs[job_id] = {
+            "status": "completed",
+            "message": "OCR extraction completed successfully",
+            "lab_data": lab_data,
+            "extracted_records_count": len(lab_data),
+            "s3_url": s3_url,
+            "ocr_used": True,
+            "progress": 100,
+            "form_data": form_data
+        }
+        
+        logger.info(f"OCR processing completed for job {job_id}: {len(lab_data)} records found")
+        
+    except Exception as e:
+        logger.error(f"OCR processing failed for job {job_id}: {e}")
+        ocr_processing_jobs[job_id] = {
+            "status": "failed",
+            "message": f"OCR extraction failed: {str(e)}",
+            "error": str(e),
+            "progress": 0
+        }
+
 @router.post("/health-record-doc-lab/upload", response_model=dict)
 async def upload_and_analyze_lab_document(
     file: UploadFile = File(..., description="Lab report PDF file"),
@@ -3029,8 +3086,10 @@ async def upload_and_analyze_lab_document(
     doc_date: Optional[str] = Form(None, description="Document date"),
     doc_type: Optional[str] = Form(None, description="Document type"),
     provider: Optional[str] = Form(None, description="Healthcare provider"),
+    use_ocr: bool = Form(False, description="Force OCR processing for scanned documents"),
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    background_tasks: BackgroundTasks = BackgroundTasks()
 ):
     """
     Upload and analyze a lab report PDF document (extraction only)
@@ -3085,25 +3144,82 @@ async def upload_and_analyze_lab_document(
         # Read file content
         file_content = await file.read()
         
+        # Upload to S3 first (before processing)
+        s3_url = None
+        try:
+            s3_url = await lab_service._upload_to_s3(file_content, file.filename, str(current_user.id))
+        except Exception as s3_error:
+            logger.error(f"Failed to upload file to S3: {s3_error}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to upload file to S3: {str(s3_error)}"
+            )
 
-        # Extract lab data only (no health records created)
-        text = lab_service._extract_text_from_pdf(file_content)
-        lab_data = lab_service._extract_lab_data_advanced(text)
-        
-        # If no records found, try OCR fallback
-        ocr_used = False
-        if len(lab_data) == 0:
-            logger.info("No records extracted with standard method, attempting OCR fallback")
+        # If OCR is explicitly requested (second request from frontend)
+        if use_ocr:
+            logger.info("OCR mode explicitly requested by user")
             try:
                 from app.services.ocr_lab_extractor import extract_lab_data_with_ocr
                 lab_data = extract_lab_data_with_ocr(file_content, file.filename)
-                ocr_used = True
                 logger.info(f"OCR extraction completed: {len(lab_data)} records found")
+                
+                # Parse reference ranges
+                for item in lab_data:
+                    if 'reference' in item or 'reference_range' in item:
+                        original_reference = item.get('reference') or item.get('reference_range', '')
+                        if original_reference:
+                            parsed_range = lab_service._parse_simple_range(original_reference)
+                            item['reference_range_parsed'] = {
+                                'min': parsed_range.get('min'),
+                                'max': parsed_range.get('max'),
+                                'original': original_reference
+                            }
+                
+                return {
+                    "success": True,
+                    "message": "OCR extraction completed successfully",
+                    "s3_url": s3_url,
+                    "lab_data": lab_data,
+                    "extracted_records_count": len(lab_data),
+                    "ocr_used": True,
+                    "form_data": {
+                        "doc_date": doc_date,
+                        "doc_type": doc_type,
+                        "provider": provider,
+                        "description": description
+                    }
+                }
             except Exception as ocr_error:
-                logger.error(f"OCR fallback failed: {ocr_error}")
-                # Continue with empty lab_data
+                logger.error(f"OCR extraction failed: {ocr_error}")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"OCR extraction failed: {str(ocr_error)}"
+                )
         
-        # Parse reference ranges for each lab data entry
+        # Standard extraction (fast path)
+        text = lab_service._extract_text_from_pdf(file_content)
+        lab_data = lab_service._extract_lab_data_advanced(text)
+        
+        # If no records found with standard method, suggest OCR to frontend
+        if len(lab_data) == 0:
+            logger.info("No records found with standard extraction. Suggesting OCR mode to user.")
+            return {
+                "success": True,
+                "message": "No data extracted with standard method. Document may be scanned. Trying OCR mode...",
+                "s3_url": s3_url,
+                "lab_data": [],
+                "extracted_records_count": 0,
+                "ocr_used": False,
+                "suggest_ocr": True,  # Frontend will automatically trigger OCR request
+                "form_data": {
+                    "doc_date": doc_date,
+                    "doc_type": doc_type,
+                    "provider": provider,
+                    "description": description
+                }
+            }
+        
+        # Parse reference ranges for each lab data entry (standard extraction success)
         for item in lab_data:
             if 'reference' in item or 'reference_range' in item:
                 original_reference = item.get('reference') or item.get('reference_range', '')
@@ -3117,17 +3233,6 @@ async def upload_and_analyze_lab_document(
                         'original': original_reference
                     }
         
-        # Upload to S3
-        s3_url = None
-        try:
-            s3_url = await lab_service._upload_to_s3(file_content, file.filename, str(current_user.id))
-        except Exception as s3_error:
-            logger.error(f"Failed to upload file to S3: {s3_error}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to upload file to S3: {str(s3_error)}"
-            )
-        
         logger.info(f"Successfully extracted {len(lab_data)} lab records for user {current_user.id}")
         
         return {
@@ -3136,7 +3241,8 @@ async def upload_and_analyze_lab_document(
             "s3_url": s3_url,
             "lab_data": lab_data,
             "extracted_records_count": len(lab_data),
-            "ocr_used": ocr_used,
+            "ocr_used": False,
+            "suggest_ocr": False,
             "form_data": {
                 "doc_date": doc_date,
                 "doc_type": doc_type,
@@ -3153,6 +3259,36 @@ async def upload_and_analyze_lab_document(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to analyze lab document: {str(e)}"
         )
+
+@router.get("/health-record-doc-lab/ocr-status/{job_id}", response_model=dict)
+async def get_ocr_processing_status(
+    job_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get the status of an OCR processing job
+    
+    Returns:
+    - status: queued, processing, completed, failed
+    - message: Status message
+    - lab_data: Extracted data (only when completed)
+    - progress: Processing progress (0-100)
+    """
+    if job_id not in ocr_processing_jobs:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="OCR job not found"
+        )
+    
+    job_status = ocr_processing_jobs[job_id]
+    
+    # Include form_data in response if available
+    response = {
+        "job_id": job_id,
+        **job_status
+    }
+    
+    return response
 
 @router.post("/health-record-doc-lab/bulk", response_model=dict)
 async def bulk_create_lab_records(

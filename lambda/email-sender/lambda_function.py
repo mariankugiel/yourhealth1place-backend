@@ -6,9 +6,17 @@ import boto3
 from datetime import datetime
 import os
 
+# ============================================================================
+# CONFIGURATION - Update these values with your actual configuration
+# ============================================================================
+AWS_REGION = 'us-east-1'  # Your AWS region
+SES_FROM_EMAIL = 'notifications@yourhealth1place.com'  # Your verified SES email
+BACKEND_URL = 'https://your-backend-domain.com'  # Your backend API URL
+LAMBDA_API_TOKEN = 'your-secure-token-here'  # Token for backend authentication
+
 # Initialize AWS clients
-ses_client = boto3.client('ses', region_name=os.environ['AWS_REGION'])
-sqs_client = boto3.client('sqs', region_name=os.environ['AWS_REGION'])
+ses_client = boto3.client('ses', region_name=AWS_REGION)
+sqs_client = boto3.client('sqs', region_name=AWS_REGION)
 
 def lambda_handler(event, context):
     """
@@ -76,7 +84,7 @@ def lambda_handler(event, context):
             
             # Send email via SES
             response = ses_client.send_email(
-                Source=os.environ['SES_FROM_EMAIL'],
+                Source=SES_FROM_EMAIL,
                 Destination={
                     'ToAddresses': [email_address]
                 },
@@ -142,8 +150,7 @@ def lambda_handler(event, context):
 def log_delivery(notification_id, user_id, channel, status, target, provider_message_id, provider_response):
     """Log delivery to backend API"""
     try:
-        backend_url = os.environ['BACKEND_URL']
-        log_endpoint = f"{backend_url}/api/v1/notifications/delivery-log"
+        log_endpoint = f"{BACKEND_URL}/api/v1/notifications/delivery-log"
         
         import requests
         requests.post(
@@ -158,7 +165,7 @@ def log_delivery(notification_id, user_id, channel, status, target, provider_mes
                 'provider_response': json.dumps(provider_response),
                 'timestamp': datetime.utcnow().isoformat()
             },
-            headers={'Authorization': f"Bearer {os.environ['LAMBDA_API_TOKEN']}"},
+            headers={'Authorization': f"Bearer {LAMBDA_API_TOKEN}"},
             timeout=5
         )
     except Exception as e:

@@ -38,11 +38,19 @@ class MedicationCRUD:
         return medication
     
     def delete(self, db: Session, medication_id: int) -> bool:
-        """Delete a medication"""
+        """Delete a medication and its associated reminders"""
+        from app.models.medication_reminder import MedicationReminder
+        
         medication = self.get_by_id(db, medication_id)
         if not medication:
             return False
         
+        # Delete all associated reminders first
+        db.query(MedicationReminder).filter(
+            MedicationReminder.medication_id == medication_id
+        ).delete(synchronize_session=False)
+        
+        # Then delete the medication
         db.delete(medication)
         db.commit()
         return True

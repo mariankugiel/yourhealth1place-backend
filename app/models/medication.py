@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Boolean, Enum
+from sqlalchemy import Column, Integer, String, DateTime, Date, Text, ForeignKey, Boolean, Enum
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import enum
@@ -22,17 +22,26 @@ class Medication(Base):
     id = Column(Integer, primary_key=True, index=True)
     patient_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     
-    # Basic metadata only - sensitive data stored in AWS S3
+    # Basic metadata
     medication_name = Column(String(255), nullable=False)
     medication_type = Column(Enum(MedicationType), default=MedicationType.PRESCRIPTION)
+    dosage = Column(String(100), nullable=True)
+    frequency = Column(String(100), nullable=True)
+    purpose = Column(String(500), nullable=True)
+    instructions = Column(Text, nullable=True)
     
-    # AWS S3 file reference
-    aws_file_id = Column(String(255), unique=True, index=True, nullable=False)
+    # Prescription information (5 fields only)
+    rx_number = Column(String(100), nullable=True)
+    pharmacy = Column(String(255), nullable=True)
+    original_quantity = Column(Integer, nullable=True)
+    refills_remaining = Column(Integer, nullable=True)
+    last_filled_date = Column(Date, nullable=True)
     
-    # Non-sensitive metadata
+    # Medication metadata
     status = Column(Enum(MedicationStatus), default=MedicationStatus.ACTIVE)
-    start_date = Column(DateTime, nullable=False)
-    end_date = Column(DateTime, nullable=True)
+    start_date = Column(Date, nullable=False)
+    end_date = Column(Date, nullable=True)
+    reason_ended = Column(Text, nullable=True)
     
     # Audit fields
     prescribed_by = Column(Integer, ForeignKey("users.id"), nullable=False)
@@ -44,4 +53,4 @@ class Medication(Base):
     prescriber = relationship("User", foreign_keys=[prescribed_by], backref="prescribed_medications")
     
     def __repr__(self):
-        return f"<Medication(id={self.id}, name='{self.medication_name}', patient_id={self.patient_id}, aws_file_id='{self.aws_file_id}')>" 
+        return f"<Medication(id={self.id}, name='{self.medication_name}', patient_id={self.patient_id})>" 

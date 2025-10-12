@@ -44,7 +44,7 @@ class MessageCRUD:
             self._update_conversation_last_message(message_data.conversation_id)
         
         return message
-
+    
     def get_message(self, db: Session, message_id: int) -> Optional[Message]:
         """Get a message by ID"""
         return db.query(Message).filter(Message.id == message_id).first()
@@ -69,12 +69,12 @@ class MessageCRUD:
         
         update_data = message_data.dict(exclude_unset=True)
         for field, value in update_data.items():
-            setattr(message, field, value)
+                setattr(message, field, value)
         
         db.commit()
         db.refresh(message)
         return message
-
+    
     def delete_message(self, message_id: int) -> bool:
         """Delete a message"""
         message = self.get_message(message_id)

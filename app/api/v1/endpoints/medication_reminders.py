@@ -274,26 +274,64 @@ async def check_due_reminders(
             
             print(f"✅ Created notification {notification.id} for user {reminder.user_id}")
             
+            # Get user details for email
+            user = db.query(User).filter(User.id == reminder.user_id).first()
+            if not user or not user.email:
+                print(f"⚠️ User {reminder.user_id} has no email address")
+                continue
+            
             # Get user's notification preferences
             user_channels = db.query(NotificationChannel).filter(
                 NotificationChannel.user_id == reminder.user_id
             ).first()
             
-            # FOR TESTING: WebSocket ONLY
-            # Other channels (email, SMS, web push) are commented out
+            email_sent = False
             
-            # Send via WebSocket if user is online
-            if not user_channels or user_channels.websocket_enabled:
-                websocket_sent = await websocket_notification_service.send_medication_reminder(notification, db)
-                if websocket_sent:
-                    print(f"📡 Sent medication reminder via WebSocket to user {reminder.user_id}")
-                else:
-                    print(f"ℹ️ User {reminder.user_id} has WebSocket enabled but no active connections")
+            # Send via Email (PRIMARY CHANNEL for medication reminders)
+            if not user_channels or user_channels.email_enabled:
+                try:
+                    send_to_email_queue(
+                        notification_id=notification.id,
+                        user_id=reminder.user_id,
+                        email_address=user.email,
+                        title=notification_title,
+                        message=notification_message,
+                        priority=notification.priority.value,
+                        metadata={
+                            "medication_name": medication.medication_name,
+                            "medication_type": medication.medication_type.value,
+                            "dosage": medication.dosage,
+                            "frequency": medication.frequency,
+                            "reminder_id": reminder.id,
+                            "reminder_time": reminder.reminder_time.isoformat(),
+                            "user_timezone": reminder.user_timezone
+                        }
+                    )
+                    email_sent = True
+                    print(f"📧 Queued email reminder for user {reminder.user_id} ({user.email})")
+                except Exception as e:
+                    print(f"❌ Failed to queue email: {e}")
+                    # Continue processing - we'll still mark as sent if email was queued
+            
+            # NOTE: WebSocket reminders are DISABLED for medication reminders
+            # WebSocket is still used for messages and other real-time notifications
+            # To re-enable, uncomment the code below:
+            # 
+            # if not user_channels or user_channels.websocket_enabled:
+            #     websocket_sent = await websocket_notification_service.send_medication_reminder(notification, db)
+            #     if websocket_sent:
+            #         print(f"📡 Sent medication reminder via WebSocket to user {reminder.user_id}")
             
             # Update notification status
-            notification.status = NotificationStatus.SENT
-            notification.sent_at = datetime.utcnow()
-            db.commit()
+            if email_sent:
+                notification.status = NotificationStatus.SENT
+                notification.sent_at = datetime.utcnow()
+                db.commit()
+            else:
+                print(f"⚠️ No notification channels available for user {reminder.user_id}")
+                notification.status = NotificationStatus.FAILED
+                db.commit()
+                continue
             
             # Mark reminder as sent and calculate next occurrence
             medication_reminder_crud.mark_reminder_sent(db, reminder.id)
@@ -311,6 +349,41 @@ async def check_due_reminders(
         "total_due": len(due_reminders),
         "timestamp": datetime.utcnow().isoformat()
     }
+
+def send_to_email_queue(notification_id: int, user_id: int, email_address: str,
+                        title: str, message: str, priority: str, metadata: dict):
+    """Send notification to Email SQS queue"""
+    try:
+        queue_url = os.environ.get('SQS_EMAIL_QUEUE_URL')
+        if not queue_url:
+            raise ValueError("SQS_EMAIL_QUEUE_URL environment variable not set")
+        
+        message_body = {
+            'notification_id': notification_id,
+            'user_id': user_id,
+            'email_address': email_address,
+            'title': title,
+            'message': message,
+            'priority': priority,
+            'notification_type': 'medication_reminder',
+            'metadata': metadata
+        }
+        
+        response = sqs_client.send_message(
+            QueueUrl=queue_url,
+            MessageBody=json.dumps(message_body),
+            MessageGroupId=f"user-{user_id}",
+            MessageDeduplicationId=f"notification-{notification_id}-{datetime.utcnow().isoformat()}"
+        )
+        
+        print(f"📤 Sent to Email queue: notification {notification_id} for user {user_id}")
+        print(f"   SQS MessageId: {response.get('MessageId')}")
+        
+        return True
+        
+    except Exception as e:
+        print(f"❌ Failed to send to Email queue: {e}")
+        raise
 
 def send_to_websocket_queue(notification_id: int, user_id: int, connection_id: str, 
                              title: str, message: str, priority: str, 
