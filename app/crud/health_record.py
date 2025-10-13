@@ -431,8 +431,6 @@ class FamilyMedicalHistoryCRUD:
                 is_deceased=history.is_deceased,
                 age_at_death=history.age_at_death,
                 cause_of_death=history.cause_of_death,
-                current_age=history.current_age,
-                gender=history.gender,
                 chronic_diseases=chronic_diseases_data,
                 # Legacy fields
                 condition_name=history.condition_name,
@@ -480,7 +478,7 @@ class FamilyMedicalHistoryCRUD:
         try:
             return db.query(FamilyMedicalHistory).filter(
                 FamilyMedicalHistory.created_by == user_id
-            ).order_by(desc(FamilyMedicalHistory.created_at)).offset(skip).limit(limit).all()
+            ).order_by(FamilyMedicalHistory.id.asc()).offset(skip).limit(limit).all()
         except Exception as e:
             logger.error(f"Failed to get family medical history for user {user_id}: {e}")
             return []

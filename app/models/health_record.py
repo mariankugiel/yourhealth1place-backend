@@ -124,15 +124,16 @@ class ConditionSource(str, enum.Enum):
     FAMILY_HISTORY = "Family History"
 
 class FamilyRelation(str, enum.Enum):
-    FATHER = "Father"
-    MOTHER = "Mother"
-    BROTHER = "Brother"
-    SISTER = "Sister"
-    CHILD = "Child"
-    MATERNAL_GRANDFATHER = "Maternal Grandfather"
-    MATERNAL_GRANDMOTHER = "Maternal Grandmother"
-    PATERNAL_GRANDFATHER = "Paternal Grandfather"
-    PATERNAL_GRANDMOTHER = "Paternal Grandmother"
+    FATHER = "FATHER"
+    MOTHER = "MOTHER"
+    BROTHER = "BROTHER"
+    SISTER = "SISTER"
+    SON = "SON"
+    DAUGHTER = "DAUGHTER"
+    MATERNAL_GRANDFATHER = "MATERNAL_GRANDFATHER"
+    MATERNAL_GRANDMOTHER = "MATERNAL_GRANDMOTHER"
+    PATERNAL_GRANDFATHER = "PATERNAL_GRANDFATHER"
+    PATERNAL_GRANDMOTHER = "PATERNAL_GRANDMOTHER"
 
 class FamilyHistorySource(str, enum.Enum):
     FAMILY_MEMBER = "Family Member"
@@ -327,8 +328,6 @@ class FamilyMedicalHistory(Base):
     is_deceased = Column(Boolean, default=False, nullable=False)
     age_at_death = Column(Integer, nullable=True)
     cause_of_death = Column(String(500), nullable=True)
-    current_age = Column(Integer, nullable=True)  # For living family members
-    gender = Column(String(20), nullable=True)  # For siblings/children
     
     # Condition Information (JSON array for multiple conditions per family member)
     # Format: [{"disease": "Diabetes", "age_at_diagnosis": "45", "comments": "Type 2"}]

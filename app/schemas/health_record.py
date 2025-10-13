@@ -111,8 +111,6 @@ class FamilyMedicalHistoryBase(BaseModel):
     is_deceased: bool = Field(default=False, description="Whether the family member is deceased")
     age_at_death: Optional[int] = Field(None, description="Age at death if deceased")
     cause_of_death: Optional[str] = Field(None, description="Cause of death if deceased")
-    current_age: Optional[int] = Field(None, description="Current age if alive")
-    gender: Optional[str] = Field(None, description="Gender (for siblings/children)")
     chronic_diseases: List[ChronicDisease] = Field(default_factory=list, description="List of chronic diseases")
     
     # Legacy fields (for backward compatibility)
@@ -131,8 +129,6 @@ class FamilyMedicalHistoryUpdate(BaseModel):
     is_deceased: Optional[bool] = None
     age_at_death: Optional[int] = None
     cause_of_death: Optional[str] = None
-    current_age: Optional[int] = None
-    gender: Optional[str] = None
     chronic_diseases: Optional[List[ChronicDisease]] = None
     condition_name: Optional[str] = None
     age_of_onset: Optional[int] = None

@@ -518,8 +518,12 @@ async def create_family_medical_history(
         
         return FamilyMedicalHistoryResponse(
             id=db_history.id,
-            condition_name=db_history.condition_name,
             relation=db_history.relation,
+            is_deceased=db_history.is_deceased,
+            age_at_death=db_history.age_at_death,
+            cause_of_death=db_history.cause_of_death,
+            chronic_diseases=db_history.chronic_diseases or [],
+            condition_name=db_history.condition_name,
             age_of_onset=db_history.age_of_onset,
             description=db_history.description,
             outcome=db_history.outcome,
@@ -552,8 +556,12 @@ async def read_family_medical_history(
         return [
             FamilyMedicalHistoryResponse(
                 id=history.id,
-                condition_name=history.condition_name,
                 relation=history.relation,
+                is_deceased=history.is_deceased,
+                age_at_death=history.age_at_death,
+                cause_of_death=history.cause_of_death,
+                chronic_diseases=history.chronic_diseases or [],
+                condition_name=history.condition_name,
                 age_of_onset=history.age_of_onset,
                 description=history.description,
                 outcome=history.outcome,
@@ -592,8 +600,12 @@ async def read_family_medical_history_by_id(
         
         return FamilyMedicalHistoryResponse(
             id=history.id,
-            condition_name=history.condition_name,
             relation=history.relation,
+            is_deceased=history.is_deceased,
+            age_at_death=history.age_at_death,
+            cause_of_death=history.cause_of_death,
+            chronic_diseases=history.chronic_diseases or [],
+            condition_name=history.condition_name,
             age_of_onset=history.age_of_onset,
             description=history.description,
             outcome=history.outcome,
@@ -635,8 +647,12 @@ async def update_family_medical_history(
         
         return FamilyMedicalHistoryResponse(
             id=db_family_history.id,
-            condition_name=db_family_history.condition_name,
             relation=db_family_history.relation,
+            is_deceased=db_family_history.is_deceased,
+            age_at_death=db_family_history.age_at_death,
+            cause_of_death=db_family_history.cause_of_death,
+            chronic_diseases=db_family_history.chronic_diseases or [],
+            condition_name=db_family_history.condition_name,
             age_of_onset=db_family_history.age_of_onset,
             description=db_family_history.description,
             outcome=db_family_history.outcome,
