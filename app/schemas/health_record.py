@@ -10,7 +10,7 @@ from app.utils.date_utils import parse_date_string
 from app.models.health_record import (
     MedicalConditionStatus, 
     FamilyHistoryStatus, GeneralDocumentType,
-    ConditionSeverity, ConditionSource,
+    ConditionSource,
     FamilyRelation, FamilyHistorySource,
     ImageType, ImageFindings
 )
@@ -63,14 +63,11 @@ class HealthRecordResponse(HealthRecordBase):
 class MedicalConditionBase(BaseModel):
     condition_name: str = Field(..., description="Name of the medical condition")
     description: Optional[str] = Field(None, description="Detailed description of the condition")
-    diagnosed_date: Optional[datetime] = Field(None, description="When the condition was diagnosed")
+    diagnosed_date: Optional[date] = Field(None, description="When the condition was diagnosed")
     status: MedicalConditionStatus = Field(..., description="Current status of the condition")
-    severity: Optional[ConditionSeverity] = Field(None, description="Severity level of the condition")
     source: Optional[ConditionSource] = Field(None, description="Source of the diagnosis")
     treatment_plan: Optional[str] = Field(None, description="Treatment plan details")
-    current_medications: Optional[List[str]] = Field(None, description="List of current medications")
-    outcome: Optional[str] = Field(None, description="Outcome or prognosis")
-    resolved_date: Optional[datetime] = Field(None, description="When the condition was resolved")
+    resolved_date: Optional[date] = Field(None, description="When the condition was resolved")
 
 class MedicalConditionCreate(MedicalConditionBase):
     pass
@@ -78,14 +75,11 @@ class MedicalConditionCreate(MedicalConditionBase):
 class MedicalConditionUpdate(BaseModel):
     condition_name: Optional[str] = None
     description: Optional[str] = None
-    diagnosed_date: Optional[datetime] = None
+    diagnosed_date: Optional[date] = None
     status: Optional[MedicalConditionStatus] = None
-    severity: Optional[ConditionSeverity] = None
     source: Optional[ConditionSource] = None
     treatment_plan: Optional[str] = None
-    current_medications: Optional[List[str]] = None
-    outcome: Optional[str] = None
-    resolved_date: Optional[datetime] = None
+    resolved_date: Optional[date] = None
 
 class MedicalConditionResponse(MedicalConditionBase):
     id: int

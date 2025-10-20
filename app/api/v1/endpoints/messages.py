@@ -298,26 +298,6 @@ async def delete_message(
     
     return {"success": True}
 
-@router.get("/contacts")
-async def get_available_contacts(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """Get available contacts for new messages"""
-    message_crud = MessageCRUD()
-    contacts = message_crud.get_available_contacts(db, current_user.id)
-    
-    return [
-        {
-            "id": contact.id,
-            "name": contact.full_name or contact.email,
-            "role": contact.role,
-            "avatar": contact.avatar_url,
-            "is_online": False  # Implement online status if needed
-        }
-        for contact in contacts
-    ]
-
 # Message action endpoints
 @router.post("/messages/{message_id}/medication-action")
 async def handle_medication_action(
@@ -374,3 +354,86 @@ async def handle_appointment_action(
     message_crud.create_message_action(db, message_id, current_user.id, action, action_data)
     
     return {"success": True, "action": action}
+
+@router.get("/contacts")
+async def get_available_contacts(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    search: Optional[str] = Query(None, description="Search query for filtering contacts"),
+    offset: int = Query(0, ge=0, description="Number of contacts to skip"),
+    limit: int = Query(20, ge=1, le=100, description="Maximum number of contacts to return")
+):
+    """Get available contacts for messaging (doctors, healthcare team, support staff) with pagination"""
+    try:
+        from app.core.supabase_client import supabase_service
+        from app.websocket.connection_manager import manager
+        from datetime import date
+        
+        # Query all active users except current user and exclude superusers
+        contacts_query = db.query(User).filter(
+            User.id != current_user.id,     # Exclude current user
+            User.is_active == True,          # Only active users
+            User.is_superuser == False       # Exclude superusers (admins)
+        )
+        
+        # Apply search filter if provided (search by email)
+        if search and search.strip():
+            search_term = f"%{search.strip().lower()}%"
+            contacts_query = contacts_query.filter(
+                User.email.ilike(search_term)
+            )
+        
+        # Apply pagination and order by email
+        contacts = contacts_query.order_by(User.email).offset(offset).limit(limit).all()
+        
+        # Get online users list once for efficiency
+        online_users = await manager.get_online_users()
+        
+        # Format response with profile data from Supabase
+        result = []
+        for contact in contacts:
+            # Fetch user profile from Supabase
+            profile = await supabase_service.get_user_profile(contact.supabase_user_id) if contact.supabase_user_id else {}
+            
+            # Extract profile data
+            first_name = profile.get("first_name", "")
+            last_name = profile.get("last_name", "")
+            full_name = profile.get("full_name", "")
+            
+            # Build display name
+            if first_name and last_name:
+                display_name = f"{first_name} {last_name}"
+            elif full_name:
+                display_name = full_name
+            else:
+                # Fallback to email
+                email_parts = contact.email.split('@')
+                display_name = email_parts[0].replace('.', ' ').replace('_', ' ').title()
+            
+            # All users at this point are healthcare providers (not admins)
+            role_display = "Healthcare Provider"
+            
+            # Check if user is online using WebSocket status
+            is_online = contact.id in online_users
+            
+            result.append({
+                "id": str(contact.id),
+                "name": display_name,
+                "firstName": first_name,
+                "lastName": last_name,
+                "role": role_display,
+                "avatar": None,
+                "isOnline": is_online,  # ✅ Real-time WebSocket status
+                "specialty": None
+            })
+        
+        return result
+        
+    except Exception as e:
+        import traceback
+        print(f"Error fetching contacts: {str(e)}")
+        print(traceback.format_exc())
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch contacts: {str(e)}"
+        )

@@ -4,7 +4,7 @@ from sqlalchemy import and_, or_, func
 from app.models.permissions import HealthRecordPermission
 from app.models.user import User
 from app.models.health_record import HealthRecord, MedicalCondition, FamilyMedicalHistory
-from app.models.health_plans import HealthPlan
+# HealthPlan model removed - using Goal, HealthTask, TaskCompletion instead
 from app.models.medication import Medication
 from app.models.appointment import Appointment
 from app.models.message import Message
@@ -356,7 +356,6 @@ class HealthRecordPermissionService:
                         "id": condition.id,
                         "condition_name": condition.condition_name,
                         "status": condition.status,
-                        "severity": condition.severity,
                         "diagnosed_date": condition.diagnosed_date
                     } for condition in medical_conditions
                 ]

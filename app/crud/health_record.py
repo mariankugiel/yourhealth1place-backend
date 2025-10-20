@@ -319,11 +319,8 @@ class MedicalConditionCRUD:
                 description=condition.description,
                 diagnosed_date=condition.diagnosed_date,
                 status=condition.status,
-                severity=condition.severity,
                 source=condition.source,
                 treatment_plan=condition.treatment_plan,
-                current_medications=condition.current_medications,
-                outcome=condition.outcome,
                 resolved_date=condition.resolved_date,
                 created_by=user_id
             )
@@ -436,7 +433,6 @@ class FamilyMedicalHistoryCRUD:
                 condition_name=history.condition_name,
                 age_of_onset=history.age_of_onset,
                 description=history.description,
-                outcome=history.outcome,
                 status=history.status,
                 source=history.source,
                 created_by=user_id

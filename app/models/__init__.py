@@ -71,7 +71,6 @@ from .health_record import (
     VitalStatus,
     LifestyleStatus,
     BodyStatus,
-    ConditionSeverity,
     ConditionSource,
     FamilyRelation,
     FamilyHistorySource,
@@ -82,16 +81,13 @@ from .health_record import (
 
 # Health Plans & Goals System
 from .health_plans import (
-    HealthPlan,
-    HealthPlanAssignment,
     Goal,
-    GoalTracking,
-    GoalTrackingDetail,
-    Task,
-    TaskTracking,
-    TaskTrackingDetail,
-    HealthPlanRecommendation
+    HealthTask,
+    TaskCompletion
 )
+
+# Task Completion System (moved to health_plans.py)
+# HealthTask and TaskCompletion are now imported from health_plans
 
 # Medical Condition Updates - REMOVED (duplicate of medical_conditions)
 
@@ -127,7 +123,8 @@ from .permissions import (
 
 # Legacy Models (to be removed or updated)
 from .medication import Medication
-from .health_plan_progress import HealthPlanProgress
+# HealthPlanProgress disabled - references removed HealthPlan model
+# from .health_plan_progress import HealthPlanProgress
 from .patient_insight import PatientInsight
 from .statistics import ProfessionalStatistics
 
@@ -219,7 +216,6 @@ __all__ = [
     "VitalStatus",
     "LifestyleStatus",
     "BodyStatus",
-    "ConditionSeverity",
     "ConditionSource",
     "FamilyRelation",
     "FamilyHistorySource",
@@ -228,15 +224,9 @@ __all__ = [
     "AnalysisSource",
     
     # Health Plans & Goals System
-    "HealthPlan",
-    "HealthPlanAssignment",
     "Goal",
-    "GoalTracking",
-    "GoalTrackingDetail",
-    "Task",
-    "TaskTracking",
-    "TaskTrackingDetail",
-    "HealthPlanRecommendation",
+    "HealthTask",
+    "TaskCompletion",
     
     # Medical Condition Updates - REMOVED
     
@@ -261,7 +251,7 @@ __all__ = [
     
     # Legacy Models
     "Medication",
-    "HealthPlanProgress",
+    # "HealthPlanProgress", # Disabled - references removed HealthPlan model
     "PatientInsight",
     "ProfessionalStatistics",
     

@@ -71,7 +71,7 @@ class Appointment(Base):
     location_id = Column(Integer, ForeignKey("professional_locations.id"), nullable=False)
     
     # Health Plan and Documents
-    health_plan_id = Column(Integer, ForeignKey("health_plans.id"))  # Link to health plan if applicable
+    # health_plan_id = Column(Integer, ForeignKey("health_plans.id"))  # HealthPlan model removed
     related_document_ids = Column(JSON)  # Array of document IDs related to this appointment
     
     # Consultation Type
@@ -140,7 +140,7 @@ class Appointment(Base):
     patient = relationship("User", foreign_keys=[patient_id], backref="patient_appointments")
     professional = relationship("User", foreign_keys=[professional_id], backref="professional_appointments")
     location = relationship("ProfessionalLocation", back_populates="appointments")
-    health_plan = relationship("HealthPlan", back_populates="appointments")
+    # health_plan = relationship("HealthPlan", back_populates="appointments")  # HealthPlan model removed
     appointment_type_pricing = relationship("AppointmentTypePricing", backref="appointments")
     manual_appointment = relationship("ManualAppointment", back_populates="appointments")
     reminders = relationship("AppointmentReminder", back_populates="appointment")

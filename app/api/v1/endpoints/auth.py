@@ -126,9 +126,11 @@ async def register(registration_data: UserRegistration, db: Session = Depends(ge
             "emergency_contact_phone": registration_data.emergency_contact_phone,
             "emergency_contact_relationship": registration_data.emergency_contact_relationship,
             "gender": registration_data.gender,
+            "height": registration_data.height,
+            "weight": registration_data.weight,
+            "waist_diameter": registration_data.waist_diameter,
             "blood_type": registration_data.blood_type,
             "allergies": registration_data.allergies,
-            "current_medications": registration_data.current_medications,
             "emergency_medical_info": registration_data.emergency_medical_info,
         }
         
@@ -190,6 +192,106 @@ async def register(registration_data: UserRegistration, db: Session = Depends(ge
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Registration failed. Please try again."
             )
+
+@router.post("/reset-password")
+async def reset_password(request_data: dict):
+    """Send password reset email"""
+    try:
+        email = request_data.get("email")
+        
+        if not email:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email is required"
+            )
+        
+        # Use Supabase to send password reset email
+        await supabase_service.reset_password(email)
+        
+        return {"message": "Password reset email sent successfully"}
+    except HTTPException:
+        # Re-raise HTTP exceptions (like validation errors)
+        raise
+    except Exception as e:
+        error_message = str(e).lower()
+        
+        # Handle specific error types
+        if "rate limit" in error_message or "24 seconds" in error_message or "too many" in error_message:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many password reset requests. Please wait before trying again."
+            )
+        elif "invalid email" in error_message or "email not found" in error_message:
+            # For security, don't reveal if email exists - return generic success
+            return {"message": "If an account with that email exists, a password reset email has been sent"}
+        else:
+            # For other errors, log and return generic message for security
+            logger.error(f"Password reset error: {e}")
+            return {"message": "If an account with that email exists, a password reset email has been sent"}
+
+@router.post("/oauth-profile", response_model=UserResponse)
+async def create_oauth_profile(oauth_data: dict, db: Session = Depends(get_db), authorization: Optional[str] = Header(None)):
+    """Create user profile for OAuth users (Google, GitHub, etc.)"""
+    try:
+        # Extract user ID from the JWT token in the request
+        user_id = await get_user_id_from_token(authorization)
+        
+        # Check if user already exists in our database
+        existing_user = get_user_by_supabase_id(db, user_id)
+        if existing_user:
+            # User already exists, return existing profile
+            return UserResponse(
+                id=existing_user.id,
+                email=existing_user.email,
+                is_active=existing_user.is_active,
+                is_superuser=existing_user.is_superuser,
+                created_at=existing_user.created_at,
+                updated_at=existing_user.updated_at
+            )
+        
+        # Create new user record in our database
+        db_user = User(
+            supabase_user_id=user_id,
+            email=oauth_data.get("email"),
+            is_active=True
+        )
+        
+        db.add(db_user)
+        db.commit()
+        db.refresh(db_user)
+        
+        # Store OAuth user data in Supabase user_profiles table
+        profile_data = {
+            "email": oauth_data.get("email"),
+            "full_name": oauth_data.get("full_name"),
+            "avatar_url": oauth_data.get("avatar_url"),
+            "provider": oauth_data.get("provider"),
+            "is_new_user": True,
+            "onboarding_completed": False,
+            "onboarding_skipped": False,
+        }
+        
+        # Store profile in Supabase
+        await supabase_service.store_user_profile(
+            user_id=user_id,
+            profile={k: v for k, v in profile_data.items() if v is not None}
+        )
+        
+        return UserResponse(
+            id=db_user.id,
+            email=db_user.email,
+            is_active=db_user.is_active,
+            is_superuser=db_user.is_superuser,
+            created_at=db_user.created_at,
+            updated_at=db_user.updated_at
+        )
+        
+    except Exception as e:
+        logger.error(f"OAuth profile creation error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create OAuth user profile"
+        )
 
 @router.post("/login", response_model=Token)
 async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):

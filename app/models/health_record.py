@@ -109,12 +109,6 @@ class BodyStatus(str, enum.Enum):
     OBESE = "Obese"
     ATHLETIC = "Athletic"
 
-class ConditionSeverity(str, enum.Enum):
-    MILD = "Mild"
-    MODERATE = "Moderate"
-    SEVERE = "Severe"
-    CRITICAL = "Critical"
-
 class ConditionSource(str, enum.Enum):
     DOCTOR_DIAGNOSIS = "Doctor Diagnosis"
     SELF_DIAGNOSIS = "Self Diagnosis"
@@ -270,8 +264,7 @@ class HealthRecord(Base):
     section = relationship("HealthRecordSection", back_populates="health_records")
     metric = relationship("HealthRecordMetric", back_populates="health_records")
     device = relationship("IOSDevice", back_populates="health_records")
-    goal_tracking_details = relationship("GoalTrackingDetail", back_populates="health_record")
-    task_tracking_details = relationship("TaskTrackingDetail", back_populates="health_record")
+    # task_tracking_details = relationship("TaskTrackingDetail", back_populates="health_record")  # TaskTrackingDetail model removed
 
 class HealthRecordDocLab(Base):
     __tablename__ = "health_record_doc_lab"
@@ -302,14 +295,11 @@ class MedicalCondition(Base):
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)  # User who has this condition
     condition_name = Column(String(200), nullable=False)
     description = Column(Text)
-    diagnosed_date = Column(DateTime)
+    diagnosed_date = Column(Date)
     status = Column(Enum(MedicalConditionStatus), nullable=False)
-    severity = Column(Enum(ConditionSeverity))
     source = Column(Enum(ConditionSource))
     treatment_plan = Column(Text)
-    current_medications = Column(JSON)  # Array of medications
-    outcome = Column(Text)
-    resolved_date = Column(DateTime)
+    resolved_date = Column(Date)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     updated_by = Column(Integer, ForeignKey("users.id"))

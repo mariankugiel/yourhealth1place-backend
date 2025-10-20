@@ -319,11 +319,8 @@ async def create_medical_condition(
             description=db_condition.description,
             diagnosed_date=db_condition.diagnosed_date,
             status=db_condition.status,
-            severity=db_condition.severity,
             source=db_condition.source,
             treatment_plan=db_condition.treatment_plan,
-            current_medications=db_condition.current_medications if isinstance(db_condition.current_medications, list) else None,
-            outcome=db_condition.outcome,
             resolved_date=db_condition.resolved_date,
             created_by=db_condition.created_by,
             created_at=db_condition.created_at,
@@ -356,11 +353,8 @@ async def read_medical_conditions(
                 description=condition.description,
                 diagnosed_date=condition.diagnosed_date,
                 status=condition.status,
-                severity=condition.severity,
                 source=condition.source,
                 treatment_plan=condition.treatment_plan,
-                current_medications=condition.current_medications if isinstance(condition.current_medications, list) else None,
-                outcome=condition.outcome,
                 resolved_date=condition.resolved_date,
                 created_by=condition.created_by,
                 created_at=condition.created_at,
@@ -399,11 +393,8 @@ async def read_medical_condition(
             description=condition.description,
             diagnosed_date=condition.diagnosed_date,
             status=condition.status,
-            severity=condition.severity,
             source=condition.source,
             treatment_plan=condition.treatment_plan,
-            current_medications=condition.current_medications if isinstance(condition.current_medications, list) else None,
-            outcome=condition.outcome,
             resolved_date=condition.resolved_date,
             created_by=condition.created_by,
             created_at=condition.created_at,
@@ -445,11 +436,8 @@ async def update_medical_condition(
             description=db_condition.description,
             diagnosed_date=db_condition.diagnosed_date,
             status=db_condition.status,
-            severity=db_condition.severity,
             source=db_condition.source,
             treatment_plan=db_condition.treatment_plan,
-            current_medications=db_condition.current_medications if isinstance(db_condition.current_medications, list) else None,
-            outcome=db_condition.outcome,
             resolved_date=db_condition.resolved_date,
             created_by=db_condition.created_by,
             created_at=db_condition.created_at,
@@ -526,7 +514,6 @@ async def create_family_medical_history(
             condition_name=db_history.condition_name,
             age_of_onset=db_history.age_of_onset,
             description=db_history.description,
-            outcome=db_history.outcome,
             status=db_history.status,
             source=db_history.source,
             created_by=db_history.created_by,
@@ -564,7 +551,6 @@ async def read_family_medical_history(
                 condition_name=history.condition_name,
                 age_of_onset=history.age_of_onset,
                 description=history.description,
-                outcome=history.outcome,
                 status=history.status,
                 source=history.source,
                 created_by=history.created_by,
@@ -608,7 +594,6 @@ async def read_family_medical_history_by_id(
             condition_name=history.condition_name,
             age_of_onset=history.age_of_onset,
             description=history.description,
-            outcome=history.outcome,
             status=history.status,
             source=history.source,
             created_by=history.created_by,
@@ -655,7 +640,6 @@ async def update_family_medical_history(
             condition_name=db_family_history.condition_name,
             age_of_onset=db_family_history.age_of_onset,
             description=db_family_history.description,
-            outcome=db_family_history.outcome,
             status=db_family_history.status,
             source=db_family_history.source,
             created_by=db_family_history.created_by,
@@ -1065,11 +1049,8 @@ async def create_medical_condition(
             description=db_condition.description,
             diagnosed_date=db_condition.diagnosed_date,
             status=db_condition.status,
-            severity=db_condition.severity,
             source=db_condition.source,
             treatment_plan=db_condition.treatment_plan,
-            current_medications=db_condition.current_medications,
-            outcome=db_condition.outcome,
             resolved_date=db_condition.resolved_date,
             created_by=db_condition.created_by,
             created_at=db_condition.created_at,
@@ -1102,11 +1083,8 @@ async def read_medical_conditions(
                 description=condition.description,
                 diagnosed_date=condition.diagnosed_date,
                 status=condition.status,
-                severity=condition.severity,
                 source=condition.source,
                 treatment_plan=condition.treatment_plan,
-                current_medications=condition.current_medications if isinstance(condition.current_medications, list) else None,
-                outcome=condition.outcome,
                 resolved_date=condition.resolved_date,
                 created_by=condition.created_by,
                 created_at=condition.created_at,
@@ -1145,11 +1123,8 @@ async def read_medical_condition(
             description=condition.description,
             diagnosed_date=condition.diagnosed_date,
             status=condition.status,
-            severity=condition.severity,
             source=condition.source,
             treatment_plan=condition.treatment_plan,
-            current_medications=condition.current_medications if isinstance(condition.current_medications, list) else None,
-            outcome=condition.outcome,
             resolved_date=condition.resolved_date,
             created_by=condition.created_by,
             created_at=condition.created_at,
@@ -1191,11 +1166,8 @@ async def update_medical_condition(
             description=updated_condition.description,
             diagnosed_date=updated_condition.diagnosed_date,
             status=updated_condition.status,
-            severity=updated_condition.severity,
             source=updated_condition.source,
             treatment_plan=updated_condition.treatment_plan,
-            current_medications=updated_condition.current_medications,
-            outcome=updated_condition.outcome,
             resolved_date=updated_condition.resolved_date,
             created_by=updated_condition.created_by,
             created_at=updated_condition.created_at,
@@ -1254,7 +1226,6 @@ async def create_family_medical_history(
             relation=db_history.relation,
             age_of_onset=db_history.age_of_onset,
             description=db_history.description,
-            outcome=db_history.outcome,
             status=db_history.status,
             source=db_history.source,
             created_by=db_history.created_by,
@@ -1547,6 +1518,61 @@ async def get_sections_combined(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get combined sections: {str(e)}"
+        )
+
+@router.get("/metrics/all", response_model=List[Dict[str, Any]])
+async def get_all_user_metrics(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get all metrics for the current user across all their sections"""
+    try:
+        # Get all sections for the user first
+        sections = health_record_section_crud.get_by_user(db, current_user.id)
+        
+        all_metrics = []
+        
+        for section in sections:
+            # Get metrics for this section
+            metrics = health_record_metric_crud.get_by_section(db, section.id)
+            
+            # Add section information to each metric
+            for metric in metrics:
+                metric_data = {
+                    "id": metric.id,
+                    "section_id": metric.section_id,
+                    "name": metric.name,
+                    "display_name": metric.display_name,
+                    "name_pt": getattr(metric, 'name_pt', None),
+                    "display_name_pt": getattr(metric, 'display_name_pt', None),
+                    "name_es": getattr(metric, 'name_es', None),
+                    "display_name_es": getattr(metric, 'display_name_es', None),
+                    "description": metric.description,
+                    "default_unit": metric.default_unit,
+                    "default_unit_pt": getattr(metric, 'default_unit_pt', None),
+                    "default_unit_es": getattr(metric, 'default_unit_es', None),
+                    "unit": getattr(metric, 'unit', metric.default_unit),
+                    "reference_data": metric.reference_data,
+                    "original_reference": getattr(metric, 'original_reference', None),
+                    "data_type": metric.data_type,
+                    "is_default": metric.is_default,
+                    "created_at": metric.created_at.isoformat() if metric.created_at else None,
+                    "updated_at": metric.updated_at.isoformat() if metric.updated_at else None,
+                    "created_by": metric.created_by,
+                    "updated_by": getattr(metric, 'updated_by', None),
+                    # Include section info for context
+                    "section_name": section.name,
+                    "section_display_name": section.display_name
+                }
+                all_metrics.append(metric_data)
+        
+        return all_metrics
+        
+    except Exception as e:
+        logger.error(f"Failed to get all user metrics: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get all user metrics: {str(e)}"
         )
 
 @router.get("/sections/{section_id}/metrics", response_model=List[Dict[str, Any]])

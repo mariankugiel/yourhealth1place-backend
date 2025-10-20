@@ -41,7 +41,7 @@ class MessageCRUD:
         
         # Update conversation last message time
         if message_data.conversation_id:
-            self._update_conversation_last_message(message_data.conversation_id)
+            self._update_conversation_last_message(db, message_data.conversation_id)
         
         return message
     
@@ -75,9 +75,9 @@ class MessageCRUD:
         db.refresh(message)
         return message
     
-    def delete_message(self, message_id: int) -> bool:
+    def delete_message(self, db: Session, message_id: int) -> bool:
         """Delete a message"""
-        message = self.get_message(message_id)
+        message = self.get_message(db, message_id)
         if not message:
             return False
         
@@ -85,9 +85,9 @@ class MessageCRUD:
         db.commit()
         return True
 
-    def mark_message_as_read(self, message_id: int) -> bool:
+    def mark_message_as_read(self, db: Session, message_id: int) -> bool:
         """Mark a message as read"""
-        message = self.get_message(message_id)
+        message = self.get_message(db, message_id)
         if not message:
             return False
         
@@ -96,7 +96,7 @@ class MessageCRUD:
         db.commit()
         return True
 
-    def mark_messages_as_read(self, conversation_id: int, message_ids: Optional[List[int]] = None) -> int:
+    def mark_messages_as_read(self, db: Session, conversation_id: int, message_ids: Optional[List[int]] = None) -> int:
         """Mark messages as read in a conversation"""
         query = db.query(Message).filter(
             Message.conversation_id == conversation_id,
@@ -117,7 +117,7 @@ class MessageCRUD:
         return count
 
     # Conversation CRUD operations
-    def create_conversation(self, conversation_data: ConversationCreate, user_id: int) -> Conversation:
+    def create_conversation(self, db: Session, conversation_data: ConversationCreate, user_id: int) -> Conversation:
         """Create a new conversation"""
         # Get contact information
         contact = db.query(User).filter(User.id == conversation_data.contact_id).first()
@@ -127,9 +127,9 @@ class MessageCRUD:
         conversation = Conversation(
             user_id=user_id,
             contact_id=conversation_data.contact_id,
-            contact_name=contact.full_name or contact.email,
-            contact_role=contact.role,
-            contact_avatar=contact.avatar_url,
+            contact_name=contact.email,  # Use email since full_name may not exist
+            contact_role="User",  # Default role
+            contact_avatar=None,
             contact_type=SenderType.USER,
             tags=conversation_data.tags
         )
@@ -139,7 +139,7 @@ class MessageCRUD:
         db.refresh(conversation)
         return conversation
 
-    def get_conversation(self, conversation_id: int) -> Optional[Conversation]:
+    def get_conversation(self, db: Session, conversation_id: int) -> Optional[Conversation]:
         """Get a conversation by ID"""
         return (
             db.query(Conversation)
@@ -148,7 +148,7 @@ class MessageCRUD:
             .first()
         )
 
-    def get_conversations_by_user(self, user_id: int, filters: Optional[MessageFilters] = None) -> List[Conversation]:
+    def get_conversations_by_user(self, db: Session, user_id: int, filters: Optional[MessageFilters] = None) -> List[Conversation]:
         """Get conversations for a user with optional filtering"""
         query = db.query(Conversation).filter(Conversation.user_id == user_id)
         
@@ -162,9 +162,9 @@ class MessageCRUD:
         
         return query.order_by(desc(Conversation.last_message_time)).all()
 
-    def update_conversation(self, conversation_id: int, conversation_data: ConversationUpdate) -> Optional[Conversation]:
+    def update_conversation(self, db: Session, conversation_id: int, conversation_data: ConversationUpdate) -> Optional[Conversation]:
         """Update a conversation"""
-        conversation = self.get_conversation(conversation_id)
+        conversation = self.get_conversation(db, conversation_id)
         if not conversation:
             return None
         
@@ -176,9 +176,9 @@ class MessageCRUD:
         db.refresh(conversation)
         return conversation
 
-    def archive_conversation(self, conversation_id: int) -> bool:
+    def archive_conversation(self, db: Session, conversation_id: int) -> bool:
         """Archive a conversation"""
-        conversation = self.get_conversation(conversation_id)
+        conversation = self.get_conversation(db, conversation_id)
         if not conversation:
             return False
         
@@ -186,9 +186,9 @@ class MessageCRUD:
         db.commit()
         return True
 
-    def toggle_conversation_pin(self, conversation_id: int, pinned: bool) -> bool:
+    def toggle_conversation_pin(self, db: Session, conversation_id: int, pinned: bool) -> bool:
         """Toggle conversation pin status"""
-        conversation = self.get_conversation(conversation_id)
+        conversation = self.get_conversation(db, conversation_id)
         if not conversation:
             return False
         
@@ -196,7 +196,7 @@ class MessageCRUD:
         db.commit()
         return True
 
-    def get_unread_count(self, user_id: int) -> Dict[str, Any]:
+    def get_unread_count(self, db: Session, user_id: int) -> Dict[str, Any]:
         """Get unread message count for a user"""
         # Count unread messages by type
         unread_by_type = (
@@ -218,7 +218,7 @@ class MessageCRUD:
             "by_type": by_type
         }
 
-    def search_messages(self, user_id: int, search_params: MessageSearchParams) -> List[Message]:
+    def search_messages(self, db: Session, user_id: int, search_params: MessageSearchParams) -> List[Message]:
         """Search messages for a user"""
         query = (
             db.query(Message)
@@ -259,7 +259,7 @@ class MessageCRUD:
         
         return query.all()
 
-    def get_message_stats(self, user_id: int) -> Dict[str, Any]:
+    def get_message_stats(self, db: Session, user_id: int) -> Dict[str, Any]:
         """Get message statistics for a user"""
         # Total messages
         total_messages = (
@@ -337,21 +337,22 @@ class MessageCRUD:
         db.refresh(action)
         return action
 
-    def _update_conversation_last_message(self, conversation_id: int):
+    def _update_conversation_last_message(self, db: Session, conversation_id: int):
         """Update conversation's last message time"""
-        conversation = self.get_conversation(conversation_id)
+        conversation = self.get_conversation(db, conversation_id)
         if conversation:
             conversation.last_message_time = datetime.utcnow()
             db.commit()
 
-    def get_available_contacts(self, user_id: int) -> List[User]:
+    def get_available_contacts(self, db: Session, user_id: int) -> List[User]:
         """Get available contacts for new messages"""
         # This would typically return doctors, admins, and other users the patient can message
         return (
             db.query(User)
             .filter(
                 User.id != user_id,
-                User.role.in_(["doctor", "admin", "support"])
+                User.is_active == True,
+                User.is_superuser == False
             )
             .all()
         )

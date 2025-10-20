@@ -34,12 +34,12 @@ class SupabaseService:
     async def sign_up(self, email: str, password: str, user_metadata: Dict[str, Any]) -> Dict[str, Any]:
         """Register a new user with Supabase Auth"""
         try:
-            response = self.client.auth.sign_up({
+            response = self.anon_client.auth.sign_up({
                 "email": email,
                 "password": password,
                 "options": {
                     "data": user_metadata,
-                    "email_confirm": False  # Disable email confirmation for development
+                    "email_confirm": True  # Enable email confirmation
                 }
             })
             return response
@@ -179,7 +179,8 @@ class SupabaseService:
             profile_response = client.table("user_profiles").select(
                 "id,user_id,full_name,date_of_birth,phone_number,address,country,"
                 "emergency_contact_name,emergency_contact_phone,emergency_contact_relationship,"
-                "gender,blood_type,allergies,current_medications,emergency_medical_info,"
+                "gender,height,weight,waist_diameter,blood_type,allergies,emergency_medical_info,"
+                "phone_country_code,emergency_contact_country_code,"
                 "onboarding_completed,onboarding_skipped,onboarding_skipped_at,is_new_user,"
                 "created_at,updated_at"
             ).eq("user_id", user_id).execute()
@@ -258,6 +259,23 @@ class SupabaseService:
         except Exception as e:
             logger.error(f"Supabase update user profile error: {e}")
             return None
+    
+    async def reset_password(self, email: str, redirect_url: str = None) -> Dict[str, Any]:
+        """Send password reset email using Supabase Auth"""
+        try:
+            redirect_to = redirect_url or f"{settings.FRONTEND_URL}/auth/reset-password"
+            
+            # Use anon client for password reset
+            response = self.anon_client.auth.reset_password_email(
+                email,
+                {
+                    "redirectTo": redirect_to
+                }
+            )
+            return response
+        except Exception as e:
+            logger.error(f"Supabase reset password error: {e}")
+            raise
 
 # Global instance
 supabase_service = SupabaseService() 

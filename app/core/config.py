@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     # Application
     DEBUG: bool = True
     ENVIRONMENT: str = "development"
+    FRONTEND_URL: str = "http://localhost:3000"
     
     # API
     API_V1_STR: str = "/api/v1"
