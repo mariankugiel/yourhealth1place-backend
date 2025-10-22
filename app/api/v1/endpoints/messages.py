@@ -17,6 +17,11 @@ from app.models.user import User
 
 router = APIRouter()
 
+@router.get("/health")
+async def health_check():
+    """Health check endpoint for messages API"""
+    return {"status": "healthy", "service": "messages"}
+
 @router.get("/conversations", response_model=MessagesResponse)
 async def get_conversations(
     db: Session = Depends(get_db),
@@ -87,8 +92,39 @@ async def get_conversation_messages(
     
     messages = message_crud.get_messages_by_conversation(db, conversation_id, page, limit)
     
+    # Convert database messages to schema format
+    from app.schemas.message import Message as MessageSchema, MessageSender
+    from app.models.message import SenderType
+    
+    formatted_messages = []
+    for message in messages:
+        # Create MessageSender from message data
+        sender = MessageSender(
+            id=str(message.sender_id),
+            name=message.sender_name or "Unknown",
+            role=message.sender_role or "Unknown",
+            avatar=message.sender_avatar,
+            type=message.sender_type
+        )
+        
+        # Create Message schema object
+        formatted_message = MessageSchema(
+            id=message.id,
+            conversation_id=message.conversation_id,
+            sender=sender,
+            content=message.content,
+            message_type=message.message_type,
+            priority=message.priority,
+            status=message.status,
+            created_at=message.created_at,
+            updated_at=message.updated_at,
+            read_at=message.read_at,
+            message_metadata=message.message_metadata
+        )
+        formatted_messages.append(formatted_message)
+    
     return ConversationMessagesResponse(
-        messages=messages,
+        messages=formatted_messages,
         has_more=len(messages) == limit
     )
 
@@ -132,6 +168,22 @@ async def send_message(
     
     # Create message
     message = message_crud.create_message(db, message_data, current_user.id)
+    print(f"💬 Message created: {message.id} from user {current_user.id} to conversation {conversation.id}")
+    
+    # Broadcast message via WebSocket to both conversations
+    from app.websocket.message_service import message_websocket_service
+    
+    # Broadcast to sender's conversation
+    print(f"💬 Broadcasting to sender's conversation: {conversation.id}")
+    await message_websocket_service.broadcast_new_message(message, conversation)
+    
+    # Also broadcast to recipient's conversation if it exists
+    recipient_conversation = message_crud.get_conversation_by_users(db, conversation.contact_id, current_user.id)
+    if recipient_conversation:
+        print(f"💬 Broadcasting to recipient's conversation: {recipient_conversation.id}")
+        await message_websocket_service.broadcast_new_message(message, recipient_conversation)
+    else:
+        print(f"💬 No recipient conversation found for contact_id: {conversation.contact_id}")
     
     return SendMessageResponse(
         message=message,
@@ -272,6 +324,29 @@ async def create_conversation(
     message_crud = MessageCRUD()
     conversation = message_crud.create_conversation(db, conversation_data, current_user.id)
     
+    # If there's an initial message, broadcast it via WebSocket
+    if conversation_data.initial_message:
+        from app.websocket.message_service import message_websocket_service
+        
+        # Get the conversation messages to find the initial message
+        messages = message_crud.get_messages_by_conversation(db, conversation.id, page=1, limit=1)
+        if messages:
+            initial_message = messages[0]
+            await message_websocket_service.broadcast_new_message(initial_message, conversation)
+            
+            # Also broadcast to the recipient if it's an existing conversation
+            # For new conversations, the CRUD method already creates both sides
+            # For existing conversations, we need to broadcast to the recipient
+            if conversation.contact_id != current_user.id:
+                # Get the recipient's conversation
+                recipient_conversation = message_crud.get_conversation_by_users(db, conversation.contact_id, current_user.id)
+                if recipient_conversation:
+                    # Get the message from the recipient's conversation
+                    recipient_messages = message_crud.get_messages_by_conversation(db, recipient_conversation.id, page=1, limit=1)
+                    if recipient_messages:
+                        recipient_message = recipient_messages[0]
+                        await message_websocket_service.broadcast_new_message(recipient_message, recipient_conversation)
+    
     return conversation
 
 @router.delete("/messages/{message_id}")
@@ -295,6 +370,26 @@ async def delete_message(
     success = message_crud.delete_message(db, message_id)
     if not success:
         raise HTTPException(status_code=400, detail="Failed to delete message")
+    
+    return {"success": True}
+
+@router.delete("/conversations/{conversation_id}")
+async def delete_conversation(
+    conversation_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Delete a conversation and all its messages"""
+    message_crud = MessageCRUD()
+    
+    # Verify conversation belongs to user
+    conversation = message_crud.get_conversation(db, conversation_id)
+    if not conversation or conversation.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    
+    success = message_crud.delete_conversation(db, conversation_id)
+    if not success:
+        raise HTTPException(status_code=400, detail="Failed to delete conversation")
     
     return {"success": True}
 
@@ -392,40 +487,66 @@ async def get_available_contacts(
         # Format response with profile data from Supabase
         result = []
         for contact in contacts:
-            # Fetch user profile from Supabase
-            profile = await supabase_service.get_user_profile(contact.supabase_user_id) if contact.supabase_user_id else {}
-            
-            # Extract profile data
-            first_name = profile.get("first_name", "")
-            last_name = profile.get("last_name", "")
-            full_name = profile.get("full_name", "")
-            
-            # Build display name
-            if first_name and last_name:
-                display_name = f"{first_name} {last_name}"
-            elif full_name:
-                display_name = full_name
-            else:
-                # Fallback to email
+            try:
+                # Fetch user profile from Supabase
+                profile = {}
+                if contact.supabase_user_id:
+                    try:
+                        profile = await supabase_service.get_user_profile(contact.supabase_user_id) or {}
+                    except Exception as e:
+                        print(f"Failed to fetch profile for user {contact.id}: {e}")
+                        profile = {}
+                
+                # Extract profile data
+                full_name = profile.get("full_name", "")
+                
+                # Build display name
+                if full_name and full_name.strip():
+                    display_name = full_name.strip()
+                    # Try to split full name into first and last
+                    name_parts = full_name.strip().split()
+                    first_name = name_parts[0] if name_parts else ""
+                    last_name = " ".join(name_parts[1:]) if len(name_parts) > 1 else ""
+                else:
+                    # Fallback to email
+                    email_parts = contact.email.split('@')
+                    display_name = email_parts[0].replace('.', ' ').replace('_', ' ').title()
+                    first_name = email_parts[0].split('.')[0].title() if '.' in email_parts[0] else email_parts[0].title()
+                    last_name = ""
+                
+                # Determine role from profile or default
+                role_display = profile.get("role", "Healthcare Provider")
+                if not role_display or role_display.strip() == "":
+                    role_display = "Healthcare Provider"
+                
+                # Check if user is online using WebSocket status
+                is_online = contact.id in online_users
+                
+                result.append({
+                    "id": str(contact.id),
+                    "name": display_name,
+                    "firstName": first_name,
+                    "lastName": last_name,
+                    "role": role_display,
+                    "avatar": None,
+                    "isOnline": is_online,  # ✅ Real-time WebSocket status
+                    "specialty": None
+                })
+            except Exception as e:
+                print(f"Error processing contact {contact.id}: {e}")
+                # Add contact with fallback data
                 email_parts = contact.email.split('@')
                 display_name = email_parts[0].replace('.', ' ').replace('_', ' ').title()
-            
-            # All users at this point are healthcare providers (not admins)
-            role_display = "Healthcare Provider"
-            
-            # Check if user is online using WebSocket status
-            is_online = contact.id in online_users
-            
-            result.append({
-                "id": str(contact.id),
-                "name": display_name,
-                "firstName": first_name,
-                "lastName": last_name,
-                "role": role_display,
-                "avatar": None,
-                "isOnline": is_online,  # ✅ Real-time WebSocket status
-                "specialty": None
-            })
+                result.append({
+                    "id": str(contact.id),
+                    "name": display_name,
+                    "firstName": email_parts[0].split('.')[0].title() if '.' in email_parts[0] else email_parts[0].title(),
+                    "lastName": "",
+                    "role": "Healthcare Provider",
+                    "avatar": None,
+                    "isOnline": contact.id in online_users,
+                    "specialty": None
+                })
         
         return result
         

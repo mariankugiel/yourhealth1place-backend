@@ -5,13 +5,12 @@ import asyncio
 from datetime import datetime
 from app.models.message import Message, Conversation
 from app.schemas.message import WebSocketMessageEvent, WebSocketMessageData
+from app.websocket.connection_manager import manager
 
 class MessageWebSocketService:
     def __init__(self):
-        # Store active connections by user_id
-        self.active_connections: Dict[int, List[WebSocket]] = {}
-        # Store connection metadata
-        self.connection_metadata: Dict[WebSocket, Dict[str, Any]] = {}
+        # Use the global connection manager instead of maintaining separate connections
+        pass
 
     async def connect(self, websocket: WebSocket, user_id: int, connection_id: str):
         """Accept a WebSocket connection and store it"""
@@ -51,15 +50,12 @@ class MessageWebSocketService:
             del self.connection_metadata[websocket]
 
     async def send_to_user(self, user_id: int, message: Dict[str, Any]):
-        """Send a message to all connections for a specific user"""
-        if user_id in self.active_connections:
-            connections = self.active_connections[user_id].copy()
-            for connection in connections:
-                try:
-                    await self.send_to_connection(connection, message)
-                except Exception as e:
-                    print(f"Error sending to connection: {e}")
-                    await self.disconnect(connection)
+        """Send a message to all connections for a specific user using global connection manager"""
+        try:
+            await manager.send_personal_message(message, user_id)
+        except Exception as e:
+            print(f"Error sending message to user {user_id}: {e}")
+            raise
 
     async def send_to_connection(self, websocket: WebSocket, message: Dict[str, Any]):
         """Send a message to a specific WebSocket connection"""
@@ -71,45 +67,55 @@ class MessageWebSocketService:
 
     async def broadcast_new_message(self, message: Message, conversation: Conversation):
         """Broadcast a new message to the conversation participants"""
-        # Send to the recipient (user in the conversation)
-        if conversation.user_id in self.active_connections:
-            await self.send_to_user(conversation.user_id, {
-                "type": "new_message",
-                "data": {
-                    "conversation_id": conversation.id,
-                    "message": {
-                        "id": message.id,
-                        "conversation_id": message.conversation_id,
-                        "sender": {
-                            "id": str(message.sender_id),
-                            "name": message.sender_name,
-                            "role": message.sender_role,
-                            "avatar": message.sender_avatar,
-                            "type": message.sender_type.value
-                        },
-                        "content": message.content,
-                        "message_type": message.message_type.value,
-                        "priority": message.priority.value,
-                        "status": message.status.value,
-                        "metadata": message.message_metadata,
-                        "created_at": message.created_at.isoformat(),
-                        "updated_at": message.updated_at.isoformat() if message.updated_at else None,
-                        "read_at": message.read_at.isoformat() if message.read_at else None
+        print(f"📡 Broadcasting message {message.id} to conversation {conversation.id}")
+        print(f"📡 Conversation user_id: {conversation.user_id}, contact_id: {conversation.contact_id}")
+        print(f"📡 Message sender_id: {message.sender_id}")
+        
+        # Get active connections from global manager
+        online_users = await manager.get_online_users()
+        print(f"📡 Online users: {online_users}")
+        
+        message_data = {
+            "type": "new_message",
+            "data": {
+                "conversation_id": conversation.id,
+                "message": {
+                    "id": message.id,
+                    "conversation_id": message.conversation_id,
+                    "sender": {
+                        "id": str(message.sender_id),
+                        "name": message.sender_name,
+                        "role": message.sender_role,
+                        "avatar": message.sender_avatar,
+                        "type": message.sender_type.value
                     },
-                    "timestamp": datetime.utcnow().isoformat()
-                }
-            })
+                    "content": message.content,
+                    "message_type": message.message_type.value,
+                    "priority": message.priority.value,
+                    "status": message.status.value,
+                    "metadata": message.message_metadata,
+                    "created_at": message.created_at.isoformat(),
+                    "updated_at": message.updated_at.isoformat() if message.updated_at else None,
+                    "read_at": message.read_at.isoformat() if message.read_at else None
+                },
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        }
 
-        # Send to the sender (if they have active connections)
-        if message.sender_id in self.active_connections:
-            await self.send_to_user(message.sender_id, {
-                "type": "message_sent",
-                "data": {
-                    "conversation_id": conversation.id,
-                    "message_id": message.id,
-                    "timestamp": datetime.utcnow().isoformat()
-                }
-            })
+        # Send to the conversation owner (user in the conversation)
+        if conversation.user_id in online_users:
+            print(f"📡 Sending to conversation owner: {conversation.user_id}")
+            await self.send_to_user(conversation.user_id, message_data)
+
+        # Send to the sender (if they have active connections and are different from conversation owner)
+        if message.sender_id in online_users and message.sender_id != conversation.user_id:
+            print(f"📡 Sending to sender: {message.sender_id}")
+            await self.send_to_user(message.sender_id, message_data)
+
+        # Send to the contact (recipient) if they have active connections
+        if conversation.contact_id in online_users:
+            print(f"📡 Sending to contact: {conversation.contact_id}")
+            await self.send_to_user(conversation.contact_id, message_data)
 
     async def broadcast_message_read(self, message_id: int, conversation_id: int, user_id: int):
         """Broadcast that a message was read"""

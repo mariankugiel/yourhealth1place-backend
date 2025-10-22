@@ -40,6 +40,11 @@ class HealthTask(Base):
     target_days = Column(Integer)  # For weekly/monthly tasks: how many days per week/month
     time_of_day = Column(String(20))  # "morning", "afternoon", "evening"
     
+    # Target fields for daily tasks
+    target_operator = Column(String(20))  # "below", "above", "equal"
+    target_value = Column(String(50))  # Target value as string
+    target_unit = Column(String(20))  # Unit for the target value
+    
     # Relationships to other entities
     goal_id = Column(Integer, ForeignKey("health_plan_goals.id"))  # Optional link to health goal
     metric_id = Column(Integer, ForeignKey("health_record_metrics.id"))  # Optional link to metric
@@ -65,6 +70,7 @@ class TaskCompletion(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     completion_date = Column(Date, nullable=False)  # The date when the task was completed
     completed = Column(Boolean, default=True)  # True if completed, False if marked as not done
+    progress_count = Column(Integer, default=0)  # For daily tasks: actual count/progress value
     notes = Column(Text)  # Optional notes about the completion
     
     # Metadata

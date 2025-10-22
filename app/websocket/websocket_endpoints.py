@@ -52,6 +52,8 @@ async def websocket_endpoint(
     
     connection_id = str(uuid.uuid4())
     user = None
+    print(f"🔌 WebSocket connection attempt: {connection_id}")
+    print(f"🔌 Token provided: {token is not None}")
     
     try:
         # Authenticate user

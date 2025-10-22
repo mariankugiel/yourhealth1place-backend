@@ -128,12 +128,22 @@ async def get_health_goals(
                 goal.current_value = Decimal(str(current_numeric_value))
                 goal.progress_percentage = progress
             
+            # Get unit for the target display
+            target_unit = None
+            if goal.connected_metric_id:
+                # Get the metric to find its unit
+                from app.models.health_record import HealthRecordMetric
+                metric = db.query(HealthRecordMetric).filter(HealthRecordMetric.id == goal.connected_metric_id).first()
+                if metric:
+                    target_unit = metric.default_unit
+            
             goal_list.append({
                 "id": goal.id,
                 "name": goal.name,
                 "target": {
                     "operator": goal.target_operator,
-                    "value": float(goal.target_value) if goal.target_value else None
+                    "value": float(goal.target_value) if goal.target_value else None,
+                    "unit": target_unit
                 },
                 "current": current_value,
                 "baseline_value": float(goal.baseline_value) if goal.baseline_value else None,
@@ -202,12 +212,21 @@ async def create_health_goal(
         db.commit()
         db.refresh(new_goal)
         
+        # Get unit for the target display
+        target_unit = None
+        if new_goal.connected_metric_id:
+            from app.models.health_record import HealthRecordMetric
+            metric = db.query(HealthRecordMetric).filter(HealthRecordMetric.id == new_goal.connected_metric_id).first()
+            if metric:
+                target_unit = metric.default_unit
+        
         return {
             "id": new_goal.id,
             "name": new_goal.name,
             "target": {
                 "operator": new_goal.target_operator,
-                "value": float(new_goal.target_value) if new_goal.target_value else None
+                "value": float(new_goal.target_value) if new_goal.target_value else None,
+                "unit": target_unit
             },
             "baseline_value": float(new_goal.baseline_value) if new_goal.baseline_value else None,
             "progress": 0,  # New goals start with 0 progress
@@ -271,12 +290,21 @@ async def update_health_goal(
         db.commit()
         db.refresh(goal)
         
+        # Get unit for the target display
+        target_unit = None
+        if goal.connected_metric_id:
+            from app.models.health_record import HealthRecordMetric
+            metric = db.query(HealthRecordMetric).filter(HealthRecordMetric.id == goal.connected_metric_id).first()
+            if metric:
+                target_unit = metric.default_unit
+        
         return {
             "id": goal.id,
             "name": goal.name,
             "target": {
                 "operator": goal.target_operator,
-                "value": float(goal.target_value) if goal.target_value else None
+                "value": float(goal.target_value) if goal.target_value else None,
+                "unit": target_unit
             },
             "baseline_value": float(goal.baseline_value) if goal.baseline_value else None,
             "progress": goal.progress_percentage or 0,

@@ -5,6 +5,7 @@ import uvicorn
 
 from app.core.config import settings
 from app.api.v1.api import api_router
+from app.websocket.websocket_endpoints import router as websocket_router
 from app.core.database import engine
 from app.models import Base
 
@@ -37,6 +38,9 @@ app.add_middleware(
 
 # Include API router
 app.include_router(api_router, prefix=settings.API_V1_STR)
+
+# Include WebSocket router
+app.include_router(websocket_router, prefix=settings.API_V1_STR)
 
 @app.get("/")
 async def root():

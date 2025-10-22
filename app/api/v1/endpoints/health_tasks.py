@@ -60,9 +60,9 @@ async def get_health_tasks(
                 "goal_id": task.goal_id,
                 "metric_id": task.metric_id,
                 "metric": metric_data,  # Add metric information
-                "target_operator": getattr(task, 'target_operator', None),
-                "target_value": getattr(task, 'target_value', None),
-                "target_unit": getattr(task, 'target_unit', None),
+                "target_operator": task.target_operator,
+                "target_value": task.target_value,
+                "target_unit": task.target_unit,
                 "created_at": task.created_at.isoformat() if task.created_at else None,
                 "updated_at": task.updated_at.isoformat() if task.updated_at else None,
                 "created_by": task.created_by,
@@ -342,6 +342,7 @@ async def get_task_completions(
                 "user_id": completion.user_id,
                 "completion_date": completion.completion_date.isoformat() if completion.completion_date else None,
                 "completed": completion.completed,
+                "progress_count": completion.progress_count,
                 "notes": completion.notes,
                 "created_at": completion.created_at.isoformat() if completion.created_at else None,
                 "updated_at": completion.updated_at.isoformat() if completion.updated_at else None
@@ -387,6 +388,7 @@ async def create_task_completion(
         
         completion_date = completion_data.get("completion_date")
         completed = completion_data.get("completed", True)
+        progress_count = completion_data.get("progress_count", 0)
         notes = completion_data.get("notes")
         
         if not completion_date:
@@ -405,6 +407,7 @@ async def create_task_completion(
         if existing_completion:
             # Update existing completion
             existing_completion.completed = completed
+            existing_completion.progress_count = progress_count
             if notes is not None:
                 existing_completion.notes = notes
             db.commit()
@@ -416,6 +419,7 @@ async def create_task_completion(
                 "user_id": existing_completion.user_id,
                 "completion_date": existing_completion.completion_date.isoformat() if existing_completion.completion_date else None,
                 "completed": existing_completion.completed,
+                "progress_count": existing_completion.progress_count,
                 "notes": existing_completion.notes,
                 "updated_at": existing_completion.updated_at.isoformat() if existing_completion.updated_at else None
             }
@@ -426,6 +430,7 @@ async def create_task_completion(
                 user_id=current_user.id,
                 completion_date=datetime.strptime(completion_date, "%Y-%m-%d").date(),
                 completed=completed,
+                progress_count=progress_count,
                 notes=notes
             )
             
@@ -439,6 +444,7 @@ async def create_task_completion(
                 "user_id": new_completion.user_id,
                 "completion_date": new_completion.completion_date.isoformat() if new_completion.completion_date else None,
                 "completed": new_completion.completed,
+                "progress_count": new_completion.progress_count,
                 "notes": new_completion.notes,
                 "created_at": new_completion.created_at.isoformat() if new_completion.created_at else None
             }
@@ -492,6 +498,7 @@ async def bulk_update_task_completions(
         for completion_data in completions:
             completion_date = completion_data.get("completion_date")
             completed = completion_data.get("completed", True)
+            progress_count = completion_data.get("progress_count", 0)
             notes = completion_data.get("notes")
             
             if not completion_date:
@@ -507,6 +514,7 @@ async def bulk_update_task_completions(
             if existing_completion:
                 # Update existing
                 existing_completion.completed = completed
+                existing_completion.progress_count = progress_count
                 if notes is not None:
                     existing_completion.notes = notes
                 updated_count += 1
@@ -517,6 +525,7 @@ async def bulk_update_task_completions(
                     user_id=current_user.id,
                     completion_date=datetime.strptime(completion_date, "%Y-%m-%d").date(),
                     completed=completed,
+                    progress_count=progress_count,
                     notes=notes
                 )
                 db.add(new_completion)

@@ -25,10 +25,10 @@ class MessageCRUD:
         message = Message(
             conversation_id=message_data.conversation_id,
             sender_id=sender_id,
-            sender_name=sender.full_name or sender.email,
-            sender_role=sender.role,
+            sender_name=sender.email,  # Use email as sender name
+            sender_role="Patient",  # Default role for patients
             sender_type=SenderType.USER,
-            sender_avatar=sender.avatar_url,
+            sender_avatar=None,  # No avatar available in local DB
             content=message_data.content,
             message_type=message_data.message_type,
             priority=message_data.priority,
@@ -118,26 +118,87 @@ class MessageCRUD:
 
     # Conversation CRUD operations
     def create_conversation(self, db: Session, conversation_data: ConversationCreate, user_id: int) -> Conversation:
-        """Create a new conversation"""
+        """Create a new conversation for both users"""
         # Get contact information
         contact = db.query(User).filter(User.id == conversation_data.contact_id).first()
         if not contact:
             raise ValueError("Contact not found")
 
-        conversation = Conversation(
+        # Check if conversation already exists between these users
+        existing_conversation = db.query(Conversation).filter(
+            Conversation.user_id == user_id,
+            Conversation.contact_id == conversation_data.contact_id
+        ).first()
+        
+        if existing_conversation:
+            # If there's an initial message, add it to both conversations
+            if conversation_data.initial_message:
+                from app.schemas.message import MessageCreate
+                
+                # Create message for sender's conversation
+                sender_message_data = MessageCreate(
+                    conversation_id=existing_conversation.id,
+                    content=conversation_data.initial_message,
+                    message_type="general"
+                )
+                self.create_message(db, sender_message_data, user_id)
+                
+                # Create message for recipient's conversation
+                recipient_conversation = db.query(Conversation).filter(
+                    Conversation.user_id == conversation_data.contact_id,
+                    Conversation.contact_id == user_id
+                ).first()
+                
+                if recipient_conversation:
+                    recipient_message_data = MessageCreate(
+                        conversation_id=recipient_conversation.id,
+                        content=conversation_data.initial_message,
+                        message_type="general"
+                    )
+                    self.create_message(db, recipient_message_data, user_id)
+            
+            # Return existing conversation instead of creating a new one
+            return existing_conversation
+
+        # Create conversation for the sender
+        sender_conversation = Conversation(
             user_id=user_id,
             contact_id=conversation_data.contact_id,
-            contact_name=contact.email,  # Use email since full_name may not exist
-            contact_role="User",  # Default role
-            contact_avatar=None,
-            contact_type=SenderType.USER,
-            tags=conversation_data.tags
+            contact_name=conversation_data.contact_name or contact.email,
+            contact_role=conversation_data.contact_role or "Healthcare Provider",
+            contact_avatar=conversation_data.contact_avatar,
+            contact_type=conversation_data.contact_type,
+            tags=conversation_data.tags or []
         )
         
-        db.add(conversation)
+        # Create conversation for the recipient (reverse relationship)
+        recipient_conversation = Conversation(
+            user_id=conversation_data.contact_id,
+            contact_id=user_id,
+            contact_name="Unknown",  # Will be updated by frontend or Supabase
+            contact_role="Patient",  # Default role for the sender
+            contact_avatar=None,
+            contact_type=conversation_data.contact_type,
+            tags=conversation_data.tags or []
+        )
+        
+        db.add(sender_conversation)
+        db.add(recipient_conversation)
         db.commit()
-        db.refresh(conversation)
-        return conversation
+        db.refresh(sender_conversation)
+        db.refresh(recipient_conversation)
+        
+        # Create initial message if provided
+        if conversation_data.initial_message:
+            from app.schemas.message import MessageCreate
+            message_data = MessageCreate(
+                conversation_id=sender_conversation.id,
+                content=conversation_data.initial_message,
+                message_type="general"
+            )
+            message = self.create_message(db, message_data, user_id)
+        
+        return sender_conversation
 
     def get_conversation(self, db: Session, conversation_id: int) -> Optional[Conversation]:
         """Get a conversation by ID"""
@@ -145,6 +206,17 @@ class MessageCRUD:
             db.query(Conversation)
             .options(joinedload(Conversation.messages))
             .filter(Conversation.id == conversation_id)
+            .first()
+        )
+
+    def get_conversation_by_users(self, db: Session, user_id: int, contact_id: int) -> Optional[Conversation]:
+        """Get a conversation between two users"""
+        return (
+            db.query(Conversation)
+            .filter(
+                Conversation.user_id == user_id,
+                Conversation.contact_id == contact_id
+            )
             .first()
         )
 
@@ -343,6 +415,20 @@ class MessageCRUD:
         if conversation:
             conversation.last_message_time = datetime.utcnow()
             db.commit()
+
+    def delete_conversation(self, db: Session, conversation_id: int) -> bool:
+        """Delete a conversation and all its messages"""
+        conversation = self.get_conversation(db, conversation_id)
+        if not conversation:
+            return False
+        
+        # Delete all messages in the conversation first
+        db.query(Message).filter(Message.conversation_id == conversation_id).delete()
+        
+        # Delete the conversation
+        db.delete(conversation)
+        db.commit()
+        return True
 
     def get_available_contacts(self, db: Session, user_id: int) -> List[User]:
         """Get available contacts for new messages"""

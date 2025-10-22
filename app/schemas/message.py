@@ -50,6 +50,7 @@ class ConversationBase(BaseModel):
 
 class ConversationCreate(ConversationBase):
     contact_id: int
+    initial_message: Optional[str] = None
 
 class ConversationUpdate(BaseModel):
     is_archived: Optional[bool] = None
