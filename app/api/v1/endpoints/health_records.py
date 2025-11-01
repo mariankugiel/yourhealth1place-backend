@@ -10,7 +10,7 @@ from app.crud.health_record import (
     health_record_section_crud, HealthRecordTypeCRUD
 )
 from app.crud.surgery_hospitalization import surgery_hospitalization_crud
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.models.health_record import HealthRecordSection, HealthRecordDocLab, HealthRecordDocExam
 from app.schemas.health_record import (
     HealthRecordCreate, HealthRecordUpdate, HealthRecordResponse, HealthRecordWithDetails,
@@ -2594,7 +2594,7 @@ async def create_health_record_type(
 ):
     """Create a new health record type (admin only)"""
     try:
-        if not current_user.is_superuser:
+        if current_user.role != UserRole.ADMIN:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
         
         health_record_type_crud = HealthRecordTypeCRUD()
@@ -2618,7 +2618,7 @@ async def update_health_record_type(
 ):
     """Update a health record type (admin only)"""
     try:
-        if not current_user.is_superuser:
+        if current_user.role != UserRole.ADMIN:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
         
         health_record_type_crud = HealthRecordTypeCRUD()
@@ -2643,7 +2643,7 @@ async def delete_health_record_type(
 ):
     """Delete a health record type (admin only)"""
     try:
-        if not current_user.is_superuser:
+        if current_user.role != UserRole.ADMIN:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
         
         health_record_type_crud = HealthRecordTypeCRUD()

@@ -28,15 +28,18 @@ class ConnectionManager:
     async def connect(self, websocket: WebSocket, connection_id: str, user_id: int) -> bool:
         """Accept a new WebSocket connection"""
         try:
+            print(f"🔌 ConnectionManager: Accepting WebSocket for user {user_id}")
             await websocket.accept()
             
             # Store connection
             self.active_connections[connection_id] = websocket
+            print(f"🔌 ConnectionManager: Stored connection {connection_id} for user {user_id}")
             
             # Track user connections
             if user_id not in self.user_connections:
                 self.user_connections[user_id] = set()
             self.user_connections[user_id].add(connection_id)
+            print(f"🔌 ConnectionManager: User {user_id} now has {len(self.user_connections[user_id])} connections")
             
             # Store metadata
             self.connection_metadata[connection_id] = {
@@ -50,7 +53,7 @@ class ConnectionManager:
             # Notify user is online
             await self._broadcast_user_status(user_id, "online")
             
-            # User connected (logging removed for brevity)
+            print(f"🔌 ConnectionManager: Successfully connected user {user_id}")
             return True
             
         except Exception as e:
@@ -140,7 +143,10 @@ class ConnectionManager:
     
     async def get_online_users(self) -> List[int]:
         """Get list of all online user IDs"""
-        return list(self.user_connections.keys())
+        online_users = list(self.user_connections.keys())
+        print(f"🔌 ConnectionManager: Online users: {online_users}")
+        print(f"🔌 ConnectionManager: User connections: {self.user_connections}")
+        return online_users
     
     async def get_user_connection_count(self, user_id: int) -> int:
         """Get number of active connections for a user"""

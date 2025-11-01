@@ -34,7 +34,7 @@ def update_user(db: Session, user_id: int, user_data: dict) -> Optional[User]:
         return None
     
     # Only allow updating application fields
-    allowed_fields = ["is_active", "is_superuser"]
+    allowed_fields = ["is_active", "role"]
     for field, value in user_data.items():
         if field in allowed_fields and value is not None:
             setattr(db_user, field, value)
@@ -85,7 +85,7 @@ class UserCRUD:
             return None
         
         # Only allow updating application fields
-        allowed_fields = ["is_active", "is_superuser"]
+        allowed_fields = ["is_active", "role"]
         for field, value in user_data.items():
             if field in allowed_fields and value is not None:
                 setattr(db_user, field, value)

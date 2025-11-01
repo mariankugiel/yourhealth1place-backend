@@ -38,7 +38,7 @@ def lambda_handler(event, context):
     """
     start_ts = datetime.utcnow()
     print(f"\u23f0 Email reminder run started at {start_ts.isoformat()}Z")
-
+    
     processed = 0
     failed = 0
     results = []
@@ -135,7 +135,7 @@ def lambda_handler(event, context):
                 print(f"Created notification {notification_id} for user {user_id}")
 
                 # Send Email
-                subject = f"[YourHealth1Place] {title}"
+            subject = f"[YourHealth1Place] {title}"
                 html_body = _build_html_email(title, content)
                 text_body = _build_text_email(title, content)
 
@@ -239,17 +239,17 @@ def lambda_handler(event, context):
 
 def _build_html_email(title: str, content: str) -> str:
     return f"""
-<!DOCTYPE html>
-<html>
-<head>
+            <!DOCTYPE html>
+            <html>
+            <head>
   <meta charset=\"UTF-8\">
-  <style>
-    body {{ font-family: Arial, sans-serif; line-height: 1.6; }}
-    .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
-    .header {{ background-color: #4CAF50; color: white; padding: 20px; text-align: center; }}
-    .content {{ padding: 20px; background-color: #f9f9f9; }}
-    .footer {{ padding: 20px; text-align: center; font-size: 12px; color: #666; }}
-  </style>
+                <style>
+                    body {{ font-family: Arial, sans-serif; line-height: 1.6; }}
+                    .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+                    .header {{ background-color: #4CAF50; color: white; padding: 20px; text-align: center; }}
+                    .content {{ padding: 20px; background-color: #f9f9f9; }}
+                    .footer {{ padding: 20px; text-align: center; font-size: 12px; color: #666; }}
+                </style>
   <title>YourHealth1Place</title>
   <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />
   <meta http-equiv=\"x-ua-compatible\" content=\"ie=edge\" />
@@ -259,25 +259,25 @@ def _build_html_email(title: str, content: str) -> str:
   <meta name=\"supported-color-schemes\" content=\"light\" />
   <style>@media (prefers-color-scheme: dark) {{ body {{ background: #111; color: #eee; }} }}</style>
   <style>img {{ max-width: 100%; height: auto; }}</style>
-</head>
-<body>
+            </head>
+            <body>
   <div class=\"container\">
     <div class=\"header\">
-      <h2>YourHealth1Place</h2>
-    </div>
+                        <h2>YourHealth1Place</h2>
+                    </div>
     <div class=\"content\">
-      <h3>{title}</h3>
-      <p>{content}</p>
-    </div>
+                        <h3>{title}</h3>
+                        <p>{content}</p>
+                    </div>
     <div class=\"footer\">
-      <p>This is an automated message from YourHealth1Place.</p>
-      <p>To manage your notification preferences, visit your account settings.</p>
-    </div>
-  </div>
-</body>
-</html>
-"""
-
+                        <p>This is an automated message from YourHealth1Place.</p>
+                        <p>To manage your notification preferences, visit your account settings.</p>
+                    </div>
+                </div>
+            </body>
+            </html>
+            """
+            
 
 def _build_text_email(title: str, content: str) -> str:
     return (

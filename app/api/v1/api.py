@@ -3,7 +3,8 @@ from app.api.v1.endpoints import (
     auth, users, appointments, health_records, medications, messages, 
     health_plans, patient_insights, professional_documents, 
     health_record_permissions, health_record_analytics, 
-    ai_analysis, medication_reminders, notifications, websocket_status
+    ai_analysis, medication_reminders, notifications, websocket_status,
+    file_upload
 )
 from app.websocket.websocket_endpoints import router as websocket_router
 
@@ -24,6 +25,7 @@ api_router.include_router(medication_reminders.router, prefix="/medication-remin
 api_router.include_router(notifications.router, prefix="/notifications", tags=["notifications"])
 
 api_router.include_router(messages.router, prefix="/messages", tags=["messages"])
+api_router.include_router(file_upload.router, prefix="/messages", tags=["file-upload"])
 
 # Professional-related endpoints
 # Professionals router removed - data now stored in Supabase user metadata

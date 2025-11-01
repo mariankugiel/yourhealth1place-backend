@@ -10,7 +10,8 @@ from app.websocket.connection_manager import manager
 class MessageWebSocketService:
     def __init__(self):
         # Use the global connection manager instead of maintaining separate connections
-        pass
+        self.active_connections: Dict[int, List[WebSocket]] = {}
+        self.connection_metadata: Dict[WebSocket, Dict[str, Any]] = {}
 
     async def connect(self, websocket: WebSocket, user_id: int, connection_id: str):
         """Accept a WebSocket connection and store it"""
@@ -75,6 +76,32 @@ class MessageWebSocketService:
         online_users = await manager.get_online_users()
         print(f"📡 Online users: {online_users}")
         
+        # Get message attachments from database
+        attachments = []
+        print(f"📡 Message has attachments attribute: {hasattr(message, 'attachments')}")
+        if hasattr(message, 'attachments') and message.attachments:
+            print(f"📡 Message attachments count: {len(message.attachments)}")
+            for attachment in message.attachments:
+                print(f"📡 Processing attachment: {attachment.file_name}")
+                attachments.append({
+                    "id": attachment.id,
+                    "message_id": attachment.message_id,
+                    "file_name": attachment.file_name,
+                    "original_file_name": attachment.original_file_name,
+                    "file_type": attachment.file_type,
+                    "file_size": attachment.file_size,
+                    "file_extension": attachment.file_extension,
+                    "s3_bucket": attachment.s3_bucket,
+                    "s3_key": attachment.s3_key,
+                    "s3_url": attachment.s3_url,
+                    "uploaded_by": attachment.uploaded_by,
+                    "created_at": attachment.created_at.isoformat(),
+                    "updated_at": attachment.updated_at.isoformat() if attachment.updated_at else None
+                })
+        else:
+            print(f"📡 No attachments found for message {message.id}")
+        
+        # Create simplified message data (avoiding relationship issues)
         message_data = {
             "type": "new_message",
             "data": {
@@ -82,40 +109,42 @@ class MessageWebSocketService:
                 "message": {
                     "id": message.id,
                     "conversation_id": message.conversation_id,
-                    "sender": {
-                        "id": str(message.sender_id),
-                        "name": message.sender_name,
-                        "role": message.sender_role,
-                        "avatar": message.sender_avatar,
-                        "type": message.sender_type.value
-                    },
+                    "sender_id": message.sender_id,  # Use sender_id directly
                     "content": message.content,
                     "message_type": message.message_type.value,
                     "priority": message.priority.value,
                     "status": message.status.value,
-                    "metadata": message.message_metadata,
+                    "message_metadata": message.message_metadata,
+                    "attachments": attachments,  # Add attachments
+                    "file_attachments": attachments,  # Also add as file_attachments for compatibility
                     "created_at": message.created_at.isoformat(),
                     "updated_at": message.updated_at.isoformat() if message.updated_at else None,
                     "read_at": message.read_at.isoformat() if message.read_at else None
                 },
+                "current_user_id": conversation.user_id,  # Add current user ID for frontend
                 "timestamp": datetime.utcnow().isoformat()
             }
         }
 
-        # Send to the conversation owner (user in the conversation)
-        if conversation.user_id in online_users:
-            print(f"📡 Sending to conversation owner: {conversation.user_id}")
-            await self.send_to_user(conversation.user_id, message_data)
-
-        # Send to the sender (if they have active connections and are different from conversation owner)
-        if message.sender_id in online_users and message.sender_id != conversation.user_id:
-            print(f"📡 Sending to sender: {message.sender_id}")
-            await self.send_to_user(message.sender_id, message_data)
-
-        # Send to the contact (recipient) if they have active connections
-        if conversation.contact_id in online_users:
-            print(f"📡 Sending to contact: {conversation.contact_id}")
-            await self.send_to_user(conversation.contact_id, message_data)
+        # Determine who should receive the message (not the sender)
+        recipients = []
+        
+        # Add conversation owner if they're not the sender
+        if conversation.user_id != message.sender_id and conversation.user_id in online_users:
+            recipients.append(conversation.user_id)
+            print(f"📡 Adding conversation owner as recipient: {conversation.user_id}")
+        
+        # Add contact if they're not the sender
+        if conversation.contact_id != message.sender_id and conversation.contact_id in online_users:
+            recipients.append(conversation.contact_id)
+            print(f"📡 Adding contact as recipient: {conversation.contact_id}")
+        
+        # Send to all recipients (excluding sender)
+        for recipient_id in recipients:
+            print(f"📡 Sending message to recipient: {recipient_id}")
+            await self.send_to_user(recipient_id, message_data)
+        
+        print(f"📡 Message sent to {len(recipients)} recipients (excluding sender {message.sender_id})")
 
     async def broadcast_message_read(self, message_id: int, conversation_id: int, user_id: int):
         """Broadcast that a message was read"""

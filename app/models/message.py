@@ -39,10 +39,7 @@ class Message(Base):
     id = Column(Integer, primary_key=True, index=True)
     conversation_id = Column(Integer, ForeignKey("conversations.id"), nullable=False)
     sender_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    sender_name = Column(String(255), nullable=False)
-    sender_role = Column(String(100), nullable=False)
-    sender_type = Column(Enum(SenderType), nullable=False, default=SenderType.USER)
-    sender_avatar = Column(String(500), nullable=True)
+    # Removed sender_type - can be determined from user role or conversation context
     
     content = Column(Text, nullable=False)
     message_type = Column(Enum(MessageType), nullable=False, default=MessageType.GENERAL)
@@ -61,6 +58,7 @@ class Message(Base):
     conversation = relationship("Conversation", back_populates="messages")
     sender = relationship("User", foreign_keys=[sender_id])
     documents = relationship("Document", back_populates="message")
+    attachments = relationship("MessageDocument", back_populates="message", cascade="all, delete-orphan")
 
 class Conversation(Base):
     __tablename__ = "conversations"
@@ -68,10 +66,6 @@ class Conversation(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     contact_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    contact_name = Column(String(255), nullable=False)
-    contact_role = Column(String(100), nullable=False)
-    contact_avatar = Column(String(500), nullable=True)
-    contact_type = Column(Enum(SenderType), nullable=False, default=SenderType.USER)
     
     # Conversation metadata
     is_archived = Column(Boolean, default=False)

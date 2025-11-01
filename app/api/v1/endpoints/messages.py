@@ -10,10 +10,24 @@ from app.schemas.message import (
     Message, MessageCreate, MessageUpdate, Conversation, ConversationCreate, ConversationUpdate,
     SendMessageRequest, SendMessageResponse, MessagesResponse, ConversationMessagesResponse,
     MessageFilters, MessageSearchParams, MessageSearchResponse, UnreadCountResponse,
-    MessageStatsResponse, MessageActionCreate, MessageAction
+    MessageStatsResponse, MessageActionCreate, MessageAction, CreateConversationRequest
 )
-from app.models.message import MessageType, MessagePriority, MessageStatus
-from app.models.user import User
+from app.models.message import MessageType, MessagePriority, MessageStatus, SenderType
+from app.models.user import User, UserRole
+
+def get_initials(name: str) -> str:
+    """Generate initials from a full name"""
+    if not name or name == "Unknown":
+        return "U"
+    
+    # Split by space and get first letter of each word
+    words = name.strip().split()
+    if len(words) == 1:
+        # Single word, take first two characters
+        return words[0][:2].upper()
+    else:
+        # Multiple words, take first letter of each word (max 2)
+        return ''.join([word[0] for word in words[:2]]).upper()
 
 router = APIRouter()
 
@@ -49,6 +63,72 @@ async def get_conversations(
     message_crud = MessageCRUD()
     conversations = message_crud.get_conversations_by_user(db, current_user.id, filters)
     
+    # Fetch contact information from Supabase for each conversation
+    from app.core.supabase_client import supabase_service
+    
+    # Get current user's profile information
+    current_user_profile = None
+    try:
+        current_user_db = db.query(User).filter(User.id == current_user.id).first()
+        if current_user_db and current_user_db.supabase_user_id:
+            current_user_profile = await supabase_service.get_user_profile(current_user_db.supabase_user_id)
+    except Exception as e:
+        print(f"⚠️ Failed to fetch current user profile: {e}")
+    
+    for conversation in conversations:
+        try:
+            # Determine which user is the "contact" for the current user
+            # Since we only store one conversation record, we need to find the other user
+            if conversation.user_id == current_user.id:
+                contact_id = conversation.contact_id
+            else:
+                contact_id = conversation.user_id
+            
+            # Get the supabase_user_id from the users table using contact_id
+            contact_user = db.query(User).filter(User.id == contact_id).first()
+            if not contact_user or not contact_user.supabase_user_id:
+                raise ValueError(f"No Supabase user ID found for contact_id {contact_id}")
+            
+            # Fetch profile from Supabase using supabase_user_id
+            contact_profile = await supabase_service.get_user_profile(contact_user.supabase_user_id)
+            # Add contact data to conversation object for frontend
+            contact_name = contact_profile.get('full_name', 'Unknown')
+            contact_role = contact_profile.get('role', 'PATIENT')  # Already converted to uppercase by Supabase client
+            contact_avatar = contact_profile.get('avatar_url')
+            
+            # Set contact information
+            conversation.contact_name = contact_name
+            conversation.contact_role = contact_role
+            conversation.contact_avatar = contact_avatar
+            conversation.contact_id = contact_id  # Update contact_id to the actual contact
+            
+            # Generate initials for fallback avatar
+            conversation.contact_initials = get_initials(contact_name)
+            
+            # Add current user information to conversation
+            if current_user_profile:
+                conversation.current_user_name = current_user_profile.get('full_name', 'Unknown')
+                conversation.current_user_role = current_user_profile.get('role', 'PATIENT')
+                conversation.current_user_avatar = current_user_profile.get('avatar_url')
+                conversation.current_user_initials = get_initials(current_user_profile.get('full_name', 'Unknown'))
+            else:
+                conversation.current_user_name = "Unknown"
+                conversation.current_user_role = "PATIENT"
+                conversation.current_user_avatar = None
+                conversation.current_user_initials = "U"
+            
+        except Exception as e:
+            print(f"⚠️ Failed to fetch contact profile for user {contact_id}: {e}")
+            # Use fallback values
+            conversation.contact_name = "Unknown"
+            conversation.contact_role = "PATIENT"  # Uppercase for consistency
+            conversation.contact_avatar = None
+            conversation.contact_initials = "U"
+            conversation.current_user_name = "Unknown"
+            conversation.current_user_role = "PATIENT"
+            conversation.current_user_avatar = None
+            conversation.current_user_initials = "U"
+    
     # Calculate unread count
     unread_count = message_crud.get_unread_count(db, current_user.id)
     
@@ -56,7 +136,8 @@ async def get_conversations(
         conversations=conversations,
         total_count=len(conversations),
         unread_count=unread_count["count"],
-        has_more=False  # Implement pagination if needed
+        has_more=False,  # Implement pagination if needed
+        current_user_id=current_user.id  # Add actual database user ID
     )
 
 @router.get("/conversations/{conversation_id}", response_model=Conversation)
@@ -85,33 +166,48 @@ async def get_conversation_messages(
     """Get messages for a conversation"""
     message_crud = MessageCRUD()
     
-    # Verify conversation belongs to user
+    # Verify conversation belongs to user (check both user_id and contact_id)
     conversation = message_crud.get_conversation(db, conversation_id)
-    if not conversation or conversation.user_id != current_user.id:
+    if not conversation or (conversation.user_id != current_user.id and conversation.contact_id != current_user.id):
         raise HTTPException(status_code=404, detail="Conversation not found")
     
     messages = message_crud.get_messages_by_conversation(db, conversation_id, page, limit)
     
     # Convert database messages to schema format
-    from app.schemas.message import Message as MessageSchema, MessageSender
+    from app.schemas.message import Message as MessageSchema, MessageSender, MessageAttachment
     from app.models.message import SenderType
+    from app.crud.message_document import MessageDocumentCRUD
     
     formatted_messages = []
+    document_crud = MessageDocumentCRUD()
+    
     for message in messages:
-        # Create MessageSender from message data
-        sender = MessageSender(
-            id=str(message.sender_id),
-            name=message.sender_name or "Unknown",
-            role=message.sender_role or "Unknown",
-            avatar=message.sender_avatar,
-            type=message.sender_type
-        )
+        # Get attachments for this message
+        attachments = document_crud.get_documents_by_message(db, message.id)
+        formatted_attachments = []
+        for attachment in attachments:
+            formatted_attachments.append(MessageAttachment(
+                id=attachment.id,
+                message_id=attachment.message_id,
+                file_name=attachment.file_name,
+                original_file_name=attachment.original_file_name,
+                file_type=attachment.file_type,
+                file_size=attachment.file_size,
+                file_extension=attachment.file_extension,
+                s3_bucket=attachment.s3_bucket,
+                s3_key=attachment.s3_key,
+                s3_url=attachment.s3_url,
+                uploaded_by=attachment.uploaded_by,
+                created_at=attachment.created_at,
+                updated_at=attachment.updated_at
+            ))
         
-        # Create Message schema object
+        # Create simplified Message schema object
         formatted_message = MessageSchema(
             id=message.id,
             conversation_id=message.conversation_id,
-            sender=sender,
+            sender_id=message.sender_id,  # Just sender ID, no full sender object
+            attachments=formatted_attachments if formatted_attachments else None,
             content=message.content,
             message_type=message.message_type,
             priority=message.priority,
@@ -135,6 +231,8 @@ async def send_message(
     current_user: User = Depends(get_current_user)
 ):
     """Send a new message"""
+    print(f"💬 Send message endpoint called by user {current_user.id}")
+    print(f"💬 Request data: {request}")
     message_crud = MessageCRUD()
     
     # Create message data
@@ -157,18 +255,31 @@ async def send_message(
         
         # Create new conversation
         conversation_data = ConversationCreate(
-            contact_id=request.recipient_id,
-            contact_name="",  # Will be filled from contact
-            contact_role="",
-            contact_avatar="",
-            contact_type="user"
+            contact_id=request.recipient_id
         )
         conversation = message_crud.create_conversation(db, conversation_data, current_user.id)
         message_data.conversation_id = conversation.id
     
-    # Create message
-    message = message_crud.create_message(db, message_data, current_user.id)
+    # Create message for sender's conversation with attachments
+    message = message_crud.create_message(db, message_data, current_user.id, request.attachments)
     print(f"💬 Message created: {message.id} from user {current_user.id} to conversation {conversation.id}")
+    
+    # Also create message for recipient's conversation if it exists
+    recipient_conversation = message_crud.get_conversation_by_users(db, conversation.contact_id, current_user.id)
+    recipient_message = None
+    if recipient_conversation:
+        # Create message for recipient's conversation
+        recipient_message_data = MessageCreate(
+            conversation_id=recipient_conversation.id,
+            content=message_data.content,
+            message_type=message_data.message_type,
+            priority=message_data.priority,
+            message_metadata=message_data.message_metadata
+        )
+        recipient_message = message_crud.create_message(db, recipient_message_data, current_user.id)
+        print(f"💬 Recipient message created: {recipient_message.id} in conversation {recipient_conversation.id}")
+    else:
+        print(f"💬 No recipient conversation found for contact_id: {conversation.contact_id}")
     
     # Broadcast message via WebSocket to both conversations
     from app.websocket.message_service import message_websocket_service
@@ -177,16 +288,54 @@ async def send_message(
     print(f"💬 Broadcasting to sender's conversation: {conversation.id}")
     await message_websocket_service.broadcast_new_message(message, conversation)
     
-    # Also broadcast to recipient's conversation if it exists
-    recipient_conversation = message_crud.get_conversation_by_users(db, conversation.contact_id, current_user.id)
-    if recipient_conversation:
+    # Broadcast to recipient's conversation if it exists
+    if recipient_conversation and recipient_message:
         print(f"💬 Broadcasting to recipient's conversation: {recipient_conversation.id}")
-        await message_websocket_service.broadcast_new_message(message, recipient_conversation)
-    else:
-        print(f"💬 No recipient conversation found for contact_id: {conversation.contact_id}")
+        await message_websocket_service.broadcast_new_message(recipient_message, recipient_conversation)
+    
+    # Convert SQLAlchemy Message to Pydantic Message schema
+    from app.schemas.message import Message as MessageSchema, MessageSender
+    
+    # Fetch sender information from User relationship
+    sender_name = "Unknown"
+    sender_role = "Unknown" 
+    sender_avatar = None
+    
+    if message.sender:
+        sender_name = message.sender.email or "Unknown"
+        # Get role from Supabase if available
+        try:
+            from app.core.supabase_client import supabase_service
+            profile = await supabase_service.get_user_profile(message.sender.supabase_user_id)
+            sender_role = profile.get('role', 'Patient')
+            sender_avatar = profile.get('avatar_url')
+        except Exception:
+            sender_role = "Patient"  # Default role
+    
+    sender = MessageSender(
+        id=str(message.sender_id),
+        name=sender_name,
+        role=sender_role,
+        avatar=sender_avatar,
+        type="user"  # Default type since we removed sender_type
+    )
+    
+    formatted_message = MessageSchema(
+        id=message.id,
+        conversation_id=message.conversation_id,
+        sender=sender,
+        content=message.content,
+        message_type=message.message_type,
+        priority=message.priority,
+        status=message.status,
+        created_at=message.created_at,
+        updated_at=message.updated_at,
+        read_at=message.read_at,
+        message_metadata=message.message_metadata
+    )
     
     return SendMessageResponse(
-        message=message,
+        message=formatted_message,
         conversation=conversation
     )
 
@@ -316,12 +465,27 @@ async def get_message_stats(
 
 @router.post("/conversations", response_model=Conversation)
 async def create_conversation(
-    conversation_data: ConversationCreate,
+    request: CreateConversationRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """Create a new conversation"""
+    from app.core.supabase_client import supabase_service
+    
     message_crud = MessageCRUD()
+    
+    # Convert recipientId to integer
+    try:
+        contact_id = int(request.recipientId)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid recipient ID format")
+    
+    # Create conversation data
+    conversation_data = ConversationCreate(
+        contact_id=contact_id,
+        initial_message=request.initialMessage
+    )
+    
     conversation = message_crud.create_conversation(db, conversation_data, current_user.id)
     
     # If there's an initial message, broadcast it via WebSocket
@@ -468,7 +632,7 @@ async def get_available_contacts(
         contacts_query = db.query(User).filter(
             User.id != current_user.id,     # Exclude current user
             User.is_active == True,          # Only active users
-            User.is_superuser == False       # Exclude superusers (admins)
+            User.role != UserRole.ADMIN       # Exclude admins
         )
         
         # Apply search filter if provided (search by email)

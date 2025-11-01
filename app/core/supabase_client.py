@@ -176,11 +176,14 @@ class SupabaseService:
             
             # Get profile data from user_profiles table (exclude email as it's not stored there)
             # Select specific columns to avoid schema cache issues
+            # Removed unnecessary columns: cellphone, cellphone_country_code, location, country
+            # Added new columns: avatar_url, role
             profile_response = client.table("user_profiles").select(
-                "id,user_id,full_name,date_of_birth,phone_number,address,country,"
+                "id,user_id,full_name,date_of_birth,phone_number,phone_country_code,address,"
+                "avatar_url,role,"
                 "emergency_contact_name,emergency_contact_phone,emergency_contact_relationship,"
                 "gender,height,weight,waist_diameter,blood_type,allergies,emergency_medical_info,"
-                "phone_country_code,emergency_contact_country_code,"
+                "emergency_contact_country_code,"
                 "onboarding_completed,onboarding_skipped,onboarding_skipped_at,is_new_user,"
                 "created_at,updated_at"
             ).eq("user_id", user_id).execute()
@@ -193,6 +196,16 @@ class SupabaseService:
                 profile_data.pop("user_id", None)
                 profile_data.pop("created_at", None)
                 profile_data.pop("updated_at", None)
+                
+                # Convert role from lowercase (Supabase) to uppercase (PostgreSQL enum)
+                if "role" in profile_data and profile_data["role"]:
+                    role_mapping = {
+                        "patient": "PATIENT",
+                        "doctor": "DOCTOR", 
+                        "admin": "ADMIN"
+                    }
+                    # Convert to uppercase for PostgreSQL enum compatibility
+                    profile_data["role"] = role_mapping.get(profile_data["role"].lower(), "PATIENT")
             
             # Get email from auth.users table using admin client
             # Only try to get email if it's not already in profile data

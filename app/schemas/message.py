@@ -14,6 +14,30 @@ class MessageSenderBase(BaseModel):
 class MessageSender(MessageSenderBase):
     pass
 
+# Message attachment schemas
+class MessageAttachmentBase(BaseModel):
+    file_name: str
+    original_file_name: str
+    file_type: str
+    file_size: int
+    file_extension: str
+    s3_bucket: str
+    s3_key: str
+    s3_url: Optional[str] = None
+
+class MessageAttachmentCreate(MessageAttachmentBase):
+    pass
+
+class MessageAttachment(MessageAttachmentBase):
+    id: int
+    message_id: int
+    uploaded_by: int
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
 class MessageBase(BaseModel):
     content: str
     message_type: MessageType = MessageType.GENERAL
@@ -31,7 +55,8 @@ class MessageUpdate(BaseModel):
 class Message(MessageBase):
     id: int
     conversation_id: int
-    sender: MessageSender
+    sender_id: int  # Simplified: just sender ID, no full sender object
+    attachments: Optional[List[MessageAttachment]] = None  # Add attachments
     status: MessageStatus
     created_at: datetime
     updated_at: Optional[datetime] = None
@@ -42,15 +67,16 @@ class Message(MessageBase):
 
 # Conversation schemas
 class ConversationBase(BaseModel):
-    contact_name: str
-    contact_role: str
-    contact_avatar: Optional[str] = None
-    contact_type: SenderType = SenderType.USER
     tags: Optional[List[str]] = None
 
 class ConversationCreate(ConversationBase):
     contact_id: int
     initial_message: Optional[str] = None
+
+# Frontend request schema for creating conversations
+class CreateConversationRequest(BaseModel):
+    recipientId: str  # Frontend sends this as recipientId
+    initialMessage: Optional[str] = None  # Frontend sends this as initialMessage
 
 class ConversationUpdate(BaseModel):
     is_archived: Optional[bool] = None
@@ -61,11 +87,19 @@ class Conversation(ConversationBase):
     id: int
     user_id: int
     contact_id: int
+    contact_name: Optional[str] = None  # Fetched from Supabase
+    contact_role: Optional[str] = None  # Fetched from Supabase
+    contact_avatar: Optional[str] = None  # Fetched from Supabase
+    contact_initials: Optional[str] = None  # Generated initials for fallback avatar
+    current_user_name: Optional[str] = None  # Current user's name
+    current_user_role: Optional[str] = None  # Current user's role
+    current_user_avatar: Optional[str] = None  # Current user's avatar
+    current_user_initials: Optional[str] = None  # Current user's initials
     is_archived: bool
     is_pinned: bool
     unread_count: int = 0
-    last_message: Optional[Message] = None
-    last_message_time: Optional[datetime] = None
+    lastMessage: Optional[Message] = None
+    lastMessageTime: Optional[datetime] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
 
@@ -95,6 +129,7 @@ class SendMessageRequest(BaseModel):
     content: str
     message_type: MessageType = MessageType.GENERAL
     priority: MessagePriority = MessagePriority.NORMAL
+    attachments: Optional[List[MessageAttachmentCreate]] = None  # Add attachments support
     message_metadata: Optional[Dict[str, Any]] = None
 
 class SendMessageResponse(BaseModel):
@@ -186,3 +221,11 @@ class HealthPlanSupportMetadata(BaseModel):
     action_required: Optional[bool] = None
     action_url: Optional[str] = None
     action_text: Optional[str] = None
+
+# Response schemas
+class MessagesResponse(BaseModel):
+    conversations: List[Conversation]
+    total_count: int
+    unread_count: int
+    has_more: bool
+    current_user_id: int  # Add actual database user ID for frontend

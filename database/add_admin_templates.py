@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.models.health_metrics import HealthRecordSectionTemplate, HealthRecordMetricTemplate
 from app.models.health_record import HealthRecordType
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.crud.health_record import HealthRecordSectionTemplateCRUD, HealthRecordMetricTemplateCRUD
 from app.crud.user import user_crud
 
@@ -172,7 +172,7 @@ class AdminTemplateImporter:
         # Try to find existing admin user
         admin_user = self.db.query(User).filter(
             User.email == "admin@saluso.com",
-            User.is_superuser == True
+            User.role == UserRole.ADMIN
         ).first()
         
         if admin_user:
@@ -184,7 +184,7 @@ class AdminTemplateImporter:
             "supabase_user_id": "admin-system",
             "email": "admin@saluso.com",
             "is_active": True,
-            "is_superuser": True
+            "role": UserRole.ADMIN
         }
         
         admin_user = user_crud.create(self.db, admin_data)

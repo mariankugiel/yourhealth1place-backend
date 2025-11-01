@@ -4,6 +4,7 @@ Handles WebSocket connections, authentication, and real-time communication
 """
 import json
 import uuid
+import asyncio
 from typing import Optional
 from fastapi import WebSocket, WebSocketDisconnect, Depends, HTTPException, Query
 from fastapi.routing import APIRouter
@@ -11,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.supabase_client import supabase_service
 from app.models.user import User
+from app.models.message import Message
 from app.websocket.connection_manager import manager
 from app.websocket.message_service import message_websocket_service
 import logging
@@ -162,11 +164,15 @@ async def handle_websocket_message(
     
     elif message_type == "send_message":
         # Handle direct messaging (foundation for chat system)
+        conversation_id = data.get("conversation_id")
         target_user_id = data.get("target_user_id")
         message_content = data.get("message")
+        message_type = data.get("message_type", "general")
+        priority = data.get("priority", "normal")
+        attachments = data.get("attachments", [])
         
-        if target_user_id and message_content:
-            await handle_direct_message(user.id, target_user_id, message_content, db)
+        if conversation_id and message_content:
+            await handle_websocket_message_send(user.id, conversation_id, message_content, message_type, priority, attachments, db)
     
     elif message_type == "typing":
         # Handle typing indicators
@@ -189,7 +195,36 @@ async def handle_websocket_message(
         is_typing = data.get("is_typing", False)
         
         if conversation_id:
-            await message_websocket_service.handle_typing(websocket, conversation_id, is_typing)
+            print(f"🔤 Typing indicator: user {user.id} in conversation {conversation_id}, typing: {is_typing}")
+            
+            # Get conversation to find the other participant
+            from app.crud.message import MessageCRUD
+            message_crud = MessageCRUD()
+            conversation = message_crud.get_conversation(db, conversation_id)
+            
+            if conversation:
+                # Determine who should receive the typing indicator (not the sender)
+                recipient_id = None
+                if conversation.user_id != user.id:
+                    recipient_id = conversation.user_id
+                elif conversation.contact_id != user.id:
+                    recipient_id = conversation.contact_id
+                
+                if recipient_id:
+                    print(f"🔤 Sending typing indicator to user {recipient_id}")
+                    typing_message = {
+                        "type": "typing_indicator",
+                        "data": {
+                            "conversation_id": conversation_id,
+                            "user_id": user.id,
+                            "is_typing": is_typing
+                        }
+                    }
+                    await manager.send_personal_message(typing_message, recipient_id)
+                else:
+                    print(f"🔤 No recipient found for typing indicator")
+            else:
+                print(f"🔤 Conversation {conversation_id} not found")
     
     elif message_type == "message_action":
         # Handle message actions (medication taken, appointment confirmed, etc.)
@@ -208,8 +243,77 @@ async def handle_websocket_message(
         }
         await websocket.send_text(json.dumps(error_message))
 
+async def handle_websocket_message_send(
+    sender_id: int, 
+    conversation_id: int, 
+    message_content: str, 
+    message_type: str, 
+    priority: str, 
+    attachments: list, 
+    db: Session
+):
+    """Handle WebSocket message sending with proper database storage and broadcasting"""
+    try:
+        from app.crud.message import MessageCRUD
+        from app.schemas.message import MessageCreate, MessageAttachmentCreate
+        from app.models.message import MessageType, MessagePriority
+        
+        print(f"🔍 WebSocket message send: sender_id={sender_id}, conversation_id={conversation_id}, content='{message_content}'")
+        
+        # Create message data
+        message_data = MessageCreate(
+            conversation_id=conversation_id,
+            content=message_content,
+            message_type=MessageType(message_type),
+            priority=MessagePriority(priority),
+            message_metadata={}
+        )
+        
+        # Create attachment data if provided
+        attachment_data = []
+        if attachments:
+            for attachment in attachments:
+                attachment_data.append(MessageAttachmentCreate(
+                    file_name=attachment.get("file_name", ""),
+                    original_file_name=attachment.get("original_file_name", ""),
+                    file_type=attachment.get("file_type", ""),
+                    file_size=attachment.get("file_size", 0),
+                    file_extension=attachment.get("file_extension", ""),
+                    s3_bucket=attachment.get("s3_bucket", ""),
+                    s3_key=attachment.get("s3_key", ""),
+                    s3_url=attachment.get("s3_url", "")
+                ))
+        
+        # Save message to database
+        message_crud = MessageCRUD()
+        message = message_crud.create_message(db, message_data, sender_id, attachment_data)
+        print(f"✅ Message saved to database: {message.id}")
+        
+        # Load message with attachments for broadcasting
+        from sqlalchemy.orm import joinedload
+        message_with_attachments = db.query(Message).options(joinedload(Message.attachments)).filter(Message.id == message.id).first()
+        
+        # Get conversation for broadcasting
+        conversation = message_crud.get_conversation(db, conversation_id)
+        if not conversation:
+            print(f"❌ Conversation not found: {conversation_id}")
+            return
+        
+        print(f"📡 Broadcasting message to conversation participants")
+        
+        # Broadcast message using the message service
+        await message_websocket_service.broadcast_new_message(message_with_attachments, conversation)
+        
+        print(f"✅ Message broadcasted successfully")
+        
+    except Exception as e:
+        logger.error(f"Error handling WebSocket message send: {e}")
+        print(f"❌ Error in WebSocket message send: {e}")
+        import traceback
+        traceback.print_exc()
+
 async def handle_direct_message(sender_id: int, target_user_id: int, message_content: str, db: Session):
-    """Handle direct messaging between users"""
+    """Handle direct messaging between users (legacy function - kept for compatibility)"""
     try:
         # Check if target user is online
         target_status = await manager.get_user_status(target_user_id)

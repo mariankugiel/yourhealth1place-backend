@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
 from app.core.database import get_db
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.user import UserResponse, UserUpdate
 from app.crud.user import get_users, get_user, update_user, delete_user
 from app.api.v1.endpoints.auth import get_current_user
@@ -17,7 +17,7 @@ def read_users(
     current_user: User = Depends(get_current_user)
 ):
     """Get all users (admin only)"""
-    if not current_user.is_superuser:
+    if current_user.role != UserRole.ADMIN:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not enough permissions"
@@ -67,7 +67,7 @@ def delete_user_account(
     current_user: User = Depends(get_current_user)
 ):
     """Delete user account (admin only)"""
-    if not current_user.is_superuser:
+    if current_user.role != UserRole.ADMIN:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not enough permissions"

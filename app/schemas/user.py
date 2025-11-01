@@ -1,23 +1,25 @@
 from pydantic import BaseModel, EmailStr
 from typing import Optional
 from datetime import datetime
+from app.models.user import UserRole
 
 class UserBase(BaseModel):
     email: EmailStr
 
 class UserCreate(UserBase):
     password: str
+    role: Optional[UserRole] = UserRole.PATIENT
     # Personal data will be stored in Supabase, not in this schema
 
 class UserUpdate(BaseModel):
     email: Optional[EmailStr] = None
+    role: Optional[UserRole] = None
     is_active: Optional[bool] = None
-    is_superuser: Optional[bool] = None
 
 class UserResponse(UserBase):
     id: int
+    role: UserRole
     is_active: bool
-    is_superuser: bool
     created_at: datetime
     updated_at: Optional[datetime] = None
 
@@ -46,7 +48,8 @@ class UserProfile(BaseModel):
     phone_country_code: Optional[str] = None
     phone_number: Optional[str] = None
     address: Optional[str] = None
-    country: Optional[str] = None
+    avatar_url: Optional[str] = None  # User profile picture URL
+    role: Optional[str] = None  # User role: patient, doctor, admin
     emergency_contact_name: Optional[str] = None
     emergency_contact_country_code: Optional[str] = None
     emergency_contact_phone: Optional[str] = None
@@ -72,13 +75,15 @@ class UserRegistration(BaseModel):
     # User authentication data
     email: EmailStr
     password: str
+    role: Optional[UserRole] = UserRole.PATIENT
     
     # Personal profile data
     full_name: Optional[str] = None
     date_of_birth: Optional[str] = None  # ISO format string
     phone_number: Optional[str] = None
+    phone_country_code: Optional[str] = None  # Country code for phone number
     address: Optional[str] = None
-    country: Optional[str] = None
+    avatar_url: Optional[str] = None  # User profile picture URL
     emergency_contact_name: Optional[str] = None
     emergency_contact_phone: Optional[str] = None
     emergency_contact_relationship: Optional[str] = None

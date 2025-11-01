@@ -261,17 +261,13 @@ class MessageIntegrationService:
         conversations = self.message_crud.get_conversations_by_user(user_id)
         
         for conversation in conversations:
-            if (conversation.contact_type == SenderType.SYSTEM and 
-                conversation.contact_name == conversation_name):
+            # Check if this is a system conversation by contact_id = 0
+            if conversation.contact_id == 0:
                 return conversation
         
         # Create new system conversation
         conversation_data = {
             "contact_id": 0,  # System user
-            "contact_name": conversation_name,
-            "contact_role": "System",
-            "contact_avatar": None,
-            "contact_type": SenderType.SYSTEM,
             "tags": ["system"]
         }
         

@@ -5,17 +5,18 @@ from datetime import datetime, timedelta
 from app.models.message import Message, Conversation, MessageDeliveryLog, MessageAction, MessageType, MessagePriority, MessageStatus, SenderType
 from app.schemas.message import (
     MessageCreate, MessageUpdate, ConversationCreate, ConversationUpdate,
-    MessageFilters, MessageSearchParams
+    MessageFilters, MessageSearchParams, MessageAttachmentCreate
 )
-from app.models.user import User
+from app.models.user import User, UserRole
+from app.crud.message_document import MessageDocumentCRUD
 
 class MessageCRUD:
     def __init__(self):
         pass
 
     # Message CRUD operations
-    def create_message(self, db: Session, message_data: MessageCreate, sender_id: int) -> Message:
-        """Create a new message"""
+    def create_message(self, db: Session, message_data: MessageCreate, sender_id: int, attachments: Optional[List[MessageAttachmentCreate]] = None) -> Message:
+        """Create a new message with optional attachments"""
         # Get sender information
         sender = db.query(User).filter(User.id == sender_id).first()
         if not sender:
@@ -25,10 +26,7 @@ class MessageCRUD:
         message = Message(
             conversation_id=message_data.conversation_id,
             sender_id=sender_id,
-            sender_name=sender.email,  # Use email as sender name
-            sender_role="Patient",  # Default role for patients
-            sender_type=SenderType.USER,
-            sender_avatar=None,  # No avatar available in local DB
+            # Removed sender_type - can be determined from user role or conversation context
             content=message_data.content,
             message_type=message_data.message_type,
             priority=message_data.priority,
@@ -38,6 +36,12 @@ class MessageCRUD:
         db.add(message)
         db.commit()
         db.refresh(message)
+        
+        # Create attachments if provided
+        if attachments:
+            document_crud = MessageDocumentCRUD()
+            for attachment_data in attachments:
+                document_crud.create_message_document(db, message.id, attachment_data, sender_id)
         
         # Update conversation last message time
         if message_data.conversation_id:
@@ -61,9 +65,9 @@ class MessageCRUD:
             .all()
         )
 
-    def update_message(self, message_id: int, message_data: MessageUpdate) -> Optional[Message]:
+    def update_message(self, db: Session, message_id: int, message_data: MessageUpdate) -> Optional[Message]:
         """Update a message"""
-        message = self.get_message(message_id)
+        message = self.get_message(db, message_id)
         if not message:
             return None
         
@@ -118,87 +122,60 @@ class MessageCRUD:
 
     # Conversation CRUD operations
     def create_conversation(self, db: Session, conversation_data: ConversationCreate, user_id: int) -> Conversation:
-        """Create a new conversation for both users"""
+        """Create a new conversation between two users (single record)"""
         # Get contact information
         contact = db.query(User).filter(User.id == conversation_data.contact_id).first()
         if not contact:
             raise ValueError("Contact not found")
 
         # Check if conversation already exists between these users
+        # Check both directions since we only store one conversation record
         existing_conversation = db.query(Conversation).filter(
-            Conversation.user_id == user_id,
-            Conversation.contact_id == conversation_data.contact_id
+            ((Conversation.user_id == user_id) & (Conversation.contact_id == conversation_data.contact_id)) |
+            ((Conversation.user_id == conversation_data.contact_id) & (Conversation.contact_id == user_id))
         ).first()
         
         if existing_conversation:
-            # If there's an initial message, add it to both conversations
+            # If there's an initial message, add it to the existing conversation
             if conversation_data.initial_message:
                 from app.schemas.message import MessageCreate
                 
-                # Create message for sender's conversation
-                sender_message_data = MessageCreate(
+                message_data = MessageCreate(
                     conversation_id=existing_conversation.id,
                     content=conversation_data.initial_message,
                     message_type="general"
                 )
-                self.create_message(db, sender_message_data, user_id)
-                
-                # Create message for recipient's conversation
-                recipient_conversation = db.query(Conversation).filter(
-                    Conversation.user_id == conversation_data.contact_id,
-                    Conversation.contact_id == user_id
-                ).first()
-                
-                if recipient_conversation:
-                    recipient_message_data = MessageCreate(
-                        conversation_id=recipient_conversation.id,
-                        content=conversation_data.initial_message,
-                        message_type="general"
-                    )
-                    self.create_message(db, recipient_message_data, user_id)
+                self.create_message(db, message_data, user_id)
             
             # Return existing conversation instead of creating a new one
             return existing_conversation
 
-        # Create conversation for the sender
-        sender_conversation = Conversation(
-            user_id=user_id,
-            contact_id=conversation_data.contact_id,
-            contact_name=conversation_data.contact_name or contact.email,
-            contact_role=conversation_data.contact_role or "Healthcare Provider",
-            contact_avatar=conversation_data.contact_avatar,
-            contact_type=conversation_data.contact_type,
+        # Create single conversation record
+        # Use the smaller user_id as user_id to maintain consistency
+        user_id_smaller = min(user_id, conversation_data.contact_id)
+        contact_id_smaller = max(user_id, conversation_data.contact_id)
+        
+        conversation = Conversation(
+            user_id=user_id_smaller,
+            contact_id=contact_id_smaller,
             tags=conversation_data.tags or []
         )
         
-        # Create conversation for the recipient (reverse relationship)
-        recipient_conversation = Conversation(
-            user_id=conversation_data.contact_id,
-            contact_id=user_id,
-            contact_name="Unknown",  # Will be updated by frontend or Supabase
-            contact_role="Patient",  # Default role for the sender
-            contact_avatar=None,
-            contact_type=conversation_data.contact_type,
-            tags=conversation_data.tags or []
-        )
-        
-        db.add(sender_conversation)
-        db.add(recipient_conversation)
+        db.add(conversation)
         db.commit()
-        db.refresh(sender_conversation)
-        db.refresh(recipient_conversation)
+        db.refresh(conversation)
         
         # Create initial message if provided
         if conversation_data.initial_message:
             from app.schemas.message import MessageCreate
             message_data = MessageCreate(
-                conversation_id=sender_conversation.id,
+                conversation_id=conversation.id,
                 content=conversation_data.initial_message,
                 message_type="general"
             )
             message = self.create_message(db, message_data, user_id)
         
-        return sender_conversation
+        return conversation
 
     def get_conversation(self, db: Session, conversation_id: int) -> Optional[Conversation]:
         """Get a conversation by ID"""
@@ -222,7 +199,14 @@ class MessageCRUD:
 
     def get_conversations_by_user(self, db: Session, user_id: int, filters: Optional[MessageFilters] = None) -> List[Conversation]:
         """Get conversations for a user with optional filtering"""
-        query = db.query(Conversation).filter(Conversation.user_id == user_id)
+        # Import Message schema at the top to avoid naming conflicts
+        from app.schemas.message import Message as MessageSchema
+        
+        # Since we only store one conversation record per pair of users,
+        # we need to check both directions (user_id and contact_id)
+        query = db.query(Conversation).filter(
+            (Conversation.user_id == user_id) | (Conversation.contact_id == user_id)
+        )
         
         if filters:
             if filters.has_unread:
@@ -232,7 +216,33 @@ class MessageCRUD:
                 # This would need to check message metadata
                 pass
         
-        return query.order_by(desc(Conversation.last_message_time)).all()
+        conversations = query.order_by(desc(Conversation.last_message_time)).all()
+        
+        # Populate lastMessage for each conversation
+        for conversation in conversations:
+            # Get the most recent message for this conversation
+            last_message = db.query(Message).filter(
+                Message.conversation_id == conversation.id
+            ).order_by(desc(Message.created_at)).first()
+            
+            if last_message:
+                # Convert to MessageSchema format
+                conversation.lastMessage = MessageSchema(
+                    id=last_message.id,
+                    conversation_id=last_message.conversation_id,
+                    sender_id=last_message.sender_id,
+                    content=last_message.content,
+                    message_type=last_message.message_type,
+                    priority=last_message.priority,
+                    status=last_message.status,
+                    created_at=last_message.created_at,
+                    updated_at=last_message.updated_at,
+                    read_at=last_message.read_at,
+                    message_metadata=last_message.message_metadata,
+                    attachments=None  # We can add attachment loading if needed
+                )
+        
+        return conversations
 
     def update_conversation(self, db: Session, conversation_id: int, conversation_data: ConversationUpdate) -> Optional[Conversation]:
         """Update a conversation"""
@@ -395,7 +405,7 @@ class MessageCRUD:
             "recent_activity": [{"date": str(date), "count": count} for date, count in recent_activity]
         }
 
-    def create_message_action(self, message_id: int, user_id: int, action_type: str, action_data: Optional[Dict[str, Any]] = None) -> MessageAction:
+    def create_message_action(self, db: Session, message_id: int, user_id: int, action_type: str, action_data: Optional[Dict[str, Any]] = None) -> MessageAction:
         """Create a message action (e.g., mark medication as taken)"""
         action = MessageAction(
             message_id=message_id,
@@ -438,7 +448,7 @@ class MessageCRUD:
             .filter(
                 User.id != user_id,
                 User.is_active == True,
-                User.is_superuser == False
+                User.role != UserRole.ADMIN
             )
             .all()
         )

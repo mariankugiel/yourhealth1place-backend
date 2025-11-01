@@ -120,8 +120,10 @@ async def register(registration_data: UserRegistration, db: Session = Depends(ge
             "full_name": registration_data.full_name,
             "date_of_birth": registration_data.date_of_birth,
             "phone_number": registration_data.phone_number,
+            "phone_country_code": registration_data.phone_country_code,
             "address": registration_data.address,
-            "country": registration_data.country,
+            "avatar_url": registration_data.avatar_url,
+            "role": registration_data.role.value.lower() if registration_data.role else "patient",
             "emergency_contact_name": registration_data.emergency_contact_name,
             "emergency_contact_phone": registration_data.emergency_contact_phone,
             "emergency_contact_relationship": registration_data.emergency_contact_relationship,
@@ -155,7 +157,7 @@ async def register(registration_data: UserRegistration, db: Session = Depends(ge
             id=db_user.id,
             email=registration_data.email,
             is_active=db_user.is_active,
-            is_superuser=db_user.is_superuser,
+            role=db_user.role,
             created_at=db_user.created_at,
             updated_at=db_user.updated_at
         )
@@ -281,7 +283,7 @@ async def create_oauth_profile(oauth_data: dict, db: Session = Depends(get_db), 
             id=db_user.id,
             email=db_user.email,
             is_active=db_user.is_active,
-            is_superuser=db_user.is_superuser,
+            role=db_user.role,
             created_at=db_user.created_at,
             updated_at=db_user.updated_at
         )
@@ -312,6 +314,8 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = 
         
         # Get internal user record by Supabase UID
         db_user = get_user_by_supabase_id(db, supabase_user_id=supabase_response.user.id)
+
+        print(db_user)
         if not db_user or not db_user.is_active:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,

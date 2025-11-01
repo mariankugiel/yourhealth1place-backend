@@ -1,7 +1,13 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, Date, JSON
+from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, Date, JSON, Enum
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.core.database import Base
+import enum
+
+class UserRole(str, enum.Enum):
+    PATIENT = "patient"
+    DOCTOR = "doctor"
+    ADMIN = "admin"
 
 class User(Base):
     __tablename__ = "users"
@@ -9,8 +15,8 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     supabase_user_id = Column(String(255), unique=True, index=True)  # Link to Supabase
     email = Column(String(255), nullable=False, unique=True, index=True)  # For lookups only
+    role = Column(Enum(UserRole), nullable=False, default=UserRole.PATIENT)  # User role
     is_active = Column(Boolean, default=True)  # Application state
-    is_superuser = Column(Boolean, default=False)  # Application permissions
     # timezone is stored in Supabase, not in local PostgreSQL
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

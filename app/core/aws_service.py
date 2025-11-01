@@ -329,6 +329,49 @@ class AWSService:
         """Decrypt file data (simplified - in production use proper decryption)"""
         # This is a placeholder - in production, use proper decryption libraries
         return encrypted_data  # In production, this would be properly decrypted
+    
+    def upload_message_attachment(self, file_data: bytes, file_name: str, content_type: str, user_id: int) -> Dict[str, Any]:
+        """Upload message attachment to S3 (unencrypted for quick access)"""
+        try:
+            # Generate unique file key
+            file_extension = file_name.split('.')[-1] if '.' in file_name else ''
+            unique_filename = f"{uuid.uuid4()}.{file_extension}"
+            s3_key = f"message-attachments/{user_id}/{unique_filename}"
+            
+            # Upload to S3
+            self.s3_client.put_object(
+                Bucket=settings.AWS_S3_BUCKET,
+                Key=s3_key,
+                Body=file_data,
+                ContentType=content_type or 'application/octet-stream',
+                Metadata={
+                    'original-filename': file_name,
+                    'uploaded-by': str(user_id)
+                }
+            )
+            
+            # Generate presigned URL for download
+            s3_url = self.s3_client.generate_presigned_url(
+                'get_object',
+                Params={'Bucket': settings.AWS_S3_BUCKET, 'Key': s3_key},
+                ExpiresIn=3600  # 1 hour
+            )
+            
+            return {
+                'file_name': unique_filename,
+                'original_file_name': file_name,
+                'file_type': content_type or 'application/octet-stream',
+                'file_size': len(file_data),
+                'file_extension': file_extension,
+                's3_bucket': settings.AWS_S3_BUCKET,
+                's3_key': s3_key,
+                's3_url': s3_url,
+                'uploaded_by': user_id
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to upload message attachment: {e}")
+            raise
 
 # Global instance
 aws_service = AWSService() 
