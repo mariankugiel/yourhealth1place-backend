@@ -1116,19 +1116,39 @@ class SupabaseService:
                 }
                 
                 verify_response = await client.post(verify_url, json=verify_payload, headers=verify_headers, timeout=30.0)
+                
+                # Check for errors before raising
+                if verify_response.status_code != 200:
+                    error_text = verify_response.text
+                    logger.error(f"❌ MFA verify failed with status {verify_response.status_code}: {error_text}")
+                    
+                    # Try to parse error message
+                    try:
+                        error_json = verify_response.json()
+                        error_msg = error_json.get("message", error_json.get("error_description", "MFA verification failed"))
+                        raise Exception(f"MFA verification failed: {error_msg}")
+                    except:
+                        raise Exception(f"MFA verification failed: {error_text}")
+                
                 verify_response.raise_for_status()
                 verify_result = verify_response.json()
                 
                 logger.info("✅ MFA verification successful during login")
                 
                 # The verify result should contain the session tokens with AAL2
+                # If no new tokens, use the existing ones (they're now at AAL2)
                 return {
-                    "access_token": verify_result.get("access_token") or access_token,
-                    "refresh_token": verify_result.get("refresh_token"),
-                    "expires_in": verify_result.get("expires_in", 3600)
+                    "access_token": verify_result.get("access_token") or verify_result.get("session", {}).get("access_token") or access_token,
+                    "refresh_token": verify_result.get("refresh_token") or verify_result.get("session", {}).get("refresh_token"),
+                    "expires_in": verify_result.get("expires_in") or verify_result.get("session", {}).get("expires_in", 3600)
                 }
         except Exception as e:
-            logger.error(f"❌ Verify MFA for login error: {e}")
+            error_msg = str(e)
+            logger.error(f"❌ Verify MFA for login error: {error_msg}")
+            logger.error(f"Error type: {type(e)}")
+            # Re-raise with clear message
+            if "422" in error_msg or "Unprocessable" in error_msg or "Invalid" in error_msg:
+                raise Exception("Invalid verification code. Please check your authenticator app and try again.")
             raise
 
 # Global instance

@@ -348,11 +348,15 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = 
             )
         
         # Check if user has MFA factors enrolled
+        # Only require MFA if there are verified factors (2FA is actually enabled)
         try:
             factors = await supabase_service.list_mfa_factors(user_id=supabase_response.user.id)
+            # Only look for verified factors - unverified factors don't require MFA
             verified_factors = [f for f in factors if f.get("status") == "verified"]
             
-            if verified_factors:
+            # Only require MFA if there are verified factors
+            if verified_factors and len(verified_factors) > 0:
+                logger.info(f"User has {len(verified_factors)} verified MFA factor(s) - MFA required")
                 # User has verified MFA factors - MFA verification is required
                 # Store the temporary session for MFA verification
                 # Return MFA requirement response
@@ -365,9 +369,11 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = 
                     "token_type": "bearer",
                     "expires_in": supabase_response.session.expires_in
                 }
+            else:
+                logger.info(f"User has {len(factors) if factors else 0} MFA factor(s), but none are verified - MFA not required")
         except Exception as mfa_error:
-            # If we can't check MFA factors, continue with normal login
-            logger.warning(f"Could not check MFA factors: {mfa_error}")
+            # If we can't check MFA factors, continue with normal login (don't require MFA)
+            logger.warning(f"Could not check MFA factors: {mfa_error} - continuing without MFA requirement")
         
         # No MFA required - return normal token response
         return {
@@ -1178,6 +1184,13 @@ async def verify_mfa_login(
         token = authorization.replace("Bearer ", "")
         user_id_from_token = extract_user_id_from_token(token)
         
+        # Validate code format (should be 6 digits)
+        if not verify_request.code or len(verify_request.code) != 6 or not verify_request.code.isdigit():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Verification code must be 6 digits",
+            )
+        
         # Verify MFA code using the temporary session
         verified_session = await supabase_service.verify_mfa_for_login(
             user_id=user_id_from_token,
@@ -1189,7 +1202,7 @@ async def verify_mfa_login(
         if not verified_session:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid MFA code",
+                detail="Invalid verification code. Please check your authenticator app and try again.",
             )
         
         # Return the verified session tokens
@@ -1203,8 +1216,22 @@ async def verify_mfa_login(
     except HTTPException:
         raise
     except Exception as e:
+        error_msg = str(e)
         logger.error(f"❌ MFA login verification error: {e}")
+        
+        # Provide better error messages based on the error
+        if "Invalid verification code" in error_msg or "Invalid" in error_msg or "422" in error_msg or "Unprocessable" in error_msg:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid verification code. Please check your authenticator app and ensure your device time is correct. Try entering a fresh code."
+            )
+        elif "challenge" in error_msg.lower() or "expired" in error_msg.lower():
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Verification code expired. Please try logging in again."
+            )
+        
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="MFA verification failed"
+            detail="MFA verification failed. Please try again."
         ) 
