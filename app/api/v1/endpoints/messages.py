@@ -65,8 +65,9 @@ async def get_conversations(
     
     # Fetch contact information from Supabase for each conversation
     from app.core.supabase_client import supabase_service
+    import asyncio
     
-    # Get current user's profile information
+    # Get current user's profile information (only once)
     current_user_profile = None
     try:
         current_user_db = db.query(User).filter(User.id == current_user.id).first()
@@ -75,55 +76,82 @@ async def get_conversations(
     except Exception as e:
         print(f"⚠️ Failed to fetch current user profile: {e}")
     
+    # First, collect all contact user IDs synchronously (fast DB queries)
+    conversation_contacts = {}
     for conversation in conversations:
+        if conversation.user_id == current_user.id:
+            contact_id = conversation.contact_id
+        else:
+            contact_id = conversation.user_id
+        conversation_contacts[conversation.id] = contact_id
+    
+    # Get all contact users in one query (more efficient)
+    contact_ids = list(conversation_contacts.values())
+    contact_users = {user.id: user for user in db.query(User).filter(User.id.in_(contact_ids)).all()}
+    
+    # Prepare profile fetch tasks to run in parallel (only async Supabase calls)
+    async def fetch_contact_profile(conversation_id, contact_id):
+        """Fetch profile data for a single conversation's contact"""
         try:
-            # Determine which user is the "contact" for the current user
-            # Since we only store one conversation record, we need to find the other user
-            if conversation.user_id == current_user.id:
-                contact_id = conversation.contact_id
-            else:
-                contact_id = conversation.user_id
-            
-            # Get the supabase_user_id from the users table using contact_id
-            contact_user = db.query(User).filter(User.id == contact_id).first()
+            contact_user = contact_users.get(contact_id)
             if not contact_user or not contact_user.supabase_user_id:
                 raise ValueError(f"No Supabase user ID found for contact_id {contact_id}")
             
             # Fetch profile from Supabase using supabase_user_id
             contact_profile = await supabase_service.get_user_profile(contact_user.supabase_user_id)
-            # Add contact data to conversation object for frontend
-            contact_name = contact_profile.get('full_name', 'Unknown')
-            contact_role = contact_profile.get('role', 'PATIENT')  # Already converted to uppercase by Supabase client
-            contact_avatar = contact_profile.get('avatar_url')
             
-            # Set contact information
-            conversation.contact_name = contact_name
-            conversation.contact_role = contact_role
-            conversation.contact_avatar = contact_avatar
-            conversation.contact_id = contact_id  # Update contact_id to the actual contact
-            
-            # Generate initials for fallback avatar
-            conversation.contact_initials = get_initials(contact_name)
-            
-            # Add current user information to conversation
-            if current_user_profile:
-                conversation.current_user_name = current_user_profile.get('full_name', 'Unknown')
-                conversation.current_user_role = current_user_profile.get('role', 'PATIENT')
-                conversation.current_user_avatar = current_user_profile.get('avatar_url')
-                conversation.current_user_initials = get_initials(current_user_profile.get('full_name', 'Unknown'))
-            else:
-                conversation.current_user_name = "Unknown"
-                conversation.current_user_role = "PATIENT"
-                conversation.current_user_avatar = None
-                conversation.current_user_initials = "U"
-            
+            # Return profile data
+            return {
+                'conversation_id': conversation_id,
+                'contact_id': contact_id,
+                'contact_name': contact_profile.get('full_name', 'Unknown'),
+                'contact_role': contact_profile.get('role', 'PATIENT'),
+                'contact_avatar': contact_profile.get('avatar_url'),
+                'contact_initials': get_initials(contact_profile.get('full_name', 'Unknown'))
+            }
         except Exception as e:
-            print(f"⚠️ Failed to fetch contact profile for user {contact_id}: {e}")
-            # Use fallback values
-            conversation.contact_name = "Unknown"
-            conversation.contact_role = "PATIENT"  # Uppercase for consistency
-            conversation.contact_avatar = None
-            conversation.contact_initials = "U"
+            print(f"⚠️ Failed to fetch contact profile for conversation {conversation_id}: {e}")
+            # Return fallback values
+            return {
+                'conversation_id': conversation_id,
+                'contact_id': contact_id,
+                'contact_name': "Unknown",
+                'contact_role': "PATIENT",
+                'contact_avatar': None,
+                'contact_initials': "U"
+            }
+    
+    # Fetch all profiles in parallel (only the async Supabase calls)
+    profile_tasks = [
+        fetch_contact_profile(conv.id, conversation_contacts[conv.id]) 
+        for conv in conversations
+    ]
+    profile_results = await asyncio.gather(*profile_tasks, return_exceptions=True)
+    
+    # Create a map of conversation_id -> profile data for quick lookup
+    profile_map = {}
+    for result in profile_results:
+        if isinstance(result, Exception):
+            print(f"⚠️ Error fetching profile: {result}")
+            continue
+        profile_map[result['conversation_id']] = result
+    
+    # Apply profile data to conversations
+    for conversation in conversations:
+        profile_data = profile_map.get(conversation.id, {})
+        conversation.contact_name = profile_data.get('contact_name', 'Unknown')
+        conversation.contact_role = profile_data.get('contact_role', 'PATIENT')
+        conversation.contact_avatar = profile_data.get('contact_avatar')
+        conversation.contact_id = profile_data.get('contact_id', conversation_contacts.get(conversation.id))
+        conversation.contact_initials = profile_data.get('contact_initials', 'U')
+        
+        # Add current user information to conversation
+        if current_user_profile:
+            conversation.current_user_name = current_user_profile.get('full_name', 'Unknown')
+            conversation.current_user_role = current_user_profile.get('role', 'PATIENT')
+            conversation.current_user_avatar = current_user_profile.get('avatar_url')
+            conversation.current_user_initials = get_initials(current_user_profile.get('full_name', 'Unknown'))
+        else:
             conversation.current_user_name = "Unknown"
             conversation.current_user_role = "PATIENT"
             conversation.current_user_avatar = None
