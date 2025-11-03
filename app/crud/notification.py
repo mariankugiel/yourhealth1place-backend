@@ -17,7 +17,7 @@ class NotificationCRUD:
             medication_id=notification.medication_id,
             appointment_id=notification.appointment_id,
             data=notification.data,
-            status=NotificationStatus.UNREAD
+            status=NotificationStatus.PENDING
         )
         
         db.add(db_notification)
@@ -50,12 +50,27 @@ class NotificationCRUD:
         
         return query.order_by(desc(Notification.created_at)).offset(offset).limit(limit).all()
     
+    def get_unread_notifications(
+        self,
+        db: Session,
+        user_id: int,
+        limit: int = 50,
+        offset: int = 0
+    ) -> List[Notification]:
+        """Get unread notifications for a user (status != READ)"""
+        return db.query(Notification).filter(
+            and_(
+                Notification.user_id == user_id,
+                Notification.status != NotificationStatus.READ
+            )
+        ).order_by(desc(Notification.created_at)).offset(offset).limit(limit).all()
+    
     def get_unread_count(self, db: Session, user_id: int) -> int:
         """Get count of unread notifications for a user"""
         return db.query(Notification).filter(
             and_(
                 Notification.user_id == user_id,
-                Notification.status == NotificationStatus.UNREAD
+                Notification.status != NotificationStatus.READ
             )
         ).count()
     

@@ -4,6 +4,7 @@ from typing import List, Optional, Dict
 from datetime import datetime
 import json
 import os
+import logging
 
 from app.core.database import get_db
 from app.models.user import User
@@ -16,6 +17,7 @@ from app.schemas.notification import (
 from app.crud.notification import notification_crud
 from app.models.notification import NotificationStatus
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # Store active WebSocket connections
@@ -122,8 +124,17 @@ async def get_unread_count(
     current_user: User = Depends(get_current_user)
 ):
     """Get count of unread notifications"""
-    count = notification_crud.get_unread_count(db=db, user_id=current_user.id)
-    return {"count": count}
+    # Handle case where database is not available or user has no internal ID
+    if not current_user.id:
+        return {"count": 0}
+    
+    try:
+        count = notification_crud.get_unread_count(db=db, user_id=current_user.id)
+        return {"count": count}
+    except Exception as e:
+        # Database not available - return 0
+        logger.warning(f"Database not available for notifications: {e}")
+        return {"count": 0}
 
 @router.patch("/{notification_id}/read", status_code=status.HTTP_200_OK)
 async def mark_notification_as_read(
@@ -197,11 +208,14 @@ async def mark_all_notifications_read(
     current_user: User = Depends(get_current_user)
 ):
     """Mark all notifications as read for the current user"""
+    # Handle case where database is not available or user has no internal ID
+    if not current_user.id:
+        return {"message": "Marked 0 notifications as read"}
+    
     # Get all unread notifications
-    unread_notifications = notification_crud.get_user_notifications(
+    unread_notifications = notification_crud.get_unread_notifications(
         db=db,
-        user_id=current_user.id,
-        status=NotificationStatus.UNREAD
+        user_id=current_user.id
     )
     
     # Mark each as read

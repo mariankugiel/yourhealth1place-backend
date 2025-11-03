@@ -3,6 +3,10 @@ from pydantic_settings import BaseSettings
 import os
 
 class Settings(BaseSettings):
+    model_config = {
+        "env_file": ".env",
+        "extra": "ignore"  # Allow extra fields in environment variables (like NEXT_PUBLIC_* from frontend)
+    }
     # Supabase Configuration (Auth, Personal Info, Lightweight Metadata)
     SUPABASE_URL: str = "https://your-project.supabase.co"
     SUPABASE_ANON_KEY: str = "your-supabase-anon-key"
@@ -63,9 +67,5 @@ class Settings(BaseSettings):
     # Lambda Webhook Configuration
     LAMBDA_WEBHOOK_TOKEN: str = "your-lambda-webhook-token"
     OPENAI_TEMPERATURE: float = 0.1
-    
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
 
 settings = Settings() 

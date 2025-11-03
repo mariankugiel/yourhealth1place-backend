@@ -1,4 +1,4 @@
-from .user import UserCreate, UserUpdate, UserResponse, UserLogin, Token
+from .user import UserCreate, UserUpdate, UserResponse, UserLogin, Token, UserProfile, UserEmergency, UserNotifications, UserIntegrations, UserPrivacy, UserSharedAccess, UserAccessLogs, UserDataSharing, UserRegistration, PasswordChange, MFAEnrollRequest, MFAEnrollResponse, MFAVerifyRequest, MFAFactor
 from .appointment import AppointmentCreate, AppointmentUpdate, AppointmentResponse
 from .health_record import (
     # Base Health Record
@@ -58,7 +58,7 @@ from .document import (
 )
 
 __all__ = [
-    "UserCreate", "UserUpdate", "UserResponse", "UserLogin", "Token",
+    "UserCreate", "UserUpdate", "UserResponse", "UserLogin", "Token", "UserProfile", "UserEmergency", "UserNotifications", "UserIntegrations", "UserPrivacy", "UserSharedAccess", "UserAccessLogs", "UserDataSharing", "UserRegistration", "PasswordChange", "MFAEnrollRequest", "MFAEnrollResponse", "MFAVerifyRequest", "MFAFactor",
     "PatientCreate", "PatientUpdate", "PatientResponse",
     "AppointmentCreate", "AppointmentUpdate", "AppointmentResponse",
     # Health Record Schemas
