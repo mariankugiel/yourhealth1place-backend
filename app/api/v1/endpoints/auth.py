@@ -9,7 +9,7 @@ from app.core.database import get_db
 from app.core.config import settings
 from app.core.supabase_client import supabase_service
 from app.models.user import User
-from app.schemas.user import Token, UserResponse, UserProfile, UserRegistration, UserEmergency, UserNotifications, UserIntegrations, UserPrivacy, UserSharedAccess, UserAccessLogs, UserDataSharing, PasswordChange, MFAEnrollRequest, MFAEnrollResponse, MFAVerifyRequest, MFAFactor
+from app.schemas.user import Token, LoginResponse, MFALoginVerifyRequest, UserResponse, UserProfile, UserRegistration, UserEmergency, UserNotifications, UserIntegrations, UserPrivacy, UserSharedAccess, UserAccessLogs, UserDataSharing, PasswordChange, MFAEnrollRequest, MFAEnrollResponse, MFAVerifyRequest, MFAFactor
 from app.crud.user import get_user_by_supabase_id
 import logging
 from typing import Optional, List
@@ -301,9 +301,9 @@ async def create_oauth_profile(oauth_data: dict, db: Session = Depends(get_db), 
             detail="Failed to create OAuth user profile"
         )
 
-@router.post("/login", response_model=Token)
+@router.post("/login", response_model=LoginResponse)
 async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    """Login user with Supabase and return access token"""
+    """Login user with Supabase and return access token or MFA requirement"""
     try:
         # Authenticate with Supabase
         supabase_response = await supabase_service.sign_in(
@@ -311,10 +311,29 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = 
             password=form_data.password
         )
         
-        if not supabase_response.user:
+        # Check if response has error
+        if hasattr(supabase_response, 'error') and supabase_response.error:
+            logger.error(f"Supabase sign_in error: {supabase_response.error}")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Incorrect email or password",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        if not supabase_response or not hasattr(supabase_response, 'user') or not supabase_response.user:
+            logger.error(f"Supabase sign_in failed - no user in response: {supabase_response}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Incorrect email or password",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        # Check if session exists
+        if not hasattr(supabase_response, 'session') or not supabase_response.session:
+            logger.error(f"Supabase sign_in failed - no session in response: {supabase_response}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authentication failed. Please try again.",
                 headers={"WWW-Authenticate": "Bearer"},
             )
         
@@ -328,21 +347,59 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = 
                 detail="User not found or inactive"
             )
         
-        # Return Supabase session tokens
+        # Check if user has MFA factors enrolled
+        try:
+            factors = await supabase_service.list_mfa_factors(user_id=supabase_response.user.id)
+            verified_factors = [f for f in factors if f.get("status") == "verified"]
+            
+            if verified_factors:
+                # User has verified MFA factors - MFA verification is required
+                # Store the temporary session for MFA verification
+                # Return MFA requirement response
+                return {
+                    "mfa_required": True,
+                    "factor_id": verified_factors[0].get("id"),
+                    "user_id": supabase_response.user.id,
+                    "access_token": supabase_response.session.access_token,  # Temporary token for MFA verification
+                    "refresh_token": supabase_response.session.refresh_token,
+                    "token_type": "bearer",
+                    "expires_in": supabase_response.session.expires_in
+                }
+        except Exception as mfa_error:
+            # If we can't check MFA factors, continue with normal login
+            logger.warning(f"Could not check MFA factors: {mfa_error}")
+        
+        # No MFA required - return normal token response
         return {
             "access_token": supabase_response.session.access_token,
             "refresh_token": supabase_response.session.refresh_token,
             "token_type": "bearer",
-            "expires_in": supabase_response.session.expires_in
+            "expires_in": supabase_response.session.expires_in,
+            "mfa_required": False
         }
         
+    except HTTPException:
+        # Re-raise HTTPExceptions (like the ones we raise above)
+        raise
     except Exception as e:
         logger.error(f"Login error: {e}")
+        logger.error(f"Login error type: {type(e)}")
+        logger.error(f"Login error details: {str(e)}")
+        
+        # Check if it's a Supabase Auth error
+        error_message = str(e).lower()
+        error_str = str(e)
+        
+        # Check for Supabase Auth API errors
+        if hasattr(e, 'message'):
+            error_message = str(e.message).lower()
+            error_str = str(e.message)
+        elif hasattr(e, 'args') and len(e.args) > 0:
+            error_str = str(e.args[0])
+            error_message = error_str.lower()
         
         # Check for specific error types and return appropriate messages
-        error_message = str(e).lower()
-        
-        if "invalid credentials" in error_message or "incorrect password" in error_message:
+        if "invalid credentials" in error_message or "incorrect password" in error_message or "invalid login credentials" in error_message:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Incorrect email or password. Please check your credentials and try again."
@@ -1101,4 +1158,53 @@ async def delete_mfa_factor(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to remove MFA factor"
+        )
+
+@router.post("/login/mfa/verify", response_model=Token)
+async def verify_mfa_login(
+    verify_request: MFALoginVerifyRequest,
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db)
+):
+    """Verify MFA code during login and return final access token"""
+    try:
+        # Extract temporary access token from authorization header
+        if not authorization:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authorization header missing",
+            )
+        
+        token = authorization.replace("Bearer ", "")
+        user_id_from_token = extract_user_id_from_token(token)
+        
+        # Verify MFA code using the temporary session
+        verified_session = await supabase_service.verify_mfa_for_login(
+            user_id=user_id_from_token,
+            factor_id=verify_request.factor_id,
+            code=verify_request.code,
+            access_token=token
+        )
+        
+        if not verified_session:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid MFA code",
+            )
+        
+        # Return the verified session tokens
+        return {
+            "access_token": verified_session["access_token"],
+            "refresh_token": verified_session["refresh_token"],
+            "token_type": "bearer",
+            "expires_in": verified_session.get("expires_in", 3600)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ MFA login verification error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="MFA verification failed"
         ) 

@@ -62,6 +62,21 @@ class Token(BaseModel):
     token_type: str = "bearer"
     expires_in: int
 
+class LoginResponse(BaseModel):
+    """Response for login - can be either a token or MFA requirement"""
+    access_token: Optional[str] = None
+    refresh_token: Optional[str] = None
+    token_type: Optional[str] = "bearer"
+    expires_in: Optional[int] = None
+    mfa_required: bool = False
+    factor_id: Optional[str] = None
+    user_id: Optional[str] = None
+
+class MFALoginVerifyRequest(BaseModel):
+    """Request to verify MFA during login"""
+    factor_id: str
+    code: str
+
 class TokenData(BaseModel):
     email: Optional[str] = None
     user_id: Optional[int] = None

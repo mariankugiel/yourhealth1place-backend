@@ -55,9 +55,22 @@ class SupabaseService:
                 "email": email,
                 "password": password
             })
+            
+            # Check if response has error
+            if hasattr(response, 'error') and response.error:
+                error_msg = str(response.error) if response.error else "Authentication failed"
+                logger.error(f"Supabase sign in error in response: {error_msg}")
+                raise Exception(f"Invalid login credentials: {error_msg}")
+            
             return response
         except Exception as e:
-            logger.error(f"Supabase sign in error: {e}")
+            error_msg = str(e)
+            logger.error(f"Supabase sign in error: {error_msg}")
+            logger.error(f"Error type: {type(e)}")
+            
+            # Re-raise with a clearer message for invalid credentials
+            if "invalid" in error_msg.lower() or "credentials" in error_msg.lower() or "password" in error_msg.lower():
+                raise Exception(f"Invalid login credentials: {error_msg}")
             raise
     
     async def get_user(self, user_id: str) -> Optional[Dict[str, Any]]:
@@ -1062,6 +1075,60 @@ class SupabaseService:
                 return True
         except Exception as e:
             logger.error(f"❌ Unenroll MFA factor error: {e}")
+            raise
+    
+    async def verify_mfa_for_login(self, user_id: str, factor_id: str, code: str, access_token: str) -> Optional[Dict[str, Any]]:
+        """Verify MFA code during login using user's access token (challenge and verify flow)"""
+        try:
+            logger.info(f"🔐 Verifying MFA for login: factor_id={factor_id}")
+            
+            # Step 1: Challenge the MFA factor using the user's access token
+            challenge_url = f"{settings.SUPABASE_URL}/auth/v1/factors/{factor_id}/challenge"
+            challenge_headers = {
+                "apikey": settings.SUPABASE_ANON_KEY,
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json"
+            }
+            
+            async with httpx.AsyncClient() as client:
+                # Create challenge
+                challenge_response = await client.post(challenge_url, headers=challenge_headers, timeout=30.0)
+                challenge_response.raise_for_status()
+                challenge_result = challenge_response.json()
+                challenge_id = challenge_result.get("id")
+                
+                if not challenge_id:
+                    logger.error("❌ No challenge ID returned")
+                    return None
+                
+                logger.info(f"✅ MFA challenge created: {challenge_id}")
+                
+                # Step 2: Verify the code with the challenge
+                verify_url = f"{settings.SUPABASE_URL}/auth/v1/factors/{factor_id}/verify"
+                verify_headers = {
+                    "apikey": settings.SUPABASE_ANON_KEY,
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json"
+                }
+                verify_payload = {
+                    "challenge_id": challenge_id,
+                    "code": code
+                }
+                
+                verify_response = await client.post(verify_url, json=verify_payload, headers=verify_headers, timeout=30.0)
+                verify_response.raise_for_status()
+                verify_result = verify_response.json()
+                
+                logger.info("✅ MFA verification successful during login")
+                
+                # The verify result should contain the session tokens with AAL2
+                return {
+                    "access_token": verify_result.get("access_token") or access_token,
+                    "refresh_token": verify_result.get("refresh_token"),
+                    "expires_in": verify_result.get("expires_in", 3600)
+                }
+        except Exception as e:
+            logger.error(f"❌ Verify MFA for login error: {e}")
             raise
 
 # Global instance
