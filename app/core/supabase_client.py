@@ -17,7 +17,7 @@ class SupabaseService:
             settings.SUPABASE_ANON_KEY
         )
     
-    def _get_user_client(self, user_token: str) -> Client:
+    def _get_user_client(self, user_token: str, refresh_token: Optional[str] = None) -> Client:
         """Create a Supabase client with user's JWT token for RLS enforcement"""
         from supabase import create_client
         
@@ -27,8 +27,20 @@ class SupabaseService:
             settings.SUPABASE_ANON_KEY
         )
         
-        # Set the authorization header manually
+        # Set the authorization header manually for postgrest
         client.postgrest.auth(user_token)
+        
+        # If refresh_token is provided, try to set the auth session
+        # This is needed for auth operations like update_user
+        if refresh_token:
+            try:
+                # Set the session for auth operations
+                client.auth.set_session({
+                    "access_token": user_token,
+                    "refresh_token": refresh_token
+                })
+            except Exception as session_error:
+                logger.debug(f"Could not set auth session (may be expected): {session_error}")
         
         return client
     
@@ -58,19 +70,42 @@ class SupabaseService:
             
             # Check if response has error
             if hasattr(response, 'error') and response.error:
-                error_msg = str(response.error) if response.error else "Authentication failed"
-                logger.error(f"Supabase sign in error in response: {error_msg}")
-                raise Exception(f"Invalid login credentials: {error_msg}")
+                error_obj = response.error
+                error_msg = str(error_obj) if error_obj else "Authentication failed"
+                
+                # Try to get more details from the error object
+                error_details = {}
+                if hasattr(error_obj, '__dict__'):
+                    error_details = error_obj.__dict__
+                elif hasattr(error_obj, 'message'):
+                    error_details['message'] = error_obj.message
+                elif hasattr(error_obj, 'status'):
+                    error_details['status'] = error_obj.status
+                
+                logger.error(f"Supabase sign in error in response: {error_msg}, details: {error_details}")
+                
+                # Preserve the original error message for better debugging
+                raise Exception(error_msg)
+            
+            # Check if response is valid but might indicate MFA requirement
+            # (some Supabase versions return response without error but without session when MFA is enabled)
+            if hasattr(response, 'session') and response.session is None:
+                # Check if there's MFA information
+                if hasattr(response, 'user') and response.user:
+                    logger.info("Sign in response received but no session (possibly MFA required)")
             
             return response
         except Exception as e:
             error_msg = str(e)
+            error_type = type(e).__name__
             logger.error(f"Supabase sign in error: {error_msg}")
-            logger.error(f"Error type: {type(e)}")
+            logger.error(f"Error type: {error_type}")
             
-            # Re-raise with a clearer message for invalid credentials
-            if "invalid" in error_msg.lower() or "credentials" in error_msg.lower() or "password" in error_msg.lower():
-                raise Exception(f"Invalid login credentials: {error_msg}")
+            # Log full exception details if available
+            if hasattr(e, '__dict__'):
+                logger.error(f"Error attributes: {e.__dict__}")
+            
+            # Re-raise the original error to preserve details
             raise
     
     async def get_user(self, user_id: str) -> Optional[Dict[str, Any]]:
@@ -185,28 +220,97 @@ class SupabaseService:
     async def get_user_profile(self, user_id: str, user_token: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Retrieve user profile from Supabase database"""
         try:
+            print(f"🔍 [get_user_profile] Getting user profile for user_id: {user_id}")
             logger.info(f"🔍 Getting user profile for user_id: {user_id}")
             # Always use service role client to avoid token expiration issues
+            # The service role client is initialized with SUPABASE_SERVICE_ROLE_KEY in __init__
+            # This key bypasses RLS and never expires (it's not a JWT)
             client = self.client
             
             # Get profile data from user_profiles table using * to get all columns
             # Note: If columns don't exist, they will be missing from the response
             try:
+                # Explicitly select img_url and avatar_url to ensure they're included
                 profile_response = client.table("user_profiles").select("*").eq("user_id", user_id).execute()
+                print(f"📊 [get_user_profile] Query executed, rows returned: {len(profile_response.data) if profile_response.data else 0}")
+                
+                # If we got data, log the raw response structure
+                if profile_response.data and len(profile_response.data) > 0:
+                    raw_data = profile_response.data[0]
+                    print(f"📊 [get_user_profile] Raw response sample keys: {list(raw_data.keys())[:10]}...")
+                    print(f"📊 [get_user_profile] Checking for img_url in raw response: {'img_url' in raw_data}")
+                    print(f"📊 [get_user_profile] Checking for avatar_url in raw response: {'avatar_url' in raw_data}")
+                
                 logger.info(f"📊 Query executed, rows returned: {len(profile_response.data) if profile_response.data else 0}")
             except Exception as query_error:
-                logger.error(f"❌ Database query error (columns may not exist): {query_error}")
-                # Return empty profile if query fails
-                return {}
+                error_str = str(query_error)
+                # Check if it's a JWT expiration error
+                if "JWT expired" in error_str or "PGRST303" in error_str:
+                    logger.error(f"❌ JWT expired error detected with service role client!")
+                    logger.error(f"   This suggests the client may have cached a user JWT token.")
+                    logger.error(f"   Error details: {query_error}")
+                    logger.error(f"⚠️ Attempting to recreate client with service role key...")
+                    # Recreate client to ensure clean state - this clears any cached user tokens
+                    try:
+                        fresh_client = create_client(
+                            settings.SUPABASE_URL,
+                            settings.SUPABASE_SERVICE_ROLE_KEY
+                        )
+                        # Verify service role key is configured
+                        if not settings.SUPABASE_SERVICE_ROLE_KEY or settings.SUPABASE_SERVICE_ROLE_KEY == "your-supabase-service-role-key":
+                            logger.error("❌ SUPABASE_SERVICE_ROLE_KEY is not configured correctly!")
+                            return {}
+                        profile_response = fresh_client.table("user_profiles").select("*").eq("user_id", user_id).execute()
+                        logger.info(f"✅ Query succeeded after recreating client, rows returned: {len(profile_response.data) if profile_response.data else 0}")
+                    except Exception as retry_error:
+                        logger.error(f"❌ Retry with fresh client also failed: {retry_error}")
+                        return {}
+                else:
+                    logger.error(f"❌ Database query error (columns may not exist): {query_error}")
+                    # Return empty profile if query fails
+                    return {}
             profile_data = {}
             
+            if not profile_response.data or len(profile_response.data) == 0:
+                print(f"⚠️ [get_user_profile] No profile data found for user_id: {user_id}")
+            
             if profile_response.data and len(profile_response.data) > 0:
-                profile_data = profile_response.data[0]
+                profile_data = profile_response.data[0].copy()  # Make a copy to avoid modifying original
+                
+                # Log all keys from database response for debugging (using print for visibility)
+                print(f"🔍 [get_user_profile] Raw profile data keys from DB: {list(profile_data.keys())}")
+                
+                # Check raw values from database - be very explicit about None vs missing
+                raw_img_url = profile_data.get('img_url')
+                raw_avatar_url = profile_data.get('avatar_url')
+                
+                print(f"🔍 [get_user_profile] img_url value from DB (raw): {repr(raw_img_url)}")
+                print(f"🔍 [get_user_profile] img_url type: {type(raw_img_url)}")
+                print(f"🔍 [get_user_profile] img_url is None: {raw_img_url is None}")
+                print(f"🔍 [get_user_profile] img_url is falsy: {not raw_img_url}")
+                print(f"🔍 [get_user_profile] avatar_url value from DB (raw): {repr(raw_avatar_url)}")
+                print(f"🔍 [get_user_profile] avatar_url type: {type(raw_avatar_url)}")
+                print(f"🔍 [get_user_profile] avatar_url is None: {raw_avatar_url is None}")
+                print(f"🔍 [get_user_profile] avatar_url is falsy: {not raw_avatar_url}")
+                logger.info(f"🔍 Raw profile data keys from DB: {list(profile_data.keys())}")
+                logger.info(f"🔍 img_url value from DB: {profile_data.get('img_url')}")
+                logger.info(f"🔍 avatar_url value from DB: {profile_data.get('avatar_url')}")
+                
+                # Extract the UUID (id field) before removing it - it's the Supabase user ID
+                supabase_uuid = profile_data.get("id")
+                
                 # Remove system columns and user_id
                 profile_data.pop("id", None)
                 profile_data.pop("user_id", None)
                 profile_data.pop("created_at", None)
                 profile_data.pop("updated_at", None)
+                
+                # Add the Supabase UUID explicitly for frontend use (from user_profiles.id or use the passed user_id)
+                if supabase_uuid:
+                    profile_data["supabase_user_id"] = supabase_uuid
+                else:
+                    # Fallback: use the user_id parameter if id wasn't in the response
+                    profile_data["supabase_user_id"] = user_id
                 
                 # Convert role from lowercase (Supabase) to uppercase (PostgreSQL enum)
                 if "role" in profile_data and profile_data["role"]:
@@ -217,6 +321,47 @@ class SupabaseService:
                     }
                     # Convert to uppercase for PostgreSQL enum compatibility
                     profile_data["role"] = role_mapping.get(profile_data["role"].lower(), "PATIENT")
+                
+                # Prioritize img_url over avatar_url for avatar image URL
+                # If img_url exists, use it; otherwise fall back to avatar_url
+                # Note: img_url might be None in the database, so we need to check explicitly
+                img_url_value = profile_data.get("img_url")
+                avatar_url_value = profile_data.get("avatar_url")
+                
+                print(f"🔍 [get_user_profile] After processing - img_url: {repr(img_url_value)}, avatar_url: {repr(avatar_url_value)}")
+                logger.info(f"🔍 After processing - img_url: {img_url_value}, avatar_url: {avatar_url_value}")
+                
+                # Check if img_url has a valid value (not None, not empty string, not "null")
+                if img_url_value is not None and str(img_url_value).strip() and str(img_url_value).strip().lower() not in ["null", "none", ""]:
+                    profile_data["avatar_url"] = img_url_value
+                    # Keep img_url in the data for debugging/frontend use
+                    profile_data["img_url"] = img_url_value
+                    print(f"✅ [get_user_profile] Using img_url for avatar_url: {img_url_value[:80] if len(str(img_url_value)) > 80 else img_url_value}...")
+                    logger.info(f"✅ Using img_url for avatar_url: {img_url_value[:80] if len(str(img_url_value)) > 80 else img_url_value}...")
+                elif avatar_url_value is not None and str(avatar_url_value).strip() and str(avatar_url_value).strip().lower() not in ["null", "none", ""]:
+                    print(f"⚠️ [get_user_profile] No valid img_url, keeping existing avatar_url: {avatar_url_value[:80] if len(str(avatar_url_value)) > 80 else avatar_url_value}...")
+                    logger.info(f"⚠️ No valid img_url, keeping existing avatar_url: {avatar_url_value[:80] if len(str(avatar_url_value)) > 80 else avatar_url_value}...")
+                else:
+                    print(f"⚠️ [get_user_profile] No img_url or avatar_url in database for user {user_id}")
+                    print(f"   img_url_value: {repr(img_url_value)}, avatar_url_value: {repr(avatar_url_value)}")
+                    logger.warning(f"⚠️ No img_url or avatar_url in database for user {user_id}")
+                    
+                    # Try to get avatar from Supabase Storage as fallback
+                    print(f"🔄 [get_user_profile] Trying to get avatar from Supabase Storage...")
+                    try:
+                        storage_avatar_url = await self.get_avatar_signed_url(user_id)
+                        if storage_avatar_url:
+                            print(f"✅ [get_user_profile] Found avatar in Storage, using it: {storage_avatar_url[:80]}...")
+                            profile_data["avatar_url"] = storage_avatar_url
+                            profile_data["img_url"] = storage_avatar_url
+                        else:
+                            print(f"⚠️ [get_user_profile] No avatar found in Storage either")
+                            profile_data["avatar_url"] = None
+                            profile_data["img_url"] = None
+                    except Exception as storage_error:
+                        print(f"⚠️ [get_user_profile] Error getting avatar from Storage: {storage_error}")
+                        profile_data["avatar_url"] = None
+                        profile_data["img_url"] = None
             
             # Get email from auth.users table using admin client
             # Only try to get email if it's not already in profile data
@@ -252,11 +397,110 @@ class SupabaseService:
             else:
                 logger.info(f"✅ Email already in profile data: {profile_data.get('email')}")
             
+            print(f"✅ [get_user_profile] Returning profile data: {len(profile_data)} fields")
+            print(f"🔍 [get_user_profile] Final profile data keys: {list(profile_data.keys())}")
+            print(f"🔍 [get_user_profile] Final avatar_url in return: {profile_data.get('avatar_url')}")
+            print(f"🔍 [get_user_profile] Final img_url in return: {profile_data.get('img_url')}")
             logger.info(f"✅ Returning profile data: {len(profile_data)} fields")
+            logger.info(f"🔍 Final profile data keys: {list(profile_data.keys())}")
+            logger.info(f"🔍 Final avatar_url in return: {profile_data.get('avatar_url')}")
+            logger.info(f"🔍 Final img_url in return: {profile_data.get('img_url')}")
             return profile_data if profile_data else {}
         except Exception as e:
+            print(f"❌ [get_user_profile] ERROR: {e}")
+            import traceback
+            print(f"❌ [get_user_profile] Traceback: {traceback.format_exc()}")
             logger.error(f"❌ Supabase get user profile error: {e}")
             return {}  # Return empty dict instead of None
+    
+    async def get_avatar_signed_url(self, user_id: str) -> Optional[str]:
+        """Get avatar URL from user_profiles table or Supabase Storage
+        First checks database for img_url, then checks Supabase Storage avatars bucket"""
+        try:
+            print(f"🔍 [get_avatar_signed_url] Getting avatar for user_id: {user_id}")
+            
+            # Step 1: Check database for img_url first
+            profile_response = self.client.table("user_profiles").select("img_url").eq("user_id", user_id).execute()
+            
+            if profile_response.data and len(profile_response.data) > 0:
+                img_url = profile_response.data[0].get("img_url")
+                if img_url and str(img_url).strip() and str(img_url).lower() not in ["null", "none", ""]:
+                    print(f"✅ [get_avatar_signed_url] Found img_url in database: {img_url[:80] if len(str(img_url)) > 80 else img_url}")
+                    logger.debug(f"Found img_url in user_profiles for user {user_id}")
+                    return img_url
+            
+            print(f"⚠️ [get_avatar_signed_url] No img_url in database, checking Supabase Storage...")
+            
+            # Step 2: Check Supabase Storage for avatar files
+            try:
+                # List files in the avatars bucket for this user
+                # Try both user_id as folder name and also check root level
+                storage = self.client.storage.from_("avatars")
+                
+                # Try to list files in user's folder
+                files = storage.list(user_id)
+                
+                if files and len(files) > 0:
+                    # Find image files (jpg, jpeg, png, webp, etc.)
+                    image_extensions = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.svg']
+                    for file_info in files:
+                        if isinstance(file_info, dict):
+                            file_name = file_info.get('name', '')
+                            if any(file_name.lower().endswith(ext) for ext in image_extensions):
+                                # Generate signed URL for this file
+                                file_path = f"{user_id}/{file_name}"
+                                print(f"📸 [get_avatar_signed_url] Found avatar file: {file_path}")
+                                
+                                try:
+                                    # Generate signed URL (expires in 1 hour)
+                                    signed_url_response = storage.create_signed_url(file_path, 3600)
+                                    if signed_url_response and 'signedURL' in signed_url_response:
+                                        signed_url = signed_url_response['signedURL']
+                                        print(f"✅ [get_avatar_signed_url] Generated signed URL from Storage: {signed_url[:80]}...")
+                                        
+                                        # Optionally save this URL to database for future use
+                                        # (We could update user_profiles.img_url here, but that's optional)
+                                        
+                                        return signed_url
+                                except Exception as url_error:
+                                    print(f"⚠️ [get_avatar_signed_url] Error generating signed URL: {url_error}")
+                                    logger.warning(f"Error generating signed URL for {file_path}: {url_error}")
+                
+                # If no files in user folder, try listing root and searching
+                print(f"🔍 [get_avatar_signed_url] No files in {user_id} folder, checking root...")
+                root_files = storage.list("")
+                if root_files:
+                    # Search for files that might match user_id
+                    for file_info in root_files:
+                        if isinstance(file_info, dict):
+                            file_name = file_info.get('name', '')
+                            if user_id in file_name and any(file_name.lower().endswith(ext) for ext in image_extensions):
+                                print(f"📸 [get_avatar_signed_url] Found potential avatar in root: {file_name}")
+                                try:
+                                    signed_url_response = storage.create_signed_url(file_name, 3600)
+                                    if signed_url_response and 'signedURL' in signed_url_response:
+                                        signed_url = signed_url_response['signedURL']
+                                        print(f"✅ [get_avatar_signed_url] Generated signed URL from Storage root: {signed_url[:80]}...")
+                                        return signed_url
+                                except Exception as url_error:
+                                    print(f"⚠️ [get_avatar_signed_url] Error generating signed URL for root file: {url_error}")
+                
+            except Exception as storage_error:
+                print(f"⚠️ [get_avatar_signed_url] Error checking Supabase Storage: {storage_error}")
+                logger.warning(f"Error checking Supabase Storage for user {user_id}: {storage_error}")
+            
+            print(f"❌ [get_avatar_signed_url] No avatar found in database or storage for user {user_id}")
+            logger.debug(f"No img_url found in user_profiles or Supabase Storage for user {user_id}")
+            return None
+            
+        except Exception as e:
+            print(f"❌ [get_avatar_signed_url] ERROR: {e}")
+            logger.error(f"❌ Error getting avatar URL for user {user_id}: {e}")
+            # Only log full traceback in debug mode
+            if settings.DEBUG:
+                import traceback
+                logger.debug(f"Traceback: {traceback.format_exc()}")
+            return None
     
     async def update_user_profile(self, user_id: str, profile: Dict[str, Any], user_token: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Update user profile in Supabase database"""
@@ -266,6 +510,12 @@ class SupabaseService:
             
             # Always use service role client to avoid token expiration issues
             client = self.client
+            
+            # Map avatar_url to img_url for consistency with the database column name
+            profile_update = profile.copy()
+            if "avatar_url" in profile_update and profile_update["avatar_url"]:
+                profile_update["img_url"] = profile_update.pop("avatar_url")
+                logger.info(f"📸 Mapped avatar_url to img_url: {profile_update.get('img_url')}")
             
             # First, check if profile exists
             try:
@@ -280,7 +530,7 @@ class SupabaseService:
                 # Profile exists, update it
                 logger.info("🔄 Profile exists, updating...")
                 response = client.table("user_profiles").update({
-                    **profile,
+                    **profile_update,  # Use profile_update which has img_url mapped from avatar_url
                     "updated_at": "now()"
                 }).eq("user_id", user_id).execute()
             else:
@@ -288,7 +538,7 @@ class SupabaseService:
                 logger.info("✨ Profile doesn't exist, creating new...")
                 response = client.table("user_profiles").insert({
                     "user_id": user_id,
-                    **profile,
+                    **profile_update,  # Use profile_update which has img_url mapped from avatar_url
                     "created_at": "now()",
                     "updated_at": "now()"
                 }).execute()
@@ -695,29 +945,213 @@ class SupabaseService:
             raise
     
     async def update_password(self, user_id: str, new_password: str, user_token: str) -> Dict[str, Any]:
-        """Update user password using Supabase Auth admin REST API"""
+        """Update user password using Supabase Auth - try user session first, then admin API"""
         try:
             logger.info(f"🔐 Updating password for user_id: {user_id}")
+            logger.info(f"📝 Using Supabase URL: {settings.SUPABASE_URL}")
+            logger.info(f"📝 Service role key present: {bool(settings.SUPABASE_SERVICE_ROLE_KEY)}")
+            logger.info(f"📝 User token present: {bool(user_token)}")
             
-            # Use REST API to update password since Python client doesn't support it well
-            url = f"{settings.SUPABASE_URL}/auth/v1/admin/users/{user_id}"
-            headers = {
-                "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
-                "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
-                "Content-Type": "application/json"
-            }
-            payload = {
-                "password": new_password
-            }
+            # Method 1: Try using user's session to update their own password (most secure)
+            # Users can update their own passwords using their session token
+            if user_token:
+                try:
+                    logger.info("📝 Attempting to update password using user's session (update_user)")
+                    
+                    # Create a client with user's token
+                    from supabase import create_client
+                    user_client = create_client(
+                        settings.SUPABASE_URL,
+                        settings.SUPABASE_ANON_KEY
+                    )
+                    
+                    # Try to use REST API with user's access token directly
+                    # This is the recommended approach - users can update their own passwords
+                    # The /auth/v1/user endpoint allows users to update their own info
+                    try:
+                        logger.info("📝 Attempting password update via user's own API endpoint (/auth/v1/user)")
+                        url = f"{settings.SUPABASE_URL}/auth/v1/user"
+                        headers = {
+                            "apikey": settings.SUPABASE_ANON_KEY,
+                            "Authorization": f"Bearer {user_token}",
+                            "Content-Type": "application/json"
+                        }
+                        payload = {
+                            "password": new_password
+                        }
+                        
+                        logger.info(f"📝 Making PUT request to: {url}")
+                        logger.info(f"📝 Headers: apikey present: {bool(headers['apikey'])}, Authorization present: {bool(headers['Authorization'])}")
+                        
+                        async with httpx.AsyncClient() as client:
+                            response = await client.put(url, json=payload, headers=headers, timeout=30.0)
+                            
+                            logger.info(f"📝 User API endpoint response status: {response.status_code}")
+                            
+                            if response.status_code >= 200 and response.status_code < 300:
+                                logger.info("✅ Password updated successfully using user's own API endpoint")
+                                return {"user_id": user_id, "success": True}
+                            elif response.status_code >= 400:
+                                try:
+                                    error_body = response.json()
+                                    logger.error(f"❌ User API endpoint error response (JSON): {error_body}")
+                                    error_msg = error_body.get("message") or error_body.get("error_description") or error_body.get("error") or str(error_body)
+                                    logger.warning(f"⚠️ User API endpoint failed: {error_msg}")
+                                    
+                                    # Log more details
+                                    if "hint" in error_body:
+                                        logger.error(f"❌ Error hint: {error_body['hint']}")
+                                    if "details" in error_body:
+                                        logger.error(f"❌ Error details: {error_body['details']}")
+                                    
+                                    raise Exception(f"User API endpoint failed: {error_msg}")
+                                except Exception as json_error:
+                                    error_text = response.text
+                                    logger.error(f"❌ User API endpoint error response (text): {error_text}")
+                                    logger.warning(f"⚠️ User API endpoint failed (text): {error_text}, JSON parse error: {json_error}")
+                                    raise Exception(f"User API endpoint failed: {error_text}")
+                            else:
+                                raise Exception(f"Unexpected response status: {response.status_code}")
+                                
+                    except Exception as user_api_error:
+                        error_str = str(user_api_error)
+                        logger.warning(f"⚠️ User API endpoint method failed: {error_str}")
+                        logger.info("📝 Continuing to try admin API methods...")
+                        # Continue to admin API methods - don't raise here
+                        pass
+                        
+                except Exception as user_method_error:
+                    logger.info(f"⚠️ User session method failed: {user_method_error}, trying admin API")
+                    # Continue to admin API methods
             
-            async with httpx.AsyncClient() as client:
-                response = await client.put(url, json=payload, headers=headers, timeout=30.0)
-                response.raise_for_status()
+            # Method 2: Try Python client admin method
+            try:
+                logger.info("📝 Attempting to update password using Python client admin.update_user_by_id")
+                logger.info(f"📝 User ID: {user_id}")
+                logger.info(f"📝 Password length: {len(new_password)}")
                 
-            logger.info("✅ Password updated successfully")
-            return {"user_id": user_id, "success": True}
+                # Verify we can get the user first (to ensure permissions work)
+                try:
+                    test_user = self.client.auth.admin.get_user_by_id(user_id)
+                    if test_user and hasattr(test_user, 'user') and test_user.user:
+                        logger.info(f"✅ Can access user via admin API - user email: {test_user.user.email}")
+                    else:
+                        logger.warning("⚠️ Could not retrieve user info via admin API")
+                except Exception as test_error:
+                    logger.warning(f"⚠️ Could not verify user access via admin API: {test_error}")
+                
+                update_response = self.client.auth.admin.update_user_by_id(
+                    user_id,
+                    {"password": new_password}
+                )
+                
+                # Check if update was successful
+                if update_response and hasattr(update_response, 'user') and update_response.user:
+                    logger.info("✅ Password updated successfully using Python admin client")
+                    return {"user_id": user_id, "success": True}
+                elif update_response:
+                    # Some responses might not have a user object but still succeed
+                    logger.info("✅ Password update response received from Python admin client")
+                    return {"user_id": user_id, "success": True}
+                else:
+                    logger.warning("⚠️ Python admin client returned None, trying REST API")
+                    raise Exception("Python admin client returned None")
+                    
+            except Exception as python_error:
+                error_str = str(python_error)
+                logger.warning(f"⚠️ Python admin client method failed: {error_str}")
+                logger.warning(f"   Error type: {type(python_error).__name__}")
+                
+                # Check if it's a permission error
+                if "not allowed" in error_str.lower() or "forbidden" in error_str.lower() or "permission" in error_str.lower():
+                    logger.error("❌ Python client reports permission issue. This might indicate:")
+                    logger.error("   1. Service role key doesn't have admin permissions")
+                    logger.error("   2. Supabase project configuration issue")
+                    logger.error("   3. Password updates may be disabled in Supabase settings")
+                
+                # Method 3: Fallback to REST API
+                logger.info("📝 Attempting to update password using REST API")
+                url = f"{settings.SUPABASE_URL}/auth/v1/admin/users/{user_id}"
+                headers = {
+                    "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
+                    "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
+                    "Content-Type": "application/json"
+                }
+                payload = {
+                    "password": new_password
+                }
+                
+                logger.info(f"📝 Making PUT request to: {url}")
+                
+                async with httpx.AsyncClient() as client:
+                    response = await client.put(url, json=payload, headers=headers, timeout=30.0)
+                    
+                    # Always log the response status and body for debugging
+                    logger.info(f"📝 Response status: {response.status_code}")
+                    
+                    if response.status_code >= 400:
+                        try:
+                            error_body = response.json()
+                            logger.error(f"❌ Supabase REST API error response (JSON): {error_body}")
+                            error_msg = error_body.get("message") or error_body.get("error_description") or error_body.get("error") or str(error_body)
+                            
+                            # Log more details
+                            logger.error(f"❌ Error message: {error_msg}")
+                            if "hint" in error_body:
+                                logger.error(f"❌ Error hint: {error_body['hint']}")
+                            if "details" in error_body:
+                                logger.error(f"❌ Error details: {error_body['details']}")
+                                
+                        except Exception as json_error:
+                            error_text = response.text
+                            logger.error(f"❌ Supabase REST API error response (text): {error_text}")
+                            logger.error(f"❌ Could not parse error as JSON: {json_error}")
+                            error_msg = error_text
+                        
+                        raise httpx.HTTPStatusError(
+                            f"Password update failed: {error_msg}",
+                            request=response.request,
+                            response=response
+                        )
+                    
+                    # Success - parse response
+                    try:
+                        result = response.json()
+                        logger.info(f"✅ Password updated successfully via REST API. Response: {result}")
+                        return {"user_id": user_id, "success": True}
+                    except:
+                        logger.info("✅ Password updated successfully via REST API (no JSON response body)")
+                        return {"user_id": user_id, "success": True}
+                        
+        except httpx.HTTPStatusError as e:
+            # HTTP error with response
+            error_msg = str(e)
+            try:
+                error_body = e.response.json()
+                error_msg = error_body.get("message") or error_body.get("error_description") or error_body.get("error") or str(error_body)
+                logger.error(f"❌ Supabase update password HTTP error: {error_msg}, status: {e.response.status_code}")
+                
+                # Provide more context
+                if "not allowed" in error_msg.lower() or "forbidden" in error_msg.lower():
+                    logger.error("⚠️ 'User not allowed' error - possible causes:")
+                    logger.error("   1. Service role key doesn't have admin permissions")
+                    logger.error("   2. User account might be disabled or restricted")
+                    logger.error("   3. Supabase project configuration issue")
+                    logger.error("   4. Password updates may be disabled in Authentication > Settings")
+                    logger.error("   5. Check if 'Enable password updates' is enabled in Supabase dashboard")
+                    
+            except:
+                error_text = e.response.text if hasattr(e, 'response') else str(e)
+                logger.error(f"❌ Supabase update password HTTP error (text): {error_text}, status: {e.response.status_code if hasattr(e, 'response') else 'unknown'}")
+                error_msg = error_text
+            
+            # Re-raise with clearer message
+            raise Exception(f"Password update failed: {error_msg}")
         except Exception as e:
             logger.error(f"❌ Supabase update password error: {e}")
+            logger.error(f"Error type: {type(e)}")
+            if hasattr(e, '__dict__'):
+                logger.error(f"Error attributes: {e.__dict__}")
             raise
     
     async def get_user_shared_access(self, user_id: str, user_token: Optional[str] = None) -> Optional[Dict[str, Any]]:

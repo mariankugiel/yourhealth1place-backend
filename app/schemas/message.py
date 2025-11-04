@@ -87,6 +87,7 @@ class Conversation(ConversationBase):
     id: int
     user_id: int
     contact_id: int
+    contact_supabase_user_id: Optional[str] = None  # Supabase UUID for direct bucket access
     contact_name: Optional[str] = None  # Fetched from Supabase
     contact_role: Optional[str] = None  # Fetched from Supabase
     contact_avatar: Optional[str] = None  # Fetched from Supabase
