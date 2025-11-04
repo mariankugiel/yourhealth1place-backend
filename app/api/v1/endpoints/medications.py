@@ -1,12 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 from app.core.database import get_db
 from app.models.user import User
 from app.schemas.medication import MedicationCreate, MedicationUpdate, MedicationResponse, EndMedicationRequest
 from app.api.v1.endpoints.auth import get_current_user
 from app.crud.medication import medication_crud
 from app.models.medication import MedicationStatus
+from app.core.patient_access import check_patient_access
 import logging
 
 logger = logging.getLogger(__name__)
@@ -35,16 +36,37 @@ def create_medication(
         )
 
 @router.get("/", response_model=List[MedicationResponse])
-def read_medications(
+async def read_medications(
     skip: int = 0,
     limit: int = 100,
     status_filter: str = None,
+    patient_id: Optional[int] = Query(None, description="Patient ID to access (requires permission)"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Get medications for the current user"""
+    """Get medications for the current user or a specific patient (if permission granted)"""
     try:
-        medications = medication_crud.get_by_patient(db, current_user.id)
+        # Determine target user ID
+        target_user_id = current_user.id
+        
+        if patient_id:
+            # Check permissions
+            has_access, error_message = await check_patient_access(
+                db=db,
+                patient_id=patient_id,
+                current_user=current_user,
+                permission_type="view_medications"
+            )
+            
+            if not has_access:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=error_message or "You do not have permission to access this patient's medications"
+                )
+            
+            target_user_id = patient_id
+        
+        medications = medication_crud.get_by_patient(db, target_user_id)
         
         # Filter by status if provided
         if status_filter:
@@ -57,6 +79,8 @@ def read_medications(
         medications = medications[skip:skip + limit]
         
         return [MedicationResponse.from_orm(med) for med in medications]
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to get medications: {e}")
         raise HTTPException(

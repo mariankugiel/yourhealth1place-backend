@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import and_
 from typing import List, Optional, Dict, Any
 from app.core.database import get_db
+from app.core.patient_access import check_patient_access
 from app.crud.health_record import (
     health_record_crud, medical_condition_crud, 
     family_medical_history_crud, health_record_doc_lab_crud,
@@ -180,11 +181,32 @@ async def read_health_records(
     device_id: Optional[int] = Query(None),
     start_date: Optional[datetime] = Query(None),
     end_date: Optional[datetime] = Query(None),
+    patient_id: Optional[int] = Query(None, description="Patient ID to access (requires permission)"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Get health records for the current user with optional filtering"""
+    """Get health records for the current user or a specific patient (if permission granted) with optional filtering"""
     try:
+        # Determine target user ID
+        target_user_id = current_user.id
+        
+        if patient_id:
+            # Check permissions
+            has_access, error_message = await check_patient_access(
+                db=db,
+                patient_id=patient_id,
+                current_user=current_user,
+                permission_type="view_health_records"
+            )
+            
+            if not has_access:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=error_message or "You do not have permission to access this patient's health records"
+                )
+            
+            target_user_id = patient_id
+        
         filters = HealthRecordFilter(
             section_id=section_id,
             metric_id=metric_id,
@@ -195,7 +217,7 @@ async def read_health_records(
             end_date=end_date
         )
         
-        records = health_record_crud.get_by_user(db, current_user.id, skip, limit, filters)
+        records = health_record_crud.get_by_user(db, target_user_id, skip, limit, filters)
         
         return [
             HealthRecordResponse(
@@ -1484,10 +1506,84 @@ async def update_health_record_section(
             detail=f"Failed to update health record section: {str(e)}"
         )
 
+@router.get("/dashboard", response_model=Dict[str, Any])
+async def get_analysis_dashboard(
+    patient_id: Optional[int] = Query(None, description="Patient ID to access (requires permission)"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get analysis dashboard data with sections, metrics, and health records"""
+    try:
+        from app.core.patient_access import check_patient_access
+        from app.crud.health_metrics import get_analysis_dashboard_summary
+        
+        logger.info(f"🔍 [Dashboard Endpoint] Request received - patient_id={patient_id}, current_user_id={current_user.id}")
+        
+        # Determine target user ID
+        target_user_id = current_user.id
+        
+        if patient_id:
+            logger.info(f"🔍 [Dashboard] Accessing patient data: patient_id={patient_id}, current_user_id={current_user.id}")
+            # Check permissions
+            has_access, error_message = await check_patient_access(
+                db=db,
+                patient_id=patient_id,
+                current_user=current_user,
+                permission_type="view_health_records"
+            )
+            
+            if not has_access:
+                logger.warning(f"❌ [Dashboard] Access denied: {error_message}")
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=error_message or "You do not have permission to access this patient's health records"
+                )
+            
+            target_user_id = patient_id
+            logger.info(f"✅ [Dashboard] Access granted, using target_user_id={target_user_id}")
+        else:
+            target_user_id = current_user.id
+            logger.info(f"📋 [Dashboard] No patient_id provided, using current_user_id={target_user_id}")
+        
+        # Get sections with metrics for the target user
+        sections_with_metrics = health_record_section_metric_crud.get_sections_with_metrics(
+            db, target_user_id, include_inactive=False, health_record_type_id=1
+        )
+        
+        # Get summary statistics
+        summary_stats = get_analysis_dashboard_summary(db, target_user_id)
+        
+        # Convert sections to the expected format
+        sections = []
+        for section in sections_with_metrics:
+            sections.append({
+                "id": section.get("id"),
+                "name": section.get("name"),
+                "display_name": section.get("display_name"),
+                "description": section.get("description"),
+                "metrics": section.get("metrics", [])
+            })
+        
+        return {
+            "sections": sections,
+            "summary_stats": summary_stats,
+            "latest_analysis": None  # Can be populated from AI analysis if needed
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get analysis dashboard: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get analysis dashboard: {str(e)}"
+        )
+
 @router.get("/sections/combined", response_model=Dict[str, Any])
 async def get_sections_combined(
     health_record_type_id: Optional[int] = Query(None, description="Filter by health record type ID"),
     include_inactive: bool = Query(False, description="Include inactive sections"),
+    patient_id: Optional[int] = Query(None, description="Patient ID to access (requires permission)"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -1495,9 +1591,29 @@ async def get_sections_combined(
     try:
         logger.info("Combined endpoint accessed successfully")
         
+        # Determine target user ID
+        target_user_id = current_user.id
+        
+        if patient_id:
+            # Check permissions
+            has_access, error_message = await check_patient_access(
+                db=db,
+                patient_id=patient_id,
+                current_user=current_user,
+                permission_type="view_health_records"
+            )
+            
+            if not has_access:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=error_message or "You do not have permission to access this patient's health records"
+                )
+            
+            target_user_id = patient_id
+        
         # Get user sections (from normal tables - user's active sections)
         user_sections = health_record_section_metric_crud.get_sections_with_metrics(
-            db, current_user.id, include_inactive, health_record_type_id
+            db, target_user_id, include_inactive, health_record_type_id
         )
         
         # Get admin templates (from template tables - for creating new sections)
@@ -1522,13 +1638,34 @@ async def get_sections_combined(
 
 @router.get("/metrics/all", response_model=List[Dict[str, Any]])
 async def get_all_user_metrics(
+    patient_id: Optional[int] = Query(None, description="Patient ID to access (requires permission)"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Get all metrics for the current user across all their sections"""
+    """Get all metrics for the current user or a specific patient (if permission granted) across all their sections"""
     try:
+        # Determine target user ID
+        target_user_id = current_user.id
+        
+        if patient_id:
+            # Check permissions
+            has_access, error_message = await check_patient_access(
+                db=db,
+                patient_id=patient_id,
+                current_user=current_user,
+                permission_type="view_health_records"
+            )
+            
+            if not has_access:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=error_message or "You do not have permission to access this patient's health records"
+                )
+            
+            target_user_id = patient_id
+        
         # Get all sections for the user first
-        sections = health_record_section_crud.get_by_user(db, current_user.id)
+        sections = health_record_section_crud.get_by_user(db, target_user_id)
         
         all_metrics = []
         

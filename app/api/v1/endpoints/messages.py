@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime
@@ -44,9 +44,31 @@ async def get_conversations(
     priorities: Optional[str] = Query(None, description="Comma-separated priorities"),
     statuses: Optional[str] = Query(None, description="Comma-separated statuses"),
     has_unread: Optional[bool] = Query(None, description="Filter by unread status"),
-    has_action_required: Optional[bool] = Query(None, description="Filter by action required status")
+    has_action_required: Optional[bool] = Query(None, description="Filter by action required status"),
+    patient_id: Optional[int] = Query(None, description="Patient ID to access (requires permission)")
 ):
-    """Get conversations for the current user"""
+    """Get conversations for the current user or a specific patient (if permission granted)"""
+    # Determine target user ID
+    target_user_id = current_user.id
+    
+    if patient_id:
+        # Check permissions
+        from app.core.patient_access import check_patient_access
+        has_access, error_message = await check_patient_access(
+            db=db,
+            patient_id=patient_id,
+            current_user=current_user,
+            permission_type="view_messages"
+        )
+        
+        if not has_access:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=error_message or "You do not have permission to access this patient's messages"
+            )
+        
+        target_user_id = patient_id
+    
     # Build filters from query parameters
     filters = MessageFilters()
     if message_types:
@@ -61,7 +83,7 @@ async def get_conversations(
         filters.has_action_required = has_action_required
     
     message_crud = MessageCRUD()
-    conversations = message_crud.get_conversations_by_user(db, current_user.id, filters)
+    conversations = message_crud.get_conversations_by_user(db, target_user_id, filters)
     
     # Fetch contact information from Supabase for each conversation
     from app.core.supabase_client import supabase_service
@@ -759,7 +781,8 @@ async def get_available_contacts(
                     "role": role_display,
                     "avatar": None,
                     "isOnline": is_online,  # ✅ Real-time WebSocket status
-                    "specialty": None
+                    "specialty": None,
+                    "email": contact.email  # Include email for contact selection
                 })
             except Exception as e:
                 print(f"Error processing contact {contact.id}: {e}")
@@ -774,7 +797,8 @@ async def get_available_contacts(
                     "role": "Healthcare Provider",
                     "avatar": None,
                     "isOnline": contact.id in online_users,
-                    "specialty": None
+                    "specialty": None,
+                    "email": contact.email  # Include email for contact selection
                 })
         
         return result
