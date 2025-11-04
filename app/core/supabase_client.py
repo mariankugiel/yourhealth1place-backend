@@ -420,74 +420,121 @@ class SupabaseService:
             print(f"🔍 [get_avatar_signed_url] Getting avatar for user_id: {user_id}")
             
             # Step 1: Check database for img_url first
-            profile_response = self.client.table("user_profiles").select("img_url").eq("user_id", user_id).execute()
-            
-            if profile_response.data and len(profile_response.data) > 0:
-                img_url = profile_response.data[0].get("img_url")
-                if img_url and str(img_url).strip() and str(img_url).lower() not in ["null", "none", ""]:
-                    print(f"✅ [get_avatar_signed_url] Found img_url in database: {img_url[:80] if len(str(img_url)) > 80 else img_url}")
-                    logger.debug(f"Found img_url in user_profiles for user {user_id}")
-                    return img_url
+            try:
+                profile_response = self.client.table("user_profiles").select("img_url").eq("user_id", user_id).execute()
+                
+                if profile_response.data and len(profile_response.data) > 0:
+                    img_url = profile_response.data[0].get("img_url")
+                    if img_url and str(img_url).strip() and str(img_url).lower() not in ["null", "none", ""]:
+                        print(f"✅ [get_avatar_signed_url] Found img_url in database: {img_url[:80] if len(str(img_url)) > 80 else img_url}")
+                        logger.debug(f"Found img_url in user_profiles for user {user_id}")
+                        return img_url
+            except Exception as db_error:
+                print(f"⚠️ [get_avatar_signed_url] Error checking database: {db_error}")
             
             print(f"⚠️ [get_avatar_signed_url] No img_url in database, checking Supabase Storage...")
             
             # Step 2: Check Supabase Storage for avatar files
+            # Use service role client to avoid JWT expiration issues
             try:
-                # List files in the avatars bucket for this user
-                # Try both user_id as folder name and also check root level
-                storage = self.client.storage.from_("avatars")
+                # Ensure we're using a fresh service role client for storage operations
+                storage_client = create_client(
+                    settings.SUPABASE_URL,
+                    settings.SUPABASE_SERVICE_ROLE_KEY
+                )
+                storage = storage_client.storage.from_("avatars")
+                
+                image_extensions = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.svg']
                 
                 # Try to list files in user's folder
-                files = storage.list(user_id)
-                
-                if files and len(files) > 0:
-                    # Find image files (jpg, jpeg, png, webp, etc.)
-                    image_extensions = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.svg']
-                    for file_info in files:
-                        if isinstance(file_info, dict):
-                            file_name = file_info.get('name', '')
-                            if any(file_name.lower().endswith(ext) for ext in image_extensions):
-                                # Generate signed URL for this file
-                                file_path = f"{user_id}/{file_name}"
-                                print(f"📸 [get_avatar_signed_url] Found avatar file: {file_path}")
-                                
-                                try:
-                                    # Generate signed URL (expires in 1 hour)
-                                    signed_url_response = storage.create_signed_url(file_path, 3600)
-                                    if signed_url_response and 'signedURL' in signed_url_response:
-                                        signed_url = signed_url_response['signedURL']
-                                        print(f"✅ [get_avatar_signed_url] Generated signed URL from Storage: {signed_url[:80]}...")
+                try:
+                    files_response = storage.list(user_id)
+                    files = files_response if files_response else []
+                    
+                    if files and len(files) > 0:
+                        print(f"📂 [get_avatar_signed_url] Found {len(files)} files in folder {user_id}")
+                        # Find image files (jpg, jpeg, png, webp, etc.)
+                        for file_info in files:
+                            if isinstance(file_info, dict):
+                                file_name = file_info.get('name', '')
+                                if any(file_name.lower().endswith(ext) for ext in image_extensions):
+                                    # Generate signed URL for this file
+                                    file_path = f"{user_id}/{file_name}"
+                                    print(f"📸 [get_avatar_signed_url] Found avatar file: {file_path}")
+                                    
+                                    try:
+                                        # Generate signed URL (expires in 1 hour = 3600 seconds)
+                                        signed_url_response = storage.create_signed_url(file_path, 3600)
                                         
-                                        # Optionally save this URL to database for future use
-                                        # (We could update user_profiles.img_url here, but that's optional)
+                                        # Handle different response formats
+                                        if isinstance(signed_url_response, dict):
+                                            signed_url = signed_url_response.get('signedURL') or signed_url_response.get('signed_url')
+                                        elif isinstance(signed_url_response, str):
+                                            signed_url = signed_url_response
+                                        else:
+                                            signed_url = None
                                         
-                                        return signed_url
-                                except Exception as url_error:
-                                    print(f"⚠️ [get_avatar_signed_url] Error generating signed URL: {url_error}")
-                                    logger.warning(f"Error generating signed URL for {file_path}: {url_error}")
+                                        if signed_url:
+                                            print(f"✅ [get_avatar_signed_url] Generated signed URL from Storage: {signed_url[:80]}...")
+                                            return signed_url
+                                        else:
+                                            print(f"⚠️ [get_avatar_signed_url] Signed URL response format unexpected: {signed_url_response}")
+                                    except Exception as url_error:
+                                        print(f"⚠️ [get_avatar_signed_url] Error generating signed URL: {url_error}")
+                                        logger.warning(f"Error generating signed URL for {file_path}: {url_error}")
+                except Exception as list_error:
+                    print(f"⚠️ [get_avatar_signed_url] Error listing files in folder {user_id}: {list_error}")
                 
                 # If no files in user folder, try listing root and searching
                 print(f"🔍 [get_avatar_signed_url] No files in {user_id} folder, checking root...")
-                root_files = storage.list("")
-                if root_files:
-                    # Search for files that might match user_id
-                    for file_info in root_files:
-                        if isinstance(file_info, dict):
-                            file_name = file_info.get('name', '')
-                            if user_id in file_name and any(file_name.lower().endswith(ext) for ext in image_extensions):
-                                print(f"📸 [get_avatar_signed_url] Found potential avatar in root: {file_name}")
-                                try:
-                                    signed_url_response = storage.create_signed_url(file_name, 3600)
-                                    if signed_url_response and 'signedURL' in signed_url_response:
-                                        signed_url = signed_url_response['signedURL']
-                                        print(f"✅ [get_avatar_signed_url] Generated signed URL from Storage root: {signed_url[:80]}...")
-                                        return signed_url
-                                except Exception as url_error:
-                                    print(f"⚠️ [get_avatar_signed_url] Error generating signed URL for root file: {url_error}")
+                try:
+                    root_files_response = storage.list("")
+                    root_files = root_files_response if root_files_response else []
+                    
+                    if root_files:
+                        # Search for files that might match user_id
+                        for file_info in root_files:
+                            if isinstance(file_info, dict):
+                                file_name = file_info.get('name', '')
+                                if user_id in file_name and any(file_name.lower().endswith(ext) for ext in image_extensions):
+                                    print(f"📸 [get_avatar_signed_url] Found potential avatar in root: {file_name}")
+                                    try:
+                                        signed_url_response = storage.create_signed_url(file_name, 3600)
+                                        
+                                        # Handle different response formats
+                                        if isinstance(signed_url_response, dict):
+                                            signed_url = signed_url_response.get('signedURL') or signed_url_response.get('signed_url')
+                                        elif isinstance(signed_url_response, str):
+                                            signed_url = signed_url_response
+                                        else:
+                                            signed_url = None
+                                        
+                                        if signed_url:
+                                            print(f"✅ [get_avatar_signed_url] Generated signed URL from Storage root: {signed_url[:80]}...")
+                                            return signed_url
+                                    except Exception as url_error:
+                                        print(f"⚠️ [get_avatar_signed_url] Error generating signed URL for root file: {url_error}")
+                except Exception as root_list_error:
+                    print(f"⚠️ [get_avatar_signed_url] Error listing root files: {root_list_error}")
                 
             except Exception as storage_error:
+                error_str = str(storage_error)
                 print(f"⚠️ [get_avatar_signed_url] Error checking Supabase Storage: {storage_error}")
                 logger.warning(f"Error checking Supabase Storage for user {user_id}: {storage_error}")
+                
+                # If JWT expired error, try recreating client
+                if "JWT expired" in error_str or "PGRST303" in error_str:
+                    print(f"🔄 [get_avatar_signed_url] JWT expired, recreating client...")
+                    try:
+                        fresh_client = create_client(
+                            settings.SUPABASE_URL,
+                            settings.SUPABASE_SERVICE_ROLE_KEY
+                        )
+                        storage = fresh_client.storage.from_("avatars")
+                        # Retry once with fresh client
+                        print(f"🔄 [get_avatar_signed_url] Retrying with fresh client...")
+                    except Exception as retry_error:
+                        print(f"❌ [get_avatar_signed_url] Retry failed: {retry_error}")
             
             print(f"❌ [get_avatar_signed_url] No avatar found in database or storage for user {user_id}")
             logger.debug(f"No img_url found in user_profiles or Supabase Storage for user {user_id}")
@@ -495,10 +542,10 @@ class SupabaseService:
             
         except Exception as e:
             print(f"❌ [get_avatar_signed_url] ERROR: {e}")
+            import traceback
+            print(f"❌ [get_avatar_signed_url] Traceback: {traceback.format_exc()}")
             logger.error(f"❌ Error getting avatar URL for user {user_id}: {e}")
-            # Only log full traceback in debug mode
             if settings.DEBUG:
-                import traceback
                 logger.debug(f"Traceback: {traceback.format_exc()}")
             return None
     
