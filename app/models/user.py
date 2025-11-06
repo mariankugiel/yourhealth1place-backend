@@ -14,7 +14,7 @@ class User(Base):
     
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     supabase_user_id = Column(String(255), unique=True, index=True)  # Link to Supabase
-    email = Column(String(255), nullable=False, unique=True, index=True)  # For lookups only
+    email = Column(String(255), nullable=False, index=True)  # For lookups only (not unique - patients can also be doctors)
     role = Column(Enum(UserRole), nullable=False, default=UserRole.PATIENT)  # User role
     is_active = Column(Boolean, default=True)  # Application state
     # timezone is stored in Supabase, not in local PostgreSQL

@@ -8,7 +8,8 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.config import settings
 from app.core.supabase_client import supabase_service
-from app.models.user import User
+from app.services.doctor_supabase_service import doctor_supabase_service
+from app.models.user import User, UserRole
 from app.models.permissions import HealthRecordPermission
 from app.schemas.user import Token, LoginResponse, MFALoginVerifyRequest, UserResponse, UserProfile, UserRegistration, UserEmergency, UserNotifications, UserIntegrations, UserPrivacy, UserSharedAccess, UserAccessLogs, UserDataSharing, PasswordChange, MFAEnrollRequest, MFAEnrollResponse, MFAVerifyRequest, MFAFactor
 from app.crud.user import get_user_by_supabase_id
@@ -106,13 +107,17 @@ async def get_user_id_from_token(authorization: Optional[str] = Header(None)) ->
 async def register(registration_data: UserRegistration, db: Session = Depends(get_db)):
     """Register a new user with Supabase"""
     try:
+        # Determine role from registration data
+        user_role = registration_data.role if registration_data.role else UserRole.PATIENT
+        role_str = user_role.value.lower()
+        
         # Register user with Supabase
         supabase_response = await supabase_service.sign_up(
             email=registration_data.email,
             password=registration_data.password,
             user_metadata={
                 "full_name": registration_data.full_name,
-                "role": "patient"  # Default role for new users
+                "role": role_str  # Store role in user metadata
             }
         )
         
@@ -131,7 +136,8 @@ async def register(registration_data: UserRegistration, db: Session = Depends(ge
             "phone_country_code": registration_data.phone_country_code,
             "address": registration_data.address,
             "avatar_url": registration_data.avatar_url,
-            "role": registration_data.role.value.lower() if registration_data.role else "patient",
+            "role": role_str,
+            "timezone": registration_data.timezone,  # Save timezone to user_profiles
             "emergency_contact_name": registration_data.emergency_contact_name,
             "emergency_contact_phone": registration_data.emergency_contact_phone,
             "emergency_contact_relationship": registration_data.emergency_contact_relationship,
@@ -144,31 +150,50 @@ async def register(registration_data: UserRegistration, db: Session = Depends(ge
             "emergency_medical_info": registration_data.emergency_medical_info,
         }
         
-        # Store personal data in Supabase (secure)
-        await supabase_service.store_user_profile(
-            user_id=supabase_response.user.id,
-            profile={k: v for k, v in profile_data.items() if v is not None}
-        )
-        
-        # Create minimal internal user record for application linkage
-        db_user = User(
-            supabase_user_id=supabase_response.user.id,  # Link to Supabase
-            email=registration_data.email,  # For lookups only
-            is_active=True
-        )
-        
-        db.add(db_user)
-        db.commit()
-        db.refresh(db_user)
-        
-        return UserResponse(
-            id=db_user.id,
-            email=registration_data.email,
-            is_active=db_user.is_active,
-            role=db_user.role,
-            created_at=db_user.created_at,
-            updated_at=db_user.updated_at
-        )
+        # Store profile data in appropriate table based on role
+        if user_role == UserRole.DOCTOR:
+            # Store doctor profile in doctor_profiles table
+            doctor_profile_data = {
+                "first_name": registration_data.full_name.split()[0] if registration_data.full_name else None,
+                "last_name": " ".join(registration_data.full_name.split()[1:]) if registration_data.full_name and len(registration_data.full_name.split()) > 1 else None,
+                "full_name": registration_data.full_name,
+                "phone_number": registration_data.phone_number,
+                "phone_country_code": registration_data.phone_country_code,
+                "address": registration_data.address,
+                "avatar_url": registration_data.avatar_url,
+                "specialty": getattr(registration_data, 'specialty', None),  # If specialty field exists
+            }
+            await doctor_supabase_service.store_doctor_profile(
+                user_id=supabase_response.user.id,
+                profile={k: v for k, v in doctor_profile_data.items() if v is not None}
+            )
+        else:
+            # Store patient profile in user_profiles table
+            await supabase_service.store_user_profile(
+                user_id=supabase_response.user.id,
+                profile={k: v for k, v in profile_data.items() if v is not None}
+            )
+            
+            # Create minimal internal user record for application linkage
+            db_user = User(
+                supabase_user_id=supabase_response.user.id,  # Link to Supabase
+                email=registration_data.email,  # For lookups only
+                role=user_role,  # Set role in User model
+                is_active=True
+            )
+            
+            db.add(db_user)
+            db.commit()
+            db.refresh(db_user)
+            
+            return UserResponse(
+                id=db_user.id,
+                email=registration_data.email,
+                is_active=db_user.is_active,
+                role=db_user.role,
+                created_at=db_user.created_at,
+                updated_at=db_user.updated_at
+            )
         
     except Exception as e:
         logger.error(f"Registration error: {e}")

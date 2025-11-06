@@ -17,9 +17,9 @@ class MedicationReminder(Base):
     medication_id = Column(Integer, ForeignKey("medications.id"), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     
-    # Time Configuration (user's local time)
-    reminder_time = Column(Time, nullable=False)  # e.g., 08:00:00 (local time)
-    user_timezone = Column(String(50), nullable=False)  # e.g., "America/New_York"
+    # Time Configuration (user's local time with timezone)
+    reminder_time = Column(Time(timezone=True), nullable=False)  # e.g., 08:00:00-05:00 (TIME WITH TIME ZONE)
+    user_timezone = Column(String(50), nullable=False)  # e.g., "America/New_York" (timezone name for DST handling)
     days_of_week = Column(JSON, nullable=False)  # ["monday", "tuesday", ...]
     
     # Next scheduled notification (pre-calculated in UTC)

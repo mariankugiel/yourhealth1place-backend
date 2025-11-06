@@ -207,6 +207,7 @@ class UserRegistration(BaseModel):
     phone_country_code: Optional[str] = None  # Country code for phone number
     address: Optional[str] = None
     avatar_url: Optional[str] = None  # User profile picture URL
+    timezone: Optional[str] = None  # User timezone preference (e.g., "America/New_York")
     emergency_contact_name: Optional[str] = None
     emergency_contact_phone: Optional[str] = None
     emergency_contact_relationship: Optional[str] = None

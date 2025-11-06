@@ -43,3 +43,38 @@ class AppointmentResponse(AppointmentBase):
 
     class Config:
         from_attributes = True 
+
+
+# New schemas for Acuity integration
+class AcuityEmbedResponse(BaseModel):
+    """Response model for Acuity embed URL"""
+    embed_url: str
+    iframe_src: str
+    owner_id: str
+    calendar_id: Optional[str] = None
+
+
+class VideoRoomResponse(BaseModel):
+    """Response model for Daily.co video room"""
+    room_url: str
+    room_name: str
+    patient_token: str
+    professional_token: Optional[str] = None
+
+
+class AcuityWebhookPayload(BaseModel):
+    """Acuity webhook payload structure"""
+    id: str
+    calendarID: str
+    appointmentTypeID: Optional[int] = None
+    firstName: Optional[str] = None
+    lastName: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    datetime: Optional[str] = None
+    timezone: Optional[str] = None
+    notes: Optional[str] = None
+    canceled: Optional[bool] = False
+    calendarTimezone: Optional[str] = None
+    canClientCancel: Optional[bool] = True
+    canClientReschedule: Optional[bool] = True 
