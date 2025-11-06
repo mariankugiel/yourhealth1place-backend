@@ -68,4 +68,13 @@ class Settings(BaseSettings):
     LAMBDA_WEBHOOK_TOKEN: str = "your-lambda-webhook-token"
     OPENAI_TEMPERATURE: float = 0.1
 
+    # Acuity Scheduling API Configuration
+    ACUITY_USER_ID: str = ""
+    ACUITY_API_KEY: str = ""
+    
+    # Daily.co Video API Configuration
+    DAILY_API_KEY: str = ""
+    DAILY_API_URL: str = "https://api.daily.co/v1"
+    DAILY_DOMAIN: str = ""  # Optional, for custom domain
+
 settings = Settings() 

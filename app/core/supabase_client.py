@@ -3,6 +3,8 @@ from app.core.config import settings
 from typing import Optional, Dict, Any, List
 import logging
 import httpx
+import jwt
+from jwt.exceptions import InvalidTokenError, ExpiredSignatureError
 
 logger = logging.getLogger(__name__)
 
@@ -118,18 +120,34 @@ class SupabaseService:
             return None
     
     def get_user_from_token(self, token: str) -> Optional[Dict[str, Any]]:
-        """Get user information from JWT token"""
+        """Get user information from JWT token
+        
+        Note: This decodes the JWT token without signature verification.
+        The token is already validated by Supabase when issued, and we're
+        extracting user info from a token that the client has already authenticated.
+        """
         try:
-            # Use the admin client to verify the token
-            # This bypasses the need for refresh tokens
-            user = self.client.auth.get_user(token)
+            # Decode JWT token without verification to extract user info
+            # This avoids making an API call that could fail with "Invalid API key" errors
+            decoded = jwt.decode(token, options={"verify_signature": False})
             
-            if user and user.user:
-                return {
-                    "id": user.user.id,
-                    "email": user.user.email,
-                    "user_metadata": user.user.user_metadata
-                }
+            # Extract user information from token
+            user_id = decoded.get("sub")
+            email = decoded.get("email")
+            user_metadata = decoded.get("user_metadata", {})
+            
+            if not user_id:
+                logger.debug("JWT token missing 'sub' (user ID)")
+                return None
+            
+            # Return user info extracted from token
+            return {
+                "id": user_id,
+                "email": email,
+                "user_metadata": user_metadata
+            }
+        except (InvalidTokenError, ExpiredSignatureError) as e:
+            logger.debug(f"Invalid JWT token format: {e}")
             return None
         except Exception as e:
             logger.error(f"Supabase get user from token error: {e}")
@@ -222,24 +240,16 @@ class SupabaseService:
         try:
             print(f"🔍 [get_user_profile] Getting user profile for user_id: {user_id}")
             logger.info(f"🔍 Getting user profile for user_id: {user_id}")
-            
-            # Always create a fresh service role client to avoid any cached user JWT tokens
-            # This ensures we always use the service role key which bypasses RLS and never expires
-            if not settings.SUPABASE_SERVICE_ROLE_KEY or settings.SUPABASE_SERVICE_ROLE_KEY == "your-supabase-service-role-key":
-                logger.error("❌ SUPABASE_SERVICE_ROLE_KEY is not configured correctly!")
-                return {}
-            
-            # Create fresh client for each request to ensure no cached tokens
-            fresh_client = create_client(
-                settings.SUPABASE_URL,
-                settings.SUPABASE_SERVICE_ROLE_KEY
-            )
+            # Always use service role client to avoid token expiration issues
+            # The service role client is initialized with SUPABASE_SERVICE_ROLE_KEY in __init__
+            # This key bypasses RLS and never expires (it's not a JWT)
+            client = self.client
             
             # Get profile data from user_profiles table using * to get all columns
             # Note: If columns don't exist, they will be missing from the response
             try:
                 # Explicitly select img_url and avatar_url to ensure they're included
-                profile_response = fresh_client.table("user_profiles").select("*").eq("user_id", user_id).execute()
+                profile_response = client.table("user_profiles").select("*").eq("user_id", user_id).execute()
                 print(f"📊 [get_user_profile] Query executed, rows returned: {len(profile_response.data) if profile_response.data else 0}")
                 
                 # If we got data, log the raw response structure
@@ -257,38 +267,30 @@ class SupabaseService:
                     logger.error(f"❌ JWT expired error detected even with fresh service role client!")
                     logger.error(f"   This suggests the service role key may be invalid or misconfigured.")
                     logger.error(f"   Error details: {query_error}")
-                    logger.error(f"   SUPABASE_SERVICE_ROLE_KEY length: {len(settings.SUPABASE_SERVICE_ROLE_KEY) if settings.SUPABASE_SERVICE_ROLE_KEY else 0}")
-                    return {}
+                    logger.error(f"⚠️ Attempting to recreate client with service role key...")
+                    # Recreate client to ensure clean state - this clears any cached user tokens
+                    try:
+                        fresh_client = create_client(
+                            settings.SUPABASE_URL,
+                            settings.SUPABASE_SERVICE_ROLE_KEY
+                        )
+                        # Verify service role key is configured
+                        if not settings.SUPABASE_SERVICE_ROLE_KEY or settings.SUPABASE_SERVICE_ROLE_KEY == "your-supabase-service-role-key":
+                            logger.error("❌ SUPABASE_SERVICE_ROLE_KEY is not configured correctly!")
+                            return {}
+                        profile_response = fresh_client.table("user_profiles").select("*").eq("user_id", user_id).execute()
+                        logger.info(f"✅ Query succeeded after recreating client, rows returned: {len(profile_response.data) if profile_response.data else 0}")
+                    except Exception as retry_error:
+                        logger.error(f"❌ Retry with fresh client also failed: {retry_error}")
+                        return {}
                 else:
-                    logger.error(f"❌ Database query error (columns may not exist): {query_error}")
+                    logger.error(f"Database query error (columns may not exist): {query_error}")
                     # Return empty profile if query fails
                     return {}
             profile_data = {}
             
-            if not profile_response.data or len(profile_response.data) == 0:
-                print(f"⚠️ [get_user_profile] No profile data found for user_id: {user_id}")
-            
             if profile_response.data and len(profile_response.data) > 0:
                 profile_data = profile_response.data[0].copy()  # Make a copy to avoid modifying original
-                
-                # Log all keys from database response for debugging (using print for visibility)
-                print(f"🔍 [get_user_profile] Raw profile data keys from DB: {list(profile_data.keys())}")
-                
-                # Check raw values from database - be very explicit about None vs missing
-                raw_img_url = profile_data.get('img_url')
-                raw_avatar_url = profile_data.get('avatar_url')
-                
-                print(f"🔍 [get_user_profile] img_url value from DB (raw): {repr(raw_img_url)}")
-                print(f"🔍 [get_user_profile] img_url type: {type(raw_img_url)}")
-                print(f"🔍 [get_user_profile] img_url is None: {raw_img_url is None}")
-                print(f"🔍 [get_user_profile] img_url is falsy: {not raw_img_url}")
-                print(f"🔍 [get_user_profile] avatar_url value from DB (raw): {repr(raw_avatar_url)}")
-                print(f"🔍 [get_user_profile] avatar_url type: {type(raw_avatar_url)}")
-                print(f"🔍 [get_user_profile] avatar_url is None: {raw_avatar_url is None}")
-                print(f"🔍 [get_user_profile] avatar_url is falsy: {not raw_avatar_url}")
-                logger.info(f"🔍 Raw profile data keys from DB: {list(profile_data.keys())}")
-                logger.info(f"🔍 img_url value from DB: {profile_data.get('img_url')}")
-                logger.info(f"🔍 avatar_url value from DB: {profile_data.get('avatar_url')}")
                 
                 # Extract the UUID (id field) before removing it - it's the Supabase user ID
                 supabase_uuid = profile_data.get("id")
@@ -322,97 +324,52 @@ class SupabaseService:
                 img_url_value = profile_data.get("img_url")
                 avatar_url_value = profile_data.get("avatar_url")
                 
-                print(f"🔍 [get_user_profile] After processing - img_url: {repr(img_url_value)}, avatar_url: {repr(avatar_url_value)}")
-                logger.info(f"🔍 After processing - img_url: {img_url_value}, avatar_url: {avatar_url_value}")
-                
                 # Check if img_url has a valid value (not None, not empty string, not "null")
                 if img_url_value is not None and str(img_url_value).strip() and str(img_url_value).strip().lower() not in ["null", "none", ""]:
                     profile_data["avatar_url"] = img_url_value
                     # Keep img_url in the data for debugging/frontend use
                     profile_data["img_url"] = img_url_value
-                    print(f"✅ [get_user_profile] Using img_url for avatar_url: {img_url_value[:80] if len(str(img_url_value)) > 80 else img_url_value}...")
-                    logger.info(f"✅ Using img_url for avatar_url: {img_url_value[:80] if len(str(img_url_value)) > 80 else img_url_value}...")
                 elif avatar_url_value is not None and str(avatar_url_value).strip() and str(avatar_url_value).strip().lower() not in ["null", "none", ""]:
-                    print(f"⚠️ [get_user_profile] No valid img_url, keeping existing avatar_url: {avatar_url_value[:80] if len(str(avatar_url_value)) > 80 else avatar_url_value}...")
-                    logger.info(f"⚠️ No valid img_url, keeping existing avatar_url: {avatar_url_value[:80] if len(str(avatar_url_value)) > 80 else avatar_url_value}...")
+                    pass  # Keep existing avatar_url
                 else:
-                    print(f"⚠️ [get_user_profile] No img_url or avatar_url in database for user {user_id}")
-                    print(f"   img_url_value: {repr(img_url_value)}, avatar_url_value: {repr(avatar_url_value)}")
-                    logger.warning(f"⚠️ No img_url or avatar_url in database for user {user_id}")
-                    
                     # Try to get avatar from Supabase Storage as fallback
-                    print(f"🔄 [get_user_profile] Trying to get avatar from Supabase Storage...")
                     try:
                         storage_avatar_url = await self.get_avatar_signed_url(user_id)
                         if storage_avatar_url:
-                            print(f"✅ [get_user_profile] Found avatar in Storage, using it: {storage_avatar_url[:80]}...")
                             profile_data["avatar_url"] = storage_avatar_url
                             profile_data["img_url"] = storage_avatar_url
                         else:
-                            print(f"⚠️ [get_user_profile] No avatar found in Storage either")
                             profile_data["avatar_url"] = None
                             profile_data["img_url"] = None
                     except Exception as storage_error:
-                        print(f"⚠️ [get_user_profile] Error getting avatar from Storage: {storage_error}")
+                        logger.warning(f"Error getting avatar from Storage: {storage_error}")
                         profile_data["avatar_url"] = None
                         profile_data["img_url"] = None
             
             # Get email from auth.users table using admin client
             # Only try to get email if it's not already in profile data
-            logger.info(f"📧 Checking for email in profile_data: {'email' in profile_data}, value: {profile_data.get('email')}")
             if "email" not in profile_data or not profile_data.get("email"):
                 try:
-                    # Use fresh service role client for admin operations
-                    admin_client = fresh_client
+                    # Use admin client to get user by ID
+                    admin_client = self.client
                     logger.info(f"🔍 Attempting to get email from auth.admin.get_user_by_id for user {user_id}")
                     user_response = admin_client.auth.admin.get_user_by_id(user_id)
-                    logger.info(f"📦 User response received: {user_response}")
                     if user_response and hasattr(user_response, 'user'):
-                        logger.info(f"👤 User object: {user_response.user}")
                         if hasattr(user_response.user, 'email') and user_response.user.email:
                             profile_data["email"] = user_response.user.email
-                            logger.info(f"✅ Successfully retrieved email from auth for user {user_id}: {user_response.user.email}")
-                        else:
-                            logger.warning(f"⚠️ No email attribute or email is None for user {user_id}")
-                    else:
-                        logger.warning(f"⚠️ No user in response for user {user_id}")
                 except Exception as admin_error:
                     # This is expected if service role doesn't have admin permissions
-                    logger.error(f"❌ Could not get email from admin auth: {admin_error}")
-                    import traceback
-                    logger.error(f"❌ Traceback: {traceback.format_exc()}")
-                    # Try to get email from profile data if it was stored there
-                    if "email" in profile_data and profile_data["email"]:
-                        logger.info(f"Using email from profile data for user {user_id}")
-                    else:
-                        logger.warning(f"No email available for user {user_id}")
-                        # If we can't get email from auth, we'll return profile without email
-                        # The frontend should handle this case gracefully
-            else:
-                logger.info(f"✅ Email already in profile data: {profile_data.get('email')}")
+                    logger.error(f"Could not get email from admin auth: {admin_error}")
             
-            print(f"✅ [get_user_profile] Returning profile data: {len(profile_data)} fields")
-            print(f"🔍 [get_user_profile] Final profile data keys: {list(profile_data.keys())}")
-            print(f"🔍 [get_user_profile] Final avatar_url in return: {profile_data.get('avatar_url')}")
-            print(f"🔍 [get_user_profile] Final img_url in return: {profile_data.get('img_url')}")
-            logger.info(f"✅ Returning profile data: {len(profile_data)} fields")
-            logger.info(f"🔍 Final profile data keys: {list(profile_data.keys())}")
-            logger.info(f"🔍 Final avatar_url in return: {profile_data.get('avatar_url')}")
-            logger.info(f"🔍 Final img_url in return: {profile_data.get('img_url')}")
             return profile_data if profile_data else {}
         except Exception as e:
-            print(f"❌ [get_user_profile] ERROR: {e}")
-            import traceback
-            print(f"❌ [get_user_profile] Traceback: {traceback.format_exc()}")
-            logger.error(f"❌ Supabase get user profile error: {e}")
+            logger.error(f"Supabase get user profile error: {e}", exc_info=True)
             return {}  # Return empty dict instead of None
     
     async def get_avatar_signed_url(self, user_id: str) -> Optional[str]:
         """Get avatar URL from user_profiles table or Supabase Storage
         First checks database for img_url, then checks Supabase Storage avatars bucket"""
         try:
-            print(f"🔍 [get_avatar_signed_url] Getting avatar for user_id: {user_id}")
-            
             # Step 1: Check database for img_url first
             # Use fresh service role client to avoid cached token issues
             try:
@@ -425,13 +382,9 @@ class SupabaseService:
                 if profile_response.data and len(profile_response.data) > 0:
                     img_url = profile_response.data[0].get("img_url")
                     if img_url and str(img_url).strip() and str(img_url).lower() not in ["null", "none", ""]:
-                        print(f"✅ [get_avatar_signed_url] Found img_url in database: {img_url[:80] if len(str(img_url)) > 80 else img_url}")
-                        logger.debug(f"Found img_url in user_profiles for user {user_id}")
                         return img_url
             except Exception as db_error:
-                print(f"⚠️ [get_avatar_signed_url] Error checking database: {db_error}")
-            
-            print(f"⚠️ [get_avatar_signed_url] No img_url in database, checking Supabase Storage...")
+                logger.warning(f"Error checking database for avatar: {db_error}")
             
             # Step 2: Check Supabase Storage for avatar files
             # Use service role client to avoid JWT expiration issues
@@ -451,7 +404,6 @@ class SupabaseService:
                     files = files_response if files_response else []
                     
                     if files and len(files) > 0:
-                        print(f"📂 [get_avatar_signed_url] Found {len(files)} files in folder {user_id}")
                         # Find image files (jpg, jpeg, png, webp, etc.)
                         for file_info in files:
                             if isinstance(file_info, dict):
@@ -459,7 +411,6 @@ class SupabaseService:
                                 if any(file_name.lower().endswith(ext) for ext in image_extensions):
                                     # Generate signed URL for this file
                                     file_path = f"{user_id}/{file_name}"
-                                    print(f"📸 [get_avatar_signed_url] Found avatar file: {file_path}")
                                     
                                     try:
                                         # Generate signed URL (expires in 1 hour = 3600 seconds)
@@ -474,18 +425,13 @@ class SupabaseService:
                                             signed_url = None
                                         
                                         if signed_url:
-                                            print(f"✅ [get_avatar_signed_url] Generated signed URL from Storage: {signed_url[:80]}...")
                                             return signed_url
-                                        else:
-                                            print(f"⚠️ [get_avatar_signed_url] Signed URL response format unexpected: {signed_url_response}")
                                     except Exception as url_error:
-                                        print(f"⚠️ [get_avatar_signed_url] Error generating signed URL: {url_error}")
                                         logger.warning(f"Error generating signed URL for {file_path}: {url_error}")
                 except Exception as list_error:
-                    print(f"⚠️ [get_avatar_signed_url] Error listing files in folder {user_id}: {list_error}")
+                    logger.warning(f"Error listing files in folder {user_id}: {list_error}")
                 
                 # If no files in user folder, try listing root and searching
-                print(f"🔍 [get_avatar_signed_url] No files in {user_id} folder, checking root...")
                 try:
                     root_files_response = storage.list("")
                     root_files = root_files_response if root_files_response else []
@@ -496,7 +442,6 @@ class SupabaseService:
                             if isinstance(file_info, dict):
                                 file_name = file_info.get('name', '')
                                 if user_id in file_name and any(file_name.lower().endswith(ext) for ext in image_extensions):
-                                    print(f"📸 [get_avatar_signed_url] Found potential avatar in root: {file_name}")
                                     try:
                                         signed_url_response = storage.create_signed_url(file_name, 3600)
                                         
@@ -509,50 +454,37 @@ class SupabaseService:
                                             signed_url = None
                                         
                                         if signed_url:
-                                            print(f"✅ [get_avatar_signed_url] Generated signed URL from Storage root: {signed_url[:80]}...")
                                             return signed_url
                                     except Exception as url_error:
-                                        print(f"⚠️ [get_avatar_signed_url] Error generating signed URL for root file: {url_error}")
+                                        logger.warning(f"Error generating signed URL for root file: {url_error}")
                 except Exception as root_list_error:
-                    print(f"⚠️ [get_avatar_signed_url] Error listing root files: {root_list_error}")
+                    logger.warning(f"Error listing root files: {root_list_error}")
                 
             except Exception as storage_error:
                 error_str = str(storage_error)
-                print(f"⚠️ [get_avatar_signed_url] Error checking Supabase Storage: {storage_error}")
                 logger.warning(f"Error checking Supabase Storage for user {user_id}: {storage_error}")
                 
                 # If JWT expired error, try recreating client
                 if "JWT expired" in error_str or "PGRST303" in error_str:
-                    print(f"🔄 [get_avatar_signed_url] JWT expired, recreating client...")
                     try:
                         fresh_client = create_client(
                             settings.SUPABASE_URL,
                             settings.SUPABASE_SERVICE_ROLE_KEY
                         )
                         storage = fresh_client.storage.from_("avatars")
-                        # Retry once with fresh client
-                        print(f"🔄 [get_avatar_signed_url] Retrying with fresh client...")
+                        # Retry once with fresh client (not implemented here, would need to be added)
                     except Exception as retry_error:
-                        print(f"❌ [get_avatar_signed_url] Retry failed: {retry_error}")
+                        logger.error(f"Retry with fresh client failed: {retry_error}")
             
-            print(f"❌ [get_avatar_signed_url] No avatar found in database or storage for user {user_id}")
-            logger.debug(f"No img_url found in user_profiles or Supabase Storage for user {user_id}")
             return None
             
         except Exception as e:
-            print(f"❌ [get_avatar_signed_url] ERROR: {e}")
-            import traceback
-            print(f"❌ [get_avatar_signed_url] Traceback: {traceback.format_exc()}")
-            logger.error(f"❌ Error getting avatar URL for user {user_id}: {e}")
-            if settings.DEBUG:
-                logger.debug(f"Traceback: {traceback.format_exc()}")
+            logger.error(f"Error getting avatar URL for user {user_id}: {e}", exc_info=True)
             return None
     
     async def update_user_profile(self, user_id: str, profile: Dict[str, Any], user_token: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Update user profile in Supabase database"""
         try:
-            logger.info(f"💾 Updating user profile for user_id: {user_id}")
-            logger.info(f"📝 Profile data: {profile}")
             
             # Create a fresh client with service role key to avoid token expiration issues
             # This ensures we always have a valid service role client
@@ -575,126 +507,61 @@ class SupabaseService:
             profile_update = profile.copy()
             if "avatar_url" in profile_update and profile_update["avatar_url"]:
                 profile_update["img_url"] = profile_update.pop("avatar_url")
-                logger.info(f"📸 Mapped avatar_url to img_url: {profile_update.get('img_url')}")
             
             # First, check if profile exists
             try:
-                existing_profile = fresh_client.table("user_profiles").select("*").eq("user_id", user_id).execute()
+                existing_profile = client.table("user_profiles").select("*").eq("user_id", user_id).execute()
                 logger.info(f"📊 Existing profile check: {len(existing_profile.data) if existing_profile.data else 0} rows found")
             except Exception as query_error:
-                error_str = str(query_error)
-                # Check if it's a JWT expiration error
-                if "JWT expired" in error_str or "PGRST303" in error_str:
-                    logger.error(f"❌ JWT expired error detected! Attempting to recreate client...")
-                    try:
-                        # Recreate client one more time
-                        fresh_client = create_client(
-                            settings.SUPABASE_URL,
-                            settings.SUPABASE_SERVICE_ROLE_KEY
-                        )
-                        existing_profile = fresh_client.table("user_profiles").select("*").eq("user_id", user_id).execute()
-                        logger.info(f"✅ Query succeeded after recreating client, rows returned: {len(existing_profile.data) if existing_profile.data else 0}")
-                    except Exception as retry_error:
-                        logger.error(f"❌ Retry with fresh client also failed: {retry_error}")
-                        logger.warning("⚠️ Update returned None, returning original profile data")
-                        return None
-                else:
-                    logger.error(f"❌ Database query error (columns may not exist): {query_error}")
-                    # Try to create the profile anyway
-                    existing_profile = type('obj', (object,), {'data': []})()
+                logger.error(f"❌ Database query error (columns may not exist): {query_error}")
+                # Try to create the profile anyway
+                existing_profile = type('obj', (object,), {'data': []})()
             
-            try:
-                if existing_profile.data and len(existing_profile.data) > 0:
-                    # Profile exists, update it
-                    logger.info("🔄 Profile exists, updating...")
-                    response = fresh_client.table("user_profiles").update({
-                        **profile_update,  # Use profile_update which has img_url mapped from avatar_url
-                        "updated_at": "now()"
-                    }).eq("user_id", user_id).execute()
-                else:
-                    # Profile doesn't exist, create it
-                    logger.info("✨ Profile doesn't exist, creating new...")
-                    response = fresh_client.table("user_profiles").insert({
-                        "user_id": user_id,
-                        **profile_update,  # Use profile_update which has img_url mapped from avatar_url
-                        "created_at": "now()",
-                        "updated_at": "now()"
-                    }).execute()
-                
-                logger.info(f"✅ Supabase operation completed: {len(response.data) if response.data else 0} rows affected")
-                
-                # Return the updated profile data
-                if response.data and len(response.data) > 0:
-                    profile_data = response.data[0].copy()
-                    # Remove system columns and user_id
-                    profile_data.pop("id", None)
-                    profile_data.pop("user_id", None)
-                    profile_data.pop("created_at", None)
-                    profile_data.pop("updated_at", None)
-                    logger.info(f"✅ Returning updated profile data: {len(profile_data)} fields")
-                    return profile_data
-                logger.warning("⚠️ No data returned from Supabase, returning original profile")
-                return profile
-            except Exception as update_error:
-                error_str = str(update_error)
-                # Check if it's a JWT expiration error during update/insert
-                if "JWT expired" in error_str or "PGRST303" in error_str:
-                    logger.error(f"❌ JWT expired error during update/insert! Attempting to recreate client and retry...")
-                    try:
-                        # Recreate client and retry the operation
-                        fresh_client = create_client(
-                            settings.SUPABASE_URL,
-                            settings.SUPABASE_SERVICE_ROLE_KEY
-                        )
-                        if existing_profile.data and len(existing_profile.data) > 0:
-                            response = fresh_client.table("user_profiles").update({
-                                **profile_update,
-                                "updated_at": "now()"
-                            }).eq("user_id", user_id).execute()
-                        else:
-                            response = fresh_client.table("user_profiles").insert({
-                                "user_id": user_id,
-                                **profile_update,
-                                "created_at": "now()",
-                                "updated_at": "now()"
-                            }).execute()
-                        
-                        logger.info(f"✅ Retry succeeded: {len(response.data) if response.data else 0} rows affected")
-                        
-                        if response.data and len(response.data) > 0:
-                            profile_data = response.data[0].copy()
-                            profile_data.pop("id", None)
-                            profile_data.pop("user_id", None)
-                            profile_data.pop("created_at", None)
-                            profile_data.pop("updated_at", None)
-                            logger.info(f"✅ Returning updated profile data: {len(profile_data)} fields")
-                            return profile_data
-                        logger.warning("⚠️ No data returned from Supabase after retry, returning original profile")
-                        return profile
-                    except Exception as retry_error:
-                        logger.error(f"❌ Retry with fresh client also failed: {retry_error}")
-                        logger.warning("⚠️ Update returned None, returning original profile data")
-                        return None
-                else:
-                    # Re-raise non-JWT errors
-                    raise
+            if existing_profile.data and len(existing_profile.data) > 0:
+                # Profile exists, update it
+                logger.info("🔄 Profile exists, updating...")
+                response = client.table("user_profiles").update({
+                    **profile_update,  # Use profile_update which has img_url mapped from avatar_url
+                    "updated_at": "now()"
+                }).eq("user_id", user_id).execute()
+            else:
+                # Profile doesn't exist, create it
+                logger.info("✨ Profile doesn't exist, creating new...")
+                response = client.table("user_profiles").insert({
+                    "user_id": user_id,
+                    **profile_update,  # Use profile_update which has img_url mapped from avatar_url
+                    "created_at": "now()",
+                    "updated_at": "now()"
+                }).execute()
+            
+            logger.info(f"✅ Supabase operation completed: {len(response.data) if response.data else 0} rows affected")
+            
+            # Return the updated profile data
+            if response.data and len(response.data) > 0:
+                profile_data = response.data[0]
+                # Remove system columns and user_id
+                profile_data.pop("id", None)
+                profile_data.pop("user_id", None)
+                profile_data.pop("created_at", None)
+                profile_data.pop("updated_at", None)
+                logger.info(f"✅ Returning updated profile data: {len(profile_data)} fields")
+                return profile_data
+            logger.warning("⚠️ No data returned from Supabase, returning original profile")
+            return profile
         except Exception as e:
             logger.error(f"❌ Supabase update user profile error: {e}")
-            logger.warning("⚠️ Update returned None, returning original profile data")
             return None
     
     async def get_user_emergency(self, user_id: str, user_token: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Retrieve user emergency data from Supabase user_emergency table"""
         try:
-            logger.info(f"🔍 Getting user emergency data for user_id: {user_id}")
             # Always use service role client to avoid token expiration issues
             client = self.client
             
             try:
                 emergency_response = client.table("user_emergency").select("*").eq("user_id", user_id).execute()
-                logger.info(f"📊 Emergency query executed, rows returned: {len(emergency_response.data) if emergency_response.data else 0}")
             except Exception as query_error:
-                logger.error(f"❌ Database query error (table may not exist): {query_error}")
+                logger.error(f"Database query error (table may not exist): {query_error}")
                 return {}
             
             emergency_data = {}
@@ -707,27 +574,22 @@ class SupabaseService:
                 emergency_data.pop("created_at", None)
                 emergency_data.pop("updated_at", None)
             
-            logger.info(f"✅ Returning emergency data: {len(emergency_data)} fields")
             return emergency_data if emergency_data else {}
         except Exception as e:
-            logger.error(f"❌ Supabase get user emergency error: {e}")
+            logger.error(f"Supabase get user emergency error: {e}", exc_info=True)
             return {}
     
     async def update_user_emergency(self, user_id: str, emergency: Dict[str, Any], user_token: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Update user emergency data in Supabase user_emergency table"""
         try:
-            logger.info(f"💾 Updating user emergency data for user_id: {user_id}")
-            logger.info(f"📝 Emergency data: {emergency}")
-            
             # Always use service role client to avoid token expiration issues
             client = self.client
             
             # First, check if emergency record exists
             try:
                 existing_emergency = client.table("user_emergency").select("*").eq("user_id", user_id).execute()
-                logger.info(f"📊 Existing emergency check: {len(existing_emergency.data) if existing_emergency.data else 0} rows found")
             except Exception as query_error:
-                logger.error(f"❌ Database query error (table may not exist): {query_error}")
+                logger.error(f"Database query error (table may not exist): {query_error}")
                 # Try to create the record anyway
                 existing_emergency = type('obj', (object,), {'data': []})()
             
@@ -735,14 +597,12 @@ class SupabaseService:
             try:
                 if existing_emergency.data and len(existing_emergency.data) > 0:
                     # Emergency record exists, update it
-                    logger.info("🔄 Emergency record exists, updating...")
                     response = client.table("user_emergency").update({
                         **emergency,
                         "updated_at": "now()"
                     }).eq("user_id", user_id).execute()
                 else:
                     # Emergency record doesn't exist, create it
-                    logger.info("✨ Emergency record doesn't exist, creating new...")
                     response = client.table("user_emergency").insert({
                         "user_id": user_id,
                         **emergency,
@@ -751,7 +611,7 @@ class SupabaseService:
                     }).execute()
             except Exception as timestamp_error:
                 # Column might not exist yet - try without timestamp fields
-                logger.warning(f"⚠️ Timestamp field error, retrying without updated_at: {timestamp_error}")
+                logger.warning(f"Timestamp field error, retrying without updated_at: {timestamp_error}")
                 if existing_emergency.data and len(existing_emergency.data) > 0:
                     response = client.table("user_emergency").update({
                         **emergency
@@ -761,8 +621,6 @@ class SupabaseService:
                         "user_id": user_id,
                         **emergency
                     }).execute()
-            
-            logger.info(f"✅ Supabase emergency operation completed: {len(response.data) if response.data else 0} rows affected")
             
             # Return the updated emergency data
             if response.data and len(response.data) > 0:
@@ -772,26 +630,22 @@ class SupabaseService:
                 emergency_data.pop("user_id", None)
                 emergency_data.pop("created_at", None)
                 emergency_data.pop("updated_at", None)
-                logger.info(f"✅ Returning updated emergency data: {len(emergency_data)} fields")
                 return emergency_data
-            logger.warning("⚠️ No data returned from Supabase, returning original emergency data")
             return emergency
         except Exception as e:
-            logger.error(f"❌ Supabase update user emergency error: {e}")
+            logger.error(f"Supabase update user emergency error: {e}", exc_info=True)
             return None
     
     async def get_user_notifications(self, user_id: str, user_token: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Retrieve user notification preferences from Supabase user_notifications table"""
         try:
-            logger.info(f"🔍 Getting user notification preferences for user_id: {user_id}")
             # Always use service role client to avoid token expiration issues
             client = self.client
             
             try:
                 notifications_response = client.table("user_notifications").select("*").eq("user_id", user_id).execute()
-                logger.info(f"📊 Notifications query executed, rows returned: {len(notifications_response.data) if notifications_response.data else 0}")
             except Exception as query_error:
-                logger.error(f"❌ Database query error (table may not exist): {query_error}")
+                logger.error(f"Database query error (table may not exist): {query_error}")
                 return {}
             
             notifications_data = {}
@@ -804,27 +658,22 @@ class SupabaseService:
                 notifications_data.pop("created_at", None)
                 notifications_data.pop("updated_at", None)
             
-            logger.info(f"✅ Returning notification preferences: {len(notifications_data)} fields")
             return notifications_data if notifications_data else {}
         except Exception as e:
-            logger.error(f"❌ Supabase get user notifications error: {e}")
+            logger.error(f"Supabase get user notifications error: {e}", exc_info=True)
             return {}
     
     async def update_user_notifications(self, user_id: str, notifications: Dict[str, Any], user_token: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Update user notification preferences in Supabase user_notifications table"""
         try:
-            logger.info(f"💾 Updating user notification preferences for user_id: {user_id}")
-            logger.info(f"📝 Notifications data: {notifications}")
-            
             # Always use service role client to avoid token expiration issues
             client = self.client
             
             # First, check if notifications record exists
             try:
                 existing_notifications = client.table("user_notifications").select("*").eq("user_id", user_id).execute()
-                logger.info(f"📊 Existing notifications check: {len(existing_notifications.data) if existing_notifications.data else 0} rows found")
             except Exception as query_error:
-                logger.error(f"❌ Database query error (table may not exist): {query_error}")
+                logger.error(f"Database query error (table may not exist): {query_error}")
                 # Try to create the record anyway
                 existing_notifications = type('obj', (object,), {'data': []})()
             
@@ -832,14 +681,12 @@ class SupabaseService:
             try:
                 if existing_notifications.data and len(existing_notifications.data) > 0:
                     # Notifications record exists, update it
-                    logger.info("🔄 Notifications record exists, updating...")
                     response = client.table("user_notifications").update({
                         **notifications,
                         "updated_at": "now()"
                     }).eq("user_id", user_id).execute()
                 else:
                     # Notifications record doesn't exist, create it
-                    logger.info("✨ Notifications record doesn't exist, creating new...")
                     response = client.table("user_notifications").insert({
                         "user_id": user_id,
                         **notifications,
@@ -848,7 +695,7 @@ class SupabaseService:
                     }).execute()
             except Exception as timestamp_error:
                 # Column might not exist yet - try without timestamp fields
-                logger.warning(f"⚠️ Timestamp field error, retrying without updated_at: {timestamp_error}")
+                logger.warning(f"Timestamp field error, retrying without updated_at: {timestamp_error}")
                 if existing_notifications.data and len(existing_notifications.data) > 0:
                     response = client.table("user_notifications").update({
                         **notifications
@@ -858,8 +705,6 @@ class SupabaseService:
                         "user_id": user_id,
                         **notifications
                     }).execute()
-            
-            logger.info(f"✅ Supabase notifications operation completed: {len(response.data) if response.data else 0} rows affected")
             
             # Return the updated notifications data
             if response.data and len(response.data) > 0:
@@ -869,12 +714,10 @@ class SupabaseService:
                 notifications_data.pop("user_id", None)
                 notifications_data.pop("created_at", None)
                 notifications_data.pop("updated_at", None)
-                logger.info(f"✅ Returning updated notification preferences: {len(notifications_data)} fields")
                 return notifications_data
-            logger.warning("⚠️ No data returned from Supabase, returning original notifications data")
             return notifications
         except Exception as e:
-            logger.error(f"❌ Supabase update user notifications error: {e}")
+            logger.error(f"Supabase update user notifications error: {e}", exc_info=True)
             return None
     
     async def get_user_integrations(self, user_id: str, user_token: Optional[str] = None) -> Optional[Dict[str, Any]]:

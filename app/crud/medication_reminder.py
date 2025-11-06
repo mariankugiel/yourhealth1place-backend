@@ -31,19 +31,27 @@ class MedicationReminderCRUD:
                 print(f"Warning: Could not get timezone from Supabase for user {user_id}: {e}")
                 user_timezone = "UTC"
         
+        # Convert reminder_time (TIME) to TIMETZ using user's timezone
+        # Create a datetime with today's date and the reminder time, then localize to user's timezone
+        user_tz = pytz.timezone(user_timezone)
+        today = datetime.now(user_tz).date()
+        reminder_datetime = user_tz.localize(datetime.combine(today, reminder.reminder_time))
+        # Extract time with timezone for TIMETZ column
+        reminder_time_tz = reminder_datetime.timetz()
+        
         db_reminder = MedicationReminder(
             medication_id=reminder.medication_id,
             user_id=user_id,
-            reminder_time=reminder.reminder_time,
+            reminder_time=reminder_time_tz,  # TIMETZ with user's timezone
             user_timezone=user_timezone,  # From user profile, not frontend
             days_of_week=reminder.days_of_week,
             enabled=reminder.enabled,
             status=ReminderStatus.ACTIVE
         )
         
-        # Calculate next scheduled time
+        # Calculate next scheduled time (use reminder_time_tz which has timezone info)
         db_reminder.next_scheduled_at = self._calculate_next_scheduled_time(
-            reminder.reminder_time,
+            reminder_time_tz,
             reminder.days_of_week,
             user_timezone
         )
@@ -104,6 +112,15 @@ class MedicationReminderCRUD:
             days_of_week = update_dict.get('days_of_week', reminder.days_of_week)
             user_timezone = reminder.user_timezone
             
+            # If reminder_time was updated, convert to TIMETZ
+            if 'reminder_time' in update_dict and isinstance(reminder_time, time):
+                user_tz = pytz.timezone(user_timezone)
+                today = datetime.now(user_tz).date()
+                reminder_datetime = user_tz.localize(datetime.combine(today, reminder_time))
+                reminder_time_tz = reminder_datetime.timetz()
+                update_dict['reminder_time'] = reminder_time_tz
+                reminder_time = reminder_time_tz
+            
             reminder.next_scheduled_at = self._calculate_next_scheduled_time(
                 reminder_time, days_of_week, user_timezone
             )
@@ -149,13 +166,14 @@ class MedicationReminderCRUD:
         db.commit()
         return True
     
-    def _calculate_next_scheduled_time(self, reminder_time: time, days_of_week: List[str], user_timezone: str) -> Optional[datetime]:
+    def _calculate_next_scheduled_time(self, reminder_time, days_of_week: List[str], user_timezone: str) -> Optional[datetime]:
         """
         Calculate the next UTC time when the reminder should be sent
         
         NOTE: Creates WEEKLY recurring reminders
         - If days_of_week = ["monday"], reminder repeats EVERY Monday
         - Checks next 7 days to find the next occurrence
+        - reminder_time can be TIME or TIMETZ object
         """
         try:
             user_tz = pytz.timezone(user_timezone)
@@ -164,15 +182,26 @@ class MedicationReminderCRUD:
             # Get current time in user's timezone
             now_user_tz = datetime.now(user_tz)
             
+            # Extract time from reminder_time (handle both TIME and TIMETZ)
+            if hasattr(reminder_time, 'tzinfo') and reminder_time.tzinfo:
+                # TIMETZ object - extract just the time part
+                reminder_time_only = reminder_time.replace(tzinfo=None)
+            elif isinstance(reminder_time, time):
+                # TIME object
+                reminder_time_only = reminder_time
+            else:
+                # Fallback: try to convert
+                reminder_time_only = reminder_time
+            
             # Check next 7 days for a valid reminder time
             for i in range(7):
                 check_date = now_user_tz + timedelta(days=i)
                 day_name = check_date.strftime('%A').lower()
                 
                 if day_name in days_of_week:
-                    # Create the reminder datetime for this day
+                    # Create the reminder datetime for this day in user's timezone
                     reminder_datetime = user_tz.localize(
-                        datetime.combine(check_date.date(), reminder_time)
+                        datetime.combine(check_date.date(), reminder_time_only)
                     )
                     
                     # Only use this if it's in the future
@@ -184,6 +213,8 @@ class MedicationReminderCRUD:
             
         except Exception as e:
             print(f"Error calculating next scheduled time: {e}")
+            import traceback
+            print(traceback.format_exc())
             return None
 
 # Create instance
