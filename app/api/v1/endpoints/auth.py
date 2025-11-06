@@ -825,6 +825,55 @@ async def get_current_user(token: str = Depends(get_supabase_token), db: Session
             detail="Invalid token"
         )
 
+@router.get("/profile/{patient_id}", response_model=UserProfile)
+async def get_patient_profile(
+    patient_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get another patient's profile (requires permission to access)"""
+    from app.core.patient_access import check_patient_access
+    
+    logger.info(f"📋 GET /profile/{patient_id} endpoint called by user_id: {current_user.id}")
+    
+    # Check if current user has permission to access this patient
+    has_access, error_msg = await check_patient_access(
+        db=db,
+        patient_id=patient_id,
+        current_user=current_user,
+        permission_type="view_health_records"
+    )
+    
+    if not has_access:
+        logger.warning(f"❌ Access denied for patient {patient_id}: {error_msg}")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=error_msg or "No permission to access this patient's data"
+        )
+    
+    # Get patient from database
+    patient_user = db.query(User).filter(User.id == patient_id).first()
+    if not patient_user:
+        logger.warning(f"❌ Patient not found: {patient_id}")
+        raise HTTPException(status_code=404, detail="Patient not found")
+    
+    # Get patient's profile from Supabase
+    try:
+        profile_data = await supabase_service.get_user_profile(patient_user.supabase_user_id)
+        
+        if not profile_data:
+            logger.info(f"⚠️ No profile data found for patient {patient_id}, returning empty UserProfile")
+            return UserProfile()
+        
+        logger.info(f"✅ Returning profile data for patient {patient_id}")
+        return UserProfile(**profile_data)
+    except Exception as e:
+        logger.error(f"❌ Error getting patient profile: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get patient profile"
+        )
+
 @router.get("/shared-access", response_model=UserSharedAccess)
 async def get_user_shared_access(
     current_user_id: str = Depends(get_user_id_from_token),
@@ -1012,7 +1061,7 @@ async def get_accessible_patients(
     db: Session = Depends(get_db),
     authorization: Optional[str] = Header(None)
 ):
-    """Get list of patients that current user has permission to access"""
+    """Get list of patients that current user has permission to access (including self)"""
     logger.info(f"📋 GET /accessible-patients endpoint called for user_id: {current_user_id}")
     try:
         from app.crud.user import get_user_by_email
@@ -1025,13 +1074,52 @@ async def get_accessible_patients(
             logger.warning("⚠️ Current user has no email address")
             return {"accessible_patients": []}
         
+        # Add current user as first item with full permissions
+        try:
+            # Get current user's profile from Supabase
+            current_user_profile = await supabase_service.get_user_profile(current_user_db.supabase_user_id)
+            current_user_name = current_user_profile.get("full_name", current_user_db.email) if current_user_profile else current_user_db.email
+        except Exception as e:
+            logger.warning(f"Could not get current user profile: {e}")
+            current_user_name = current_user_db.email
+        
+        # Add current user with full permissions
+        accessible_patients.append({
+            "patient_id": current_user_db.id,
+            "patient_supabase_id": current_user_db.supabase_user_id,
+            "patient_name": current_user_name,
+            "patient_email": current_user_db.email,
+            "permissions": {
+                "can_view_health_records": True,
+                "can_view_medical_history": True,
+                "can_view_health_plans": True,
+                "can_view_medications": True,
+                "can_view_appointments": True,
+                "can_view_messages": True,
+                "can_view_lab_results": True,
+                "can_view_imaging": True,
+            },
+            "granted_for": "Self",
+            "expires_at": None
+        })
+        logger.info(f"✅ Added current user ({current_user_db.id}) to accessible patients list")
+        
         logger.info(f"🔍 Looking for permissions for email: {current_user_email}")
         
         # Get all user_shared_access records from Supabase
         # We need to check all users' shared_access records to see if current user's email is in them
         try:
+            # Create a fresh client with service role key to avoid JWT expiration issues
+            from supabase import create_client
+            from app.core.config import settings
+            
+            fresh_client = create_client(
+                settings.SUPABASE_URL,
+                settings.SUPABASE_SERVICE_ROLE_KEY
+            )
+            
             # Get all user_shared_access records
-            all_shared_access = supabase_service.client.table("user_shared_access").select("*").execute()
+            all_shared_access = fresh_client.table("user_shared_access").select("*").execute()
             
             if all_shared_access.data:
                 for shared_access_record in all_shared_access.data:
@@ -1050,7 +1138,8 @@ async def get_accessible_patients(
                                     accessible_patients,
                                     patient_supabase_id,
                                     contact,
-                                    db
+                                    db,
+                                    current_user_db.id
                                 )
                     
                     # Check family_friends
@@ -1064,10 +1153,61 @@ async def get_accessible_patients(
                                     accessible_patients,
                                     patient_supabase_id,
                                     contact,
-                                    db
+                                    db,
+                                    current_user_db.id
                                 )
         except Exception as e:
-            logger.error(f"❌ Error querying user_shared_access: {e}")
+            error_str = str(e)
+            # Check if it's a JWT expiration error
+            if "JWT expired" in error_str or "PGRST303" in error_str:
+                logger.error(f"❌ JWT expired error detected! Attempting to recreate client...")
+                try:
+                    # Recreate client one more time
+                    from supabase import create_client
+                    from app.core.config import settings
+                    fresh_client = create_client(
+                        settings.SUPABASE_URL,
+                        settings.SUPABASE_SERVICE_ROLE_KEY
+                    )
+                    all_shared_access = fresh_client.table("user_shared_access").select("*").execute()
+                    logger.info(f"✅ Query succeeded after recreating client")
+                    
+                    # Process the data again
+                    if all_shared_access.data:
+                        for shared_access_record in all_shared_access.data:
+                            patient_supabase_id = shared_access_record.get("user_id")
+                            if not patient_supabase_id:
+                                continue
+                            
+                            # Check health_professionals
+                            health_professionals = shared_access_record.get("health_professionals", [])
+                            if isinstance(health_professionals, list):
+                                for contact in health_professionals:
+                                    contact_email = contact.get("profile_email") or contact.get("email")
+                                    if contact_email and contact_email.lower() == current_user_email.lower():
+                                        await _add_accessible_patient(
+                                            accessible_patients,
+                                            patient_supabase_id,
+                                            contact,
+                                            db
+                                        )
+                            
+                            # Check family_friends
+                            family_friends = shared_access_record.get("family_friends", [])
+                            if isinstance(family_friends, list):
+                                for contact in family_friends:
+                                    contact_email = contact.get("profile_email") or contact.get("email")
+                                    if contact_email and contact_email.lower() == current_user_email.lower():
+                                        await _add_accessible_patient(
+                                            accessible_patients,
+                                            patient_supabase_id,
+                                            contact,
+                                            db
+                                        )
+                except Exception as retry_error:
+                    logger.error(f"❌ Retry with fresh client also failed: {retry_error}")
+            else:
+                logger.error(f"❌ Error querying user_shared_access: {e}")
         
         # Also check PostgreSQL health_record_permissions table (for backward compatibility)
         try:
@@ -1086,6 +1226,10 @@ async def get_accessible_patients(
                 # Get patient info
                 patient = db.query(User).filter(User.id == perm.patient_id).first()
                 if not patient:
+                    continue
+                
+                # Skip if this is the current user (already added as first item)
+                if patient.id == current_user_db.id:
                     continue
                 
                 # Check if we already added this patient
@@ -1135,7 +1279,8 @@ async def _add_accessible_patient(
     accessible_patients: list,
     patient_supabase_id: str,
     contact: dict,
-    db: Session
+    db: Session,
+    current_user_id: Optional[int] = None
 ):
     """Helper function to add an accessible patient from user_shared_access contact"""
     try:
@@ -1143,6 +1288,10 @@ async def _add_accessible_patient(
         patient = db.query(User).filter(User.supabase_user_id == patient_supabase_id).first()
         if not patient:
             logger.warning(f"⚠️ Patient not found in database for supabase_id: {patient_supabase_id}")
+            return
+        
+        # Skip if this is the current user (already added as first item)
+        if current_user_id and patient.id == current_user_id:
             return
         
         # Check if already added

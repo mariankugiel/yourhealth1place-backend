@@ -3485,22 +3485,43 @@ async def bulk_create_lab_records(
     """
     try:
         logger.info(f"Starting bulk creation of {len(request.get('records', []))} lab records for user {current_user.id}")
+        logger.debug(f"Request data keys: {list(request.keys())}")
+        logger.debug(f"file_name: {request.get('file_name')}, s3_url: {request.get('s3_url')}, document_type: {request.get('document_type')}")
         
         # Import lab service
         from app.services.lab_document_analysis_service import LabDocumentAnalysisService
         lab_service = LabDocumentAnalysisService()
         
+        # Validate required fields
+        file_name = request.get('file_name')
+        s3_url = request.get('s3_url')
+        if not file_name:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="file_name is required"
+            )
+        
         # Create medical document record first
-        medical_doc = await lab_service._create_medical_document(
-            db=db,
-            user_id=current_user.id,
-            file_name=request.get('file_name', ''),
-            s3_url=request.get('s3_url', ''),
-            description=request.get('description'),
-            lab_test_date=request.get('lab_test_date'),
-            provider=request.get('provider'),
-            document_type=request.get('document_type')
-        )
+        try:
+            medical_doc = await lab_service._create_medical_document(
+                db=db,
+                user_id=current_user.id,
+                file_name=file_name,
+                s3_url=s3_url or '',
+                description=request.get('description'),
+                lab_test_date=request.get('lab_test_date'),
+                provider=request.get('provider'),
+                document_type=request.get('document_type')
+            )
+            logger.info(f"Successfully created medical document: {medical_doc.id if medical_doc else None}")
+        except Exception as doc_error:
+            logger.error(f"Failed to create medical document: {doc_error}")
+            import traceback
+            logger.error(f"Medical document creation traceback: {traceback.format_exc()}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to create medical document: {str(doc_error)}"
+            )
         
         created_records = []
         updated_records = []
@@ -3616,7 +3637,11 @@ async def bulk_create_lab_records(
         }
         
     except Exception as e:
+        import traceback
+        error_traceback = traceback.format_exc()
         logger.error(f"Failed to bulk create lab records: {e}")
+        logger.error(f"Full traceback: {error_traceback}")
+        logger.error(f"Request data: {request}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to bulk create lab records: {str(e)}"

@@ -170,7 +170,15 @@ class HealthRecordDocLabCreate(BaseModel):
     @field_validator('lab_test_date', mode='before')
     @classmethod
     def parse_lab_test_date(cls, v):
-        return parse_date_string(v)
+        # If it's already a date or None, return as is
+        if v is None or isinstance(v, date):
+            return v
+        # Try to parse if it's a string
+        try:
+            return parse_date_string(v)
+        except (ValueError, TypeError) as e:
+            # If parsing fails, return None instead of raising
+            return None
 
 class HealthRecordDocLabUpdate(BaseModel):
     health_record_type_id: Optional[int] = None
@@ -186,7 +194,15 @@ class HealthRecordDocLabUpdate(BaseModel):
     @field_validator('lab_test_date', mode='before')
     @classmethod
     def parse_lab_test_date(cls, v):
-        return parse_date_string(v)
+        # If it's already a date or None, return as is
+        if v is None or isinstance(v, date):
+            return v
+        # Try to parse if it's a string
+        try:
+            return parse_date_string(v)
+        except (ValueError, TypeError) as e:
+            # If parsing fails, return None instead of raising
+            return None
 
 class HealthRecordDocLabResponse(HealthRecordDocLabBase):
     id: int

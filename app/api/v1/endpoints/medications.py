@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 @router.post("/", response_model=MedicationResponse)
+@router.post("", response_model=MedicationResponse)
 def create_medication(
     medication: MedicationCreate,
     db: Session = Depends(get_db),
@@ -36,6 +37,7 @@ def create_medication(
         )
 
 @router.get("/", response_model=List[MedicationResponse])
+@router.get("", response_model=List[MedicationResponse])
 async def read_medications(
     skip: int = 0,
     limit: int = 100,

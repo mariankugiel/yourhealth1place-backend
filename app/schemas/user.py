@@ -89,7 +89,8 @@ class UserProfile(BaseModel):
     phone_country_code: Optional[str] = None
     phone_number: Optional[str] = None
     address: Optional[str] = None
-    avatar_url: Optional[str] = None  # User profile picture URL
+    img_url: Optional[str] = None  # User profile picture URL (prioritized over avatar_url)
+    avatar_url: Optional[str] = None  # User profile picture URL (fallback)
     role: Optional[str] = None  # User role: patient, doctor, admin
     emergency_contact_name: Optional[str] = None
     emergency_contact_country_code: Optional[str] = None

@@ -7,6 +7,8 @@ from fastapi import HTTPException, status
 from app.models.user import User
 from app.core.supabase_client import supabase_service
 from app.services.health_record_permission_service import health_record_permission_service
+from app.core.config import settings
+from supabase import create_client
 import logging
 
 logger = logging.getLogger(__name__)
@@ -55,8 +57,17 @@ async def check_patient_access(
         logger.info(f"📧 Checking access for current_user_email={current_user_email} in patient's shared access")
         
         # Check user_shared_access table in Supabase (primary method)
+        # Use service role client which bypasses RLS and doesn't require JWT
         try:
-            shared_access = supabase_service.client.table("user_shared_access").select("*").eq(
+            # Create a fresh client with service role key to avoid token expiration issues
+            # This ensures we always use a valid service role client that bypasses RLS
+            service_client = create_client(
+                settings.SUPABASE_URL,
+                settings.SUPABASE_SERVICE_ROLE_KEY
+            )
+            
+            # Query user_shared_access table using service role
+            shared_access = service_client.table("user_shared_access").select("*").eq(
                 "user_id", patient_user.supabase_user_id
             ).execute()
             
@@ -97,7 +108,12 @@ async def check_patient_access(
             else:
                 logger.warning(f"⚠️ No shared_access records found for patient {patient_id} (supabase_id={patient_user.supabase_user_id})")
         except Exception as e:
-            logger.error(f"❌ Error checking user_shared_access: {e}", exc_info=True)
+            error_msg = str(e)
+            # Check if it's a JWT expiration error
+            if "JWT expired" in error_msg or "PGRST303" in error_msg:
+                logger.warning(f"⚠️ JWT expired error when checking user_shared_access. This may indicate service role key configuration issue. Falling back to database permissions check. Error: {e}")
+            else:
+                logger.error(f"❌ Error checking user_shared_access: {e}", exc_info=True)
         
         # Fallback: Check health_record_permissions table
         has_access, reason = health_record_permission_service.check_health_record_access(

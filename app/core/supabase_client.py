@@ -222,16 +222,24 @@ class SupabaseService:
         try:
             print(f"🔍 [get_user_profile] Getting user profile for user_id: {user_id}")
             logger.info(f"🔍 Getting user profile for user_id: {user_id}")
-            # Always use service role client to avoid token expiration issues
-            # The service role client is initialized with SUPABASE_SERVICE_ROLE_KEY in __init__
-            # This key bypasses RLS and never expires (it's not a JWT)
-            client = self.client
+            
+            # Always create a fresh service role client to avoid any cached user JWT tokens
+            # This ensures we always use the service role key which bypasses RLS and never expires
+            if not settings.SUPABASE_SERVICE_ROLE_KEY or settings.SUPABASE_SERVICE_ROLE_KEY == "your-supabase-service-role-key":
+                logger.error("❌ SUPABASE_SERVICE_ROLE_KEY is not configured correctly!")
+                return {}
+            
+            # Create fresh client for each request to ensure no cached tokens
+            fresh_client = create_client(
+                settings.SUPABASE_URL,
+                settings.SUPABASE_SERVICE_ROLE_KEY
+            )
             
             # Get profile data from user_profiles table using * to get all columns
             # Note: If columns don't exist, they will be missing from the response
             try:
                 # Explicitly select img_url and avatar_url to ensure they're included
-                profile_response = client.table("user_profiles").select("*").eq("user_id", user_id).execute()
+                profile_response = fresh_client.table("user_profiles").select("*").eq("user_id", user_id).execute()
                 print(f"📊 [get_user_profile] Query executed, rows returned: {len(profile_response.data) if profile_response.data else 0}")
                 
                 # If we got data, log the raw response structure
@@ -246,25 +254,11 @@ class SupabaseService:
                 error_str = str(query_error)
                 # Check if it's a JWT expiration error
                 if "JWT expired" in error_str or "PGRST303" in error_str:
-                    logger.error(f"❌ JWT expired error detected with service role client!")
-                    logger.error(f"   This suggests the client may have cached a user JWT token.")
+                    logger.error(f"❌ JWT expired error detected even with fresh service role client!")
+                    logger.error(f"   This suggests the service role key may be invalid or misconfigured.")
                     logger.error(f"   Error details: {query_error}")
-                    logger.error(f"⚠️ Attempting to recreate client with service role key...")
-                    # Recreate client to ensure clean state - this clears any cached user tokens
-                    try:
-                        fresh_client = create_client(
-                            settings.SUPABASE_URL,
-                            settings.SUPABASE_SERVICE_ROLE_KEY
-                        )
-                        # Verify service role key is configured
-                        if not settings.SUPABASE_SERVICE_ROLE_KEY or settings.SUPABASE_SERVICE_ROLE_KEY == "your-supabase-service-role-key":
-                            logger.error("❌ SUPABASE_SERVICE_ROLE_KEY is not configured correctly!")
-                            return {}
-                        profile_response = fresh_client.table("user_profiles").select("*").eq("user_id", user_id).execute()
-                        logger.info(f"✅ Query succeeded after recreating client, rows returned: {len(profile_response.data) if profile_response.data else 0}")
-                    except Exception as retry_error:
-                        logger.error(f"❌ Retry with fresh client also failed: {retry_error}")
-                        return {}
+                    logger.error(f"   SUPABASE_SERVICE_ROLE_KEY length: {len(settings.SUPABASE_SERVICE_ROLE_KEY) if settings.SUPABASE_SERVICE_ROLE_KEY else 0}")
+                    return {}
                 else:
                     logger.error(f"❌ Database query error (columns may not exist): {query_error}")
                     # Return empty profile if query fails
@@ -368,8 +362,8 @@ class SupabaseService:
             logger.info(f"📧 Checking for email in profile_data: {'email' in profile_data}, value: {profile_data.get('email')}")
             if "email" not in profile_data or not profile_data.get("email"):
                 try:
-                    # Use admin client to get user by ID
-                    admin_client = self.client
+                    # Use fresh service role client for admin operations
+                    admin_client = fresh_client
                     logger.info(f"🔍 Attempting to get email from auth.admin.get_user_by_id for user {user_id}")
                     user_response = admin_client.auth.admin.get_user_by_id(user_id)
                     logger.info(f"📦 User response received: {user_response}")
@@ -420,8 +414,13 @@ class SupabaseService:
             print(f"🔍 [get_avatar_signed_url] Getting avatar for user_id: {user_id}")
             
             # Step 1: Check database for img_url first
+            # Use fresh service role client to avoid cached token issues
             try:
-                profile_response = self.client.table("user_profiles").select("img_url").eq("user_id", user_id).execute()
+                fresh_db_client = create_client(
+                    settings.SUPABASE_URL,
+                    settings.SUPABASE_SERVICE_ROLE_KEY
+                )
+                profile_response = fresh_db_client.table("user_profiles").select("img_url").eq("user_id", user_id).execute()
                 
                 if profile_response.data and len(profile_response.data) > 0:
                     img_url = profile_response.data[0].get("img_url")
@@ -555,8 +554,22 @@ class SupabaseService:
             logger.info(f"💾 Updating user profile for user_id: {user_id}")
             logger.info(f"📝 Profile data: {profile}")
             
-            # Always use service role client to avoid token expiration issues
-            client = self.client
+            # Create a fresh client with service role key to avoid token expiration issues
+            # This ensures we always have a valid service role client
+            try:
+                fresh_client = create_client(
+                    settings.SUPABASE_URL,
+                    settings.SUPABASE_SERVICE_ROLE_KEY
+                )
+                # Verify service role key is configured
+                if not settings.SUPABASE_SERVICE_ROLE_KEY or settings.SUPABASE_SERVICE_ROLE_KEY == "your-supabase-service-role-key":
+                    logger.error("❌ SUPABASE_SERVICE_ROLE_KEY is not configured correctly!")
+                    logger.warning("⚠️ Update returned None, returning original profile data")
+                    return None
+            except Exception as client_error:
+                logger.error(f"❌ Error creating fresh Supabase client: {client_error}")
+                logger.warning("⚠️ Update returned None, returning original profile data")
+                return None
             
             # Map avatar_url to img_url for consistency with the database column name
             profile_update = profile.copy()
@@ -566,46 +579,108 @@ class SupabaseService:
             
             # First, check if profile exists
             try:
-                existing_profile = client.table("user_profiles").select("*").eq("user_id", user_id).execute()
+                existing_profile = fresh_client.table("user_profiles").select("*").eq("user_id", user_id).execute()
                 logger.info(f"📊 Existing profile check: {len(existing_profile.data) if existing_profile.data else 0} rows found")
             except Exception as query_error:
-                logger.error(f"❌ Database query error (columns may not exist): {query_error}")
-                # Try to create the profile anyway
-                existing_profile = type('obj', (object,), {'data': []})()
+                error_str = str(query_error)
+                # Check if it's a JWT expiration error
+                if "JWT expired" in error_str or "PGRST303" in error_str:
+                    logger.error(f"❌ JWT expired error detected! Attempting to recreate client...")
+                    try:
+                        # Recreate client one more time
+                        fresh_client = create_client(
+                            settings.SUPABASE_URL,
+                            settings.SUPABASE_SERVICE_ROLE_KEY
+                        )
+                        existing_profile = fresh_client.table("user_profiles").select("*").eq("user_id", user_id).execute()
+                        logger.info(f"✅ Query succeeded after recreating client, rows returned: {len(existing_profile.data) if existing_profile.data else 0}")
+                    except Exception as retry_error:
+                        logger.error(f"❌ Retry with fresh client also failed: {retry_error}")
+                        logger.warning("⚠️ Update returned None, returning original profile data")
+                        return None
+                else:
+                    logger.error(f"❌ Database query error (columns may not exist): {query_error}")
+                    # Try to create the profile anyway
+                    existing_profile = type('obj', (object,), {'data': []})()
             
-            if existing_profile.data and len(existing_profile.data) > 0:
-                # Profile exists, update it
-                logger.info("🔄 Profile exists, updating...")
-                response = client.table("user_profiles").update({
-                    **profile_update,  # Use profile_update which has img_url mapped from avatar_url
-                    "updated_at": "now()"
-                }).eq("user_id", user_id).execute()
-            else:
-                # Profile doesn't exist, create it
-                logger.info("✨ Profile doesn't exist, creating new...")
-                response = client.table("user_profiles").insert({
-                    "user_id": user_id,
-                    **profile_update,  # Use profile_update which has img_url mapped from avatar_url
-                    "created_at": "now()",
-                    "updated_at": "now()"
-                }).execute()
-            
-            logger.info(f"✅ Supabase operation completed: {len(response.data) if response.data else 0} rows affected")
-            
-            # Return the updated profile data
-            if response.data and len(response.data) > 0:
-                profile_data = response.data[0]
-                # Remove system columns and user_id
-                profile_data.pop("id", None)
-                profile_data.pop("user_id", None)
-                profile_data.pop("created_at", None)
-                profile_data.pop("updated_at", None)
-                logger.info(f"✅ Returning updated profile data: {len(profile_data)} fields")
-                return profile_data
-            logger.warning("⚠️ No data returned from Supabase, returning original profile")
-            return profile
+            try:
+                if existing_profile.data and len(existing_profile.data) > 0:
+                    # Profile exists, update it
+                    logger.info("🔄 Profile exists, updating...")
+                    response = fresh_client.table("user_profiles").update({
+                        **profile_update,  # Use profile_update which has img_url mapped from avatar_url
+                        "updated_at": "now()"
+                    }).eq("user_id", user_id).execute()
+                else:
+                    # Profile doesn't exist, create it
+                    logger.info("✨ Profile doesn't exist, creating new...")
+                    response = fresh_client.table("user_profiles").insert({
+                        "user_id": user_id,
+                        **profile_update,  # Use profile_update which has img_url mapped from avatar_url
+                        "created_at": "now()",
+                        "updated_at": "now()"
+                    }).execute()
+                
+                logger.info(f"✅ Supabase operation completed: {len(response.data) if response.data else 0} rows affected")
+                
+                # Return the updated profile data
+                if response.data and len(response.data) > 0:
+                    profile_data = response.data[0].copy()
+                    # Remove system columns and user_id
+                    profile_data.pop("id", None)
+                    profile_data.pop("user_id", None)
+                    profile_data.pop("created_at", None)
+                    profile_data.pop("updated_at", None)
+                    logger.info(f"✅ Returning updated profile data: {len(profile_data)} fields")
+                    return profile_data
+                logger.warning("⚠️ No data returned from Supabase, returning original profile")
+                return profile
+            except Exception as update_error:
+                error_str = str(update_error)
+                # Check if it's a JWT expiration error during update/insert
+                if "JWT expired" in error_str or "PGRST303" in error_str:
+                    logger.error(f"❌ JWT expired error during update/insert! Attempting to recreate client and retry...")
+                    try:
+                        # Recreate client and retry the operation
+                        fresh_client = create_client(
+                            settings.SUPABASE_URL,
+                            settings.SUPABASE_SERVICE_ROLE_KEY
+                        )
+                        if existing_profile.data and len(existing_profile.data) > 0:
+                            response = fresh_client.table("user_profiles").update({
+                                **profile_update,
+                                "updated_at": "now()"
+                            }).eq("user_id", user_id).execute()
+                        else:
+                            response = fresh_client.table("user_profiles").insert({
+                                "user_id": user_id,
+                                **profile_update,
+                                "created_at": "now()",
+                                "updated_at": "now()"
+                            }).execute()
+                        
+                        logger.info(f"✅ Retry succeeded: {len(response.data) if response.data else 0} rows affected")
+                        
+                        if response.data and len(response.data) > 0:
+                            profile_data = response.data[0].copy()
+                            profile_data.pop("id", None)
+                            profile_data.pop("user_id", None)
+                            profile_data.pop("created_at", None)
+                            profile_data.pop("updated_at", None)
+                            logger.info(f"✅ Returning updated profile data: {len(profile_data)} fields")
+                            return profile_data
+                        logger.warning("⚠️ No data returned from Supabase after retry, returning original profile")
+                        return profile
+                    except Exception as retry_error:
+                        logger.error(f"❌ Retry with fresh client also failed: {retry_error}")
+                        logger.warning("⚠️ Update returned None, returning original profile data")
+                        return None
+                else:
+                    # Re-raise non-JWT errors
+                    raise
         except Exception as e:
             logger.error(f"❌ Supabase update user profile error: {e}")
+            logger.warning("⚠️ Update returned None, returning original profile data")
             return None
     
     async def get_user_emergency(self, user_id: str, user_token: Optional[str] = None) -> Optional[Dict[str, Any]]:
@@ -1205,14 +1280,26 @@ class SupabaseService:
         """Retrieve user shared access data from Supabase user_shared_access table"""
         try:
             logger.info(f"🔍 Getting user shared access for user_id: {user_id}")
-            client = self.client
+            # Always create a fresh service role client to avoid token expiration issues
+            client = create_client(
+                settings.SUPABASE_URL,
+                settings.SUPABASE_SERVICE_ROLE_KEY
+            )
             
             try:
                 shared_access_response = client.table("user_shared_access").select("*").eq("user_id", user_id).execute()
                 logger.info(f"📊 Shared access query executed, rows returned: {len(shared_access_response.data) if shared_access_response.data else 0}")
             except Exception as query_error:
-                logger.error(f"❌ Database query error (table may not exist): {query_error}")
-                return {}
+                error_str = str(query_error)
+                # Check if it's a JWT expiration error
+                if "JWT expired" in error_str or "PGRST303" in error_str:
+                    logger.error(f"❌ JWT expired error detected even with fresh service role client!")
+                    logger.error(f"   This suggests the service role key may be invalid or misconfigured.")
+                    logger.error(f"   Error details: {query_error}")
+                    return {}
+                else:
+                    logger.error(f"❌ Database query error (table may not exist): {query_error}")
+                    return {}
             
             shared_access_data = {}
             
@@ -1291,14 +1378,26 @@ class SupabaseService:
         """Retrieve user access logs from Supabase user_access_logs table"""
         try:
             logger.info(f"🔍 Getting user access logs for user_id: {user_id}")
-            client = self.client
+            # Always create a fresh service role client to avoid token expiration issues
+            client = create_client(
+                settings.SUPABASE_URL,
+                settings.SUPABASE_SERVICE_ROLE_KEY
+            )
             
             try:
                 access_logs_response = client.table("user_access_logs").select("*").eq("user_id", user_id).order("created_at", desc=True).execute()
                 logger.info(f"📊 Access logs query executed, rows returned: {len(access_logs_response.data) if access_logs_response.data else 0}")
             except Exception as query_error:
-                logger.error(f"❌ Database query error (table may not exist): {query_error}")
-                return {}
+                error_str = str(query_error)
+                # Check if it's a JWT expiration error
+                if "JWT expired" in error_str or "PGRST303" in error_str:
+                    logger.error(f"❌ JWT expired error detected even with fresh service role client!")
+                    logger.error(f"   This suggests the service role key may be invalid or misconfigured.")
+                    logger.error(f"   Error details: {query_error}")
+                    return {"logs": []}
+                else:
+                    logger.error(f"❌ Database query error (table may not exist): {query_error}")
+                    return {"logs": []}
             
             access_logs_data = {}
             
@@ -1360,14 +1459,26 @@ class SupabaseService:
         """Retrieve user data sharing preferences from Supabase user_data_sharing table"""
         try:
             logger.info(f"🔍 Getting user data sharing preferences for user_id: {user_id}")
-            client = self.client
+            # Always create a fresh service role client to avoid token expiration issues
+            client = create_client(
+                settings.SUPABASE_URL,
+                settings.SUPABASE_SERVICE_ROLE_KEY
+            )
             
             try:
                 data_sharing_response = client.table("user_data_sharing").select("*").eq("user_id", user_id).execute()
                 logger.info(f"📊 Data sharing query executed, rows returned: {len(data_sharing_response.data) if data_sharing_response.data else 0}")
             except Exception as query_error:
-                logger.error(f"❌ Database query error (table may not exist): {query_error}")
-                return {}
+                error_str = str(query_error)
+                # Check if it's a JWT expiration error
+                if "JWT expired" in error_str or "PGRST303" in error_str:
+                    logger.error(f"❌ JWT expired error detected even with fresh service role client!")
+                    logger.error(f"   This suggests the service role key may be invalid or misconfigured.")
+                    logger.error(f"   Error details: {query_error}")
+                    return {}
+                else:
+                    logger.error(f"❌ Database query error (table may not exist): {query_error}")
+                    return {}
             
             data_sharing_info = {}
             
