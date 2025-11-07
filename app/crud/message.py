@@ -281,12 +281,16 @@ class MessageCRUD:
     def get_unread_count(self, db: Session, user_id: int) -> Dict[str, Any]:
         """Get unread message count for a user"""
         # Count unread messages by type
+        # Since conversations can have user_id or contact_id matching the user,
+        # we need to check both directions
         unread_by_type = (
             db.query(Message.message_type, func.count(Message.id))
             .join(Conversation)
             .filter(
-                Conversation.user_id == user_id,
-                Message.status != MessageStatus.READ
+                ((Conversation.user_id == user_id) | (Conversation.contact_id == user_id)),
+                Message.status != MessageStatus.READ,
+                # Only count messages where the user is the recipient (not sender)
+                Message.sender_id != user_id
             )
             .group_by(Message.message_type)
             .all()

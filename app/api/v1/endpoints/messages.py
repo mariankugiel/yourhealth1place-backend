@@ -12,7 +12,7 @@ from app.schemas.message import (
     MessageFilters, MessageSearchParams, MessageSearchResponse, UnreadCountResponse,
     MessageStatsResponse, MessageActionCreate, MessageAction, CreateConversationRequest
 )
-from app.models.message import MessageType, MessagePriority, MessageStatus, SenderType
+from app.models.message import MessageType, MessagePriority, MessageStatus, SenderType, Conversation as ConversationModel
 from app.models.user import User, UserRole
 
 def get_initials(name: str) -> str:
@@ -48,6 +48,17 @@ async def get_conversations(
     patient_id: Optional[int] = Query(None, description="Patient ID to access (requires permission)")
 ):
     """Get conversations for the current user or a specific patient (if permission granted)"""
+    # IMPORTANT: Log immediately when endpoint is hit
+    print("=" * 80)
+    print("🚀 [BACKEND] get_conversations endpoint HIT!")
+    print(f"🚀 [BACKEND] Current User ID: {current_user.id}")
+    print(f"🚀 [BACKEND] Patient ID from query: {patient_id}")
+    print(f"🚀 [BACKEND] Message types: {message_types}")
+    print(f"🚀 [BACKEND] Priorities: {priorities}")
+    print(f"🚀 [BACKEND] Has unread: {has_unread}")
+    print(f"🚀 [BACKEND] Has action required: {has_action_required}")
+    print("=" * 80)
+    
     # Determine target user ID
     target_user_id = current_user.id
     
@@ -85,23 +96,65 @@ async def get_conversations(
     message_crud = MessageCRUD()
     conversations = message_crud.get_conversations_by_user(db, target_user_id, filters)
     
+    # Debug logging - detailed information about the query
+    print(f"🔍 ========== [get_conversations] DEBUG INFO ==========")
+    print(f"🔍 Current User ID: {current_user.id}")
+    print(f"🔍 Patient ID (from query param): {patient_id}")
+    print(f"🔍 Target User ID (for query): {target_user_id}")
+    print(f"🔍 Is viewing another patient: {patient_id is not None and patient_id != current_user.id}")
+    print(f"🔍 Found {len(conversations)} conversations for target_user_id={target_user_id}")
+    
+    if len(conversations) > 0:
+        print(f"🔍 ========== CONVERSATIONS FOUND ==========")
+        for i, conv in enumerate(conversations):
+            print(f"🔍 Conversation {i+1}:")
+            print(f"   - ID: {conv.id}")
+            print(f"   - user_id: {conv.user_id}")
+            print(f"   - contact_id: {conv.contact_id}")
+            print(f"   - last_message_time: {conv.last_message_time}")
+            print(f"   - created_at: {conv.created_at}")
+        print(f"🔍 ========== END CONVERSATIONS FOUND ==========")
+    else:
+        print(f"⚠️ WARNING: No conversations found for target_user_id={target_user_id}")
+        print(f"⚠️ Checking database for any conversations...")
+        # Check if there are ANY conversations in the database
+        all_convs = db.query(ConversationModel).all()
+        print(f"⚠️ Total conversations in database: {len(all_convs)}")
+        if len(all_convs) > 0:
+            print(f"⚠️ Sample conversations in database:")
+            for conv in all_convs[:5]:  # Show first 5
+                print(f"   - ID: {conv.id}, user_id: {conv.user_id}, contact_id: {conv.contact_id}")
+        
+        # Check specifically for conversations involving target_user_id
+        user_convs = db.query(ConversationModel).filter(
+            (ConversationModel.user_id == target_user_id) | (ConversationModel.contact_id == target_user_id)
+        ).all()
+        print(f"⚠️ Conversations where target_user_id ({target_user_id}) is user_id OR contact_id: {len(user_convs)}")
+        for conv in user_convs:
+            print(f"   - ID: {conv.id}, user_id: {conv.user_id}, contact_id: {conv.contact_id}")
+    
+    print(f"🔍 ========== END [get_conversations] DEBUG INFO ==========")
+    
     # Fetch contact information from Supabase for each conversation
     from app.core.supabase_client import supabase_service
     import asyncio
     
-    # Get current user's profile information (only once)
-    current_user_profile = None
+    # Get target user's profile information (the user whose messages we're viewing)
+    # When viewing another patient, this is the switched patient; otherwise it's the current user
+    target_user_profile = None
+    target_user_db = None
     try:
-        current_user_db = db.query(User).filter(User.id == current_user.id).first()
-        if current_user_db and current_user_db.supabase_user_id:
-            current_user_profile = await supabase_service.get_user_profile(current_user_db.supabase_user_id)
+        target_user_db = db.query(User).filter(User.id == target_user_id).first()
+        if target_user_db and target_user_db.supabase_user_id:
+            target_user_profile = await supabase_service.get_user_profile(target_user_db.supabase_user_id)
     except Exception as e:
-        print(f"⚠️ Failed to fetch current user profile: {e}")
+        print(f"⚠️ Failed to fetch target user profile: {e}")
     
     # First, collect all contact user IDs synchronously (fast DB queries)
+    # Use target_user_id (switched patient or current user) to determine contacts
     conversation_contacts = {}
     for conversation in conversations:
-        if conversation.user_id == current_user.id:
+        if conversation.user_id == target_user_id:
             contact_id = conversation.contact_id
         else:
             contact_id = conversation.user_id
@@ -193,46 +246,70 @@ async def get_conversations(
         conversation.contact_supabase_user_id = profile_data.get('contact_supabase_user_id')
         conversation.contact_initials = profile_data.get('contact_initials', 'U')
         
-        # Add current user information to conversation
-        if current_user_profile:
-            # Get current user's avatar URL - prioritize img_url from profile (already a signed URL)
-            current_user_avatar_url = current_user_profile.get('avatar_url')  # This is img_url mapped from get_user_profile
-            if not current_user_avatar_url and current_user_db and current_user_db.supabase_user_id:
+        # Add target user information to conversation (the user whose messages we're viewing)
+        if target_user_profile:
+            # Get target user's avatar URL - prioritize img_url from profile (already a signed URL)
+            target_user_avatar_url = target_user_profile.get('avatar_url')  # This is img_url mapped from get_user_profile
+            if not target_user_avatar_url and target_user_db and target_user_db.supabase_user_id:
                 # Fallback: Generate signed URL from Supabase Storage if img_url not in database
-                current_user_avatar_url = await supabase_service.get_avatar_signed_url(current_user_db.supabase_user_id)
+                target_user_avatar_url = await supabase_service.get_avatar_signed_url(target_user_db.supabase_user_id)
             
-            conversation.current_user_name = current_user_profile.get('full_name', 'Unknown')
-            conversation.current_user_role = current_user_profile.get('role', 'PATIENT')
-            conversation.current_user_avatar = current_user_avatar_url
-            conversation.current_user_initials = get_initials(current_user_profile.get('full_name', 'Unknown'))
+            conversation.current_user_name = target_user_profile.get('full_name', 'Unknown')
+            conversation.current_user_role = target_user_profile.get('role', 'PATIENT')
+            conversation.current_user_avatar = target_user_avatar_url
+            conversation.current_user_initials = get_initials(target_user_profile.get('full_name', 'Unknown'))
         else:
             conversation.current_user_name = "Unknown"
             conversation.current_user_role = "PATIENT"
             conversation.current_user_avatar = None
             conversation.current_user_initials = "U"
     
-    # Calculate unread count
-    unread_count = message_crud.get_unread_count(db, current_user.id)
+    # Calculate unread count for the target user (switched patient or current user)
+    unread_count = message_crud.get_unread_count(db, target_user_id)
     
     return MessagesResponse(
         conversations=conversations,
         total_count=len(conversations),
         unread_count=unread_count["count"],
         has_more=False,  # Implement pagination if needed
-        current_user_id=current_user.id  # Add actual database user ID
+        current_user_id=target_user_id  # Return target user ID (switched patient or current user)
     )
 
 @router.get("/conversations/{conversation_id}", response_model=Conversation)
 async def get_conversation(
     conversation_id: int,
+    patient_id: Optional[int] = Query(None, description="Patient ID to access (requires permission)"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """Get a specific conversation"""
     message_crud = MessageCRUD()
+    
+    # Determine target user ID
+    target_user_id = current_user.id
+    
+    if patient_id:
+        # Check permissions
+        from app.core.patient_access import check_patient_access
+        has_access, error_message = await check_patient_access(
+            db=db,
+            patient_id=patient_id,
+            current_user=current_user,
+            permission_type="view_messages"
+        )
+        
+        if not has_access:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=error_message or "You do not have permission to access this patient's messages"
+            )
+        
+        target_user_id = patient_id
+    
     conversation = message_crud.get_conversation(db, conversation_id)
     
-    if not conversation or conversation.user_id != current_user.id:
+    # Verify conversation belongs to target user (check both user_id and contact_id)
+    if not conversation or (conversation.user_id != target_user_id and conversation.contact_id != target_user_id):
         raise HTTPException(status_code=404, detail="Conversation not found")
     
     return conversation
@@ -242,15 +319,37 @@ async def get_conversation_messages(
     conversation_id: int,
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=100),
+    patient_id: Optional[int] = Query(None, description="Patient ID to access (requires permission)"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """Get messages for a conversation"""
     message_crud = MessageCRUD()
     
-    # Verify conversation belongs to user (check both user_id and contact_id)
+    # Determine target user ID
+    target_user_id = current_user.id
+    
+    if patient_id:
+        # Check permissions
+        from app.core.patient_access import check_patient_access
+        has_access, error_message = await check_patient_access(
+            db=db,
+            patient_id=patient_id,
+            current_user=current_user,
+            permission_type="view_messages"
+        )
+        
+        if not has_access:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=error_message or "You do not have permission to access this patient's messages"
+            )
+        
+        target_user_id = patient_id
+    
+    # Verify conversation belongs to target user (check both user_id and contact_id)
     conversation = message_crud.get_conversation(db, conversation_id)
-    if not conversation or (conversation.user_id != current_user.id and conversation.contact_id != current_user.id):
+    if not conversation or (conversation.user_id != target_user_id and conversation.contact_id != target_user_id):
         raise HTTPException(status_code=404, detail="Conversation not found")
     
     messages = message_crud.get_messages_by_conversation(db, conversation_id, page, limit)
@@ -527,12 +626,34 @@ async def search_messages(
 
 @router.get("/unread-count", response_model=UnreadCountResponse)
 async def get_unread_count(
+    patient_id: Optional[int] = Query(None, description="Patient ID to access (requires permission)"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Get unread message count"""
+    """Get unread message count for the current user or a specific patient (if permission granted)"""
+    # Determine target user ID
+    target_user_id = current_user.id
+    
+    if patient_id:
+        # Check permissions
+        from app.core.patient_access import check_patient_access
+        has_access, error_message = await check_patient_access(
+            db=db,
+            patient_id=patient_id,
+            current_user=current_user,
+            permission_type="view_messages"
+        )
+        
+        if not has_access:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=error_message or "You do not have permission to access this patient's messages"
+            )
+        
+        target_user_id = patient_id
+    
     message_crud = MessageCRUD()
-    unread_data = message_crud.get_unread_count(db, current_user.id)
+    unread_data = message_crud.get_unread_count(db, target_user_id)
     
     return UnreadCountResponse(
         count=unread_data["count"],

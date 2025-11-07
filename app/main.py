@@ -1,8 +1,10 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 import uvicorn
 import logging
+import time
 
 from app.core.config import settings
 from app.api.v1.api import api_router
@@ -13,6 +15,27 @@ from app.models import Base
 # Create database tables
 Base.metadata.create_all(bind=engine)
 
+# Request logging middleware
+class RequestLoggingMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        start_time = time.time()
+        # Log incoming request
+        if "/messages" in str(request.url) or "/conversations" in str(request.url):
+            print("=" * 80)
+            print(f"📥 [MIDDLEWARE] Incoming request: {request.method} {request.url}")
+            print(f"📥 [MIDDLEWARE] Headers: {dict(request.headers)}")
+            print(f"📥 [MIDDLEWARE] Query params: {dict(request.query_params)}")
+            print("=" * 80)
+        
+        response = await call_next(request)
+        
+        process_time = time.time() - start_time
+        if "/messages" in str(request.url) or "/conversations" in str(request.url):
+            print(f"📤 [MIDDLEWARE] Response: {response.status_code} (took {process_time:.3f}s)")
+            print("=" * 80)
+        
+        return response
+
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
@@ -21,6 +44,9 @@ app = FastAPI(
     docs_url=f"{settings.API_V1_STR}/docs",
     redoc_url=f"{settings.API_V1_STR}/redoc",
 )
+
+# Add request logging middleware (before CORS)
+app.add_middleware(RequestLoggingMiddleware)
 
 # Set up CORS - Allow all origins in development
 app.add_middleware(
