@@ -9,11 +9,36 @@ import time
 from app.core.config import settings
 from app.api.v1.api import api_router
 from app.websocket.websocket_endpoints import router as websocket_router
-from app.core.database import engine
+from app.core.database import engine, SessionLocal
 from app.models import Base
+from app.core.init_db import init_health_record_types
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Create database tables
 Base.metadata.create_all(bind=engine)
+
+# Initialize default data (health record types)
+# This ensures essential system data exists on startup
+try:
+    db = SessionLocal()
+    try:
+        created, updated = init_health_record_types(db, force=False)
+        if created > 0:
+            logger.info(f"✓ Database initialization: {created} health record types created")
+        elif updated > 0:
+            logger.info(f"✓ Database initialization: {updated} health record types updated")
+        else:
+            logger.debug("✓ Database initialization: All health record types already exist")
+    except Exception as e:
+        logger.error(f"Database initialization warning: {e}", exc_info=True)
+    finally:
+        db.close()
+except Exception as e:
+    logger.error(f"Database initialization error: {e}", exc_info=True)
+    # Continue anyway - the app can still start
 
 # Request logging middleware
 class RequestLoggingMiddleware(BaseHTTPMiddleware):

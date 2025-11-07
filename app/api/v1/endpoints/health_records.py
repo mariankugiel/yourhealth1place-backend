@@ -196,7 +196,7 @@ async def read_health_records(
                 db=db,
                 patient_id=patient_id,
                 current_user=current_user,
-                permission_type="view_health_records"
+                permission_type="download_health_records"
             )
             
             if not has_access:
@@ -752,13 +752,40 @@ async def get_health_record_doc_lab(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     document_type: Optional[str] = None,
+    patient_id: Optional[int] = Query(None, description="Patient ID to access (requires permission)"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Get health record lab documents for the current user"""
+    """Get health record lab documents for the current user or a specific patient (if permission granted)"""
     try:
-        documents = health_record_doc_lab_crud.get_by_user(db, current_user.id, skip, limit)
-        logger.info(f"Found {len(documents)} health record lab documents for user {current_user.id}")
+        # Determine target user ID
+        target_user_id = current_user.id
+        
+        if patient_id:
+            # Check permissions
+            has_access, error_message = await check_patient_access(
+                db=db,
+                patient_id=patient_id,
+                current_user=current_user,
+                permission_type="view_health_records"
+            )
+            
+            if not has_access:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=error_message or "You don't have permission to access this patient's health records"
+                )
+            
+            target_user_id = patient_id
+            logger.info(f"Accessing lab documents for patient {patient_id} (requested by user {current_user.id})")
+        
+        documents = health_record_doc_lab_crud.get_by_user(db, target_user_id, skip, limit)
+        logger.info(f"Found {len(documents)} health record lab documents for user {target_user_id}")
+        
+        # Filter by document type if provided
+        if document_type:
+            documents = [doc for doc in documents if doc.general_doc_type == document_type]
+        
         return documents
     except Exception as e:
         logger.error(f"Failed to get health record lab documents: {e}")
@@ -770,12 +797,34 @@ async def get_health_record_doc_lab(
 @router.get("/health-record-doc-lab/{document_id}", response_model=HealthRecordDocLabResponse)
 async def get_medical_document(
     document_id: int,
+    patient_id: Optional[int] = Query(None, description="Patient ID to access (requires permission)"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Get a specific medical document by ID"""
     try:
-        document = health_record_doc_lab_crud.get_by_id(db, document_id, current_user.id)
+        # Determine target user ID
+        target_user_id = current_user.id
+        
+        if patient_id:
+            # Check permissions
+            has_access, error_message = await check_patient_access(
+                db=db,
+                patient_id=patient_id,
+                current_user=current_user,
+                permission_type="view_health_records"
+            )
+            
+            if not has_access:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=error_message or "You don't have permission to access this patient's health records"
+                )
+            
+            target_user_id = patient_id
+            logger.info(f"Accessing medical document {document_id} for patient {patient_id} (requested by user {current_user.id})")
+        
+        document = health_record_doc_lab_crud.get_by_id(db, document_id, target_user_id)
         if not document:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -912,13 +961,35 @@ async def replace_health_record_doc_lab_file(
 @router.get("/health-record-doc-lab/{document_id}/download")
 async def download_health_record_doc_lab(
     document_id: int,
+    patient_id: Optional[int] = Query(None, description="Patient ID to access (requires permission)"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Download a lab document file"""
     try:
+        # Determine target user ID
+        target_user_id = current_user.id
+        
+        if patient_id:
+            # Check permissions
+            has_access, error_message = await check_patient_access(
+                db=db,
+                patient_id=patient_id,
+                current_user=current_user,
+                permission_type="view_health_records"
+            )
+            
+            if not has_access:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=error_message or "You don't have permission to access this patient's health records"
+                )
+            
+            target_user_id = patient_id
+            logger.info(f"Downloading medical document {document_id} for patient {patient_id} (requested by user {current_user.id})")
+        
         # Get the document
-        document = health_record_doc_lab_crud.get_by_id(db, document_id, current_user.id)
+        document = health_record_doc_lab_crud.get_by_id(db, document_id, target_user_id)
         if not document:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -935,7 +1006,7 @@ async def download_health_record_doc_lab(
         # Generate presigned URL for download
         download_url = aws_service.generate_presigned_url(document.s3_url, expiration=3600)
         
-        logger.info(f"Generated download URL for lab document {document_id} for user {current_user.id}")
+        logger.info(f"Generated download URL for lab document {document_id} for user {target_user_id}")
         
         return {
             "download_url": download_url,

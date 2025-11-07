@@ -1,7 +1,8 @@
 """
 Helper functions for checking patient access permissions
 """
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Any, Dict
+import asyncio
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 from app.models.user import User
@@ -12,6 +13,47 @@ from supabase import create_client
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_permission_type(permission_type: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
+    """Parse permission_type strings like 'view_health_records'."""
+    if not permission_type:
+        return None, None
+
+    for action in ("view", "download", "edit", "share"):
+        prefix = f"{action}_"
+        if permission_type.startswith(prefix):
+            area = permission_type[len(prefix):]
+            return action, area or None
+
+    return None, None
+
+
+def _contact_has_permission(
+    contact: Dict[str, Any],
+    action: Optional[str],
+    area: Optional[str],
+    permission_type: Optional[str]
+) -> bool:
+    """
+    Determine if a shared access contact grants the requested permission.
+
+    Defaults to allowing view access when explicit flags are not present to
+    maintain backwards compatibility with older records.
+    """
+    if not permission_type or not action or not area:
+        return True
+
+    permission_key = f"{area}_{action}"
+    permission_value = contact.get(permission_key)
+
+    if permission_value is None:
+        # Historical data might not include explicit flags for view actions.
+        # Preserve previous behaviour by treating missing view flags as allowed,
+        # but require explicit grants for more privileged actions such as download/edit.
+        return action == "view"
+
+    return bool(permission_value)
 
 
 async def check_patient_access(
@@ -34,6 +76,9 @@ async def check_patient_access(
     """
     try:
         logger.info(f"🔍 Checking patient access: current_user_id={current_user.id}, patient_id={patient_id}, permission_type={permission_type}")
+
+        action, area = _parse_permission_type(permission_type)
+        reason = None
         
         # If user is trying to access their own data, allow it
         if current_user.id == patient_id:
@@ -66,15 +111,32 @@ async def check_patient_access(
                 settings.SUPABASE_SERVICE_ROLE_KEY
             )
             
-            # Query user_shared_access table using service role
-            shared_access = service_client.table("user_shared_access").select("*").eq(
-                "user_id", patient_user.supabase_user_id
-            ).execute()
+            try:
+                shared_access_response = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        lambda: service_client.table("user_shared_access").select("*").eq(
+                            "user_id", patient_user.supabase_user_id
+                        ).execute()
+                    ),
+                    timeout=5.0
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "⚠️ Supabase shared access query timed out for patient_id=%s", patient_id
+                )
+                shared_access_response = None
+            except Exception as supabase_error:
+                logger.error(f"❌ Error checking user_shared_access: {supabase_error}", exc_info=True)
+                shared_access_response = None
             
-            logger.info(f"📊 Found {len(shared_access.data) if shared_access.data else 0} shared_access records for patient")
+            shared_access_data = []
+            if shared_access_response is not None and getattr(shared_access_response, "data", None):
+                shared_access_data = shared_access_response.data
             
-            if shared_access.data and len(shared_access.data) > 0:
-                shared_access_record = shared_access.data[0]
+            logger.info(f"📊 Found {len(shared_access_data)} shared_access records for patient")
+            
+            if shared_access_data:
+                shared_access_record = shared_access_data[0]
                 
                 # Check health_professionals
                 health_professionals = shared_access_record.get("health_professionals", [])
@@ -86,8 +148,14 @@ async def check_patient_access(
                         logger.info(f"  - Contact: email={contact_email}, is_active={is_active}")
                         if contact_email and contact_email.lower() == current_user_email.lower():
                             if is_active:
-                                logger.info(f"✅ Access granted via user_shared_access (health_professionals) for patient {patient_id}")
-                                return True, None
+                                if _contact_has_permission(contact, action, area, permission_type):
+                                    logger.info(f"✅ Access granted via user_shared_access (health_professionals) for patient {patient_id}")
+                                    return True, None
+                                logger.warning(
+                                    "⚠️ Contact located but missing '%s' permission for patient %s",
+                                    permission_type,
+                                    patient_id,
+                                )
                             else:
                                 logger.warning(f"⚠️ Contact found but is_active=False")
                 
@@ -101,8 +169,14 @@ async def check_patient_access(
                         logger.info(f"  - Contact: email={contact_email}, is_active={is_active}")
                         if contact_email and contact_email.lower() == current_user_email.lower():
                             if is_active:
-                                logger.info(f"✅ Access granted via user_shared_access (family_friends) for patient {patient_id}")
-                                return True, None
+                                if _contact_has_permission(contact, action, area, permission_type):
+                                    logger.info(f"✅ Access granted via user_shared_access (family_friends) for patient {patient_id}")
+                                    return True, None
+                                logger.warning(
+                                    "⚠️ Family/friend contact located but missing '%s' permission for patient %s",
+                                    permission_type,
+                                    patient_id,
+                                )
                             else:
                                 logger.warning(f"⚠️ Contact found but is_active=False")
             else:
@@ -116,16 +190,19 @@ async def check_patient_access(
                 logger.error(f"❌ Error checking user_shared_access: {e}", exc_info=True)
         
         # Fallback: Check health_record_permissions table
-        has_access, reason = health_record_permission_service.check_health_record_access(
-            db=db,
-            patient_id=patient_id,
-            professional_id=current_user.id,
-            access_type="view"
-        )
-        
-        if has_access:
-            logger.info(f"✅ Access granted via health_record_permissions for patient {patient_id}")
-            return True, None
+        if area == "health_records":
+            access_type = action or "view"
+            # health_record_permission_service currently supports view/edit/download tokens
+            has_access, reason = health_record_permission_service.check_health_record_access(
+                db=db,
+                patient_id=patient_id,
+                professional_id=current_user.id,
+                access_type=access_type or "view"
+            )
+
+            if has_access:
+                logger.info(f"✅ Access granted via health_record_permissions for patient {patient_id} with access_type={access_type}")
+                return True, None
         
         logger.warning(f"❌ Access denied for patient {patient_id}: {reason}")
         return False, reason or "No permission to access this patient's data"

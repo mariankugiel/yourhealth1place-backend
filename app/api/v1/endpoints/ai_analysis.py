@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from typing import Dict, Any, Optional
 import logging
@@ -17,6 +17,7 @@ router = APIRouter()
 class AIAnalysisRequest(BaseModel):
     health_record_type_id: int = 1
     force_check: bool = False
+    patient_id: Optional[int] = None
 
 @router.post("/analyze", response_model=Dict[str, Any])
 async def analyze_health_data(
@@ -25,10 +26,10 @@ async def analyze_health_data(
     db: Session = Depends(get_db)
 ):
     """
-    Generate AI-powered health analysis for the current user
+    Generate AI-powered health analysis for the current user or a specific patient (if permission granted)
     
     Args:
-        request: AI analysis request containing health_record_type_id and force_check
+        request: AI analysis request containing health_record_type_id, force_check, and optional patient_id
         current_user: Current authenticated user
         db: Database session
         
@@ -36,10 +37,33 @@ async def analyze_health_data(
         AI analysis results with insights, recommendations, and assessments
     """
     try:
+        # Determine target user ID
+        target_user_id = current_user.id
+        
+        if request.patient_id:
+            # Check permissions
+            from app.core.patient_access import check_patient_access
+            
+            has_access, error_message = await check_patient_access(
+                db=db,
+                patient_id=request.patient_id,
+                current_user=current_user,
+                permission_type="view_health_records"
+            )
+            
+            if not has_access:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=error_message or "You don't have permission to access this patient's health records"
+                )
+            
+            target_user_id = request.patient_id
+            logger.info(f"Generating AI analysis for patient {request.patient_id} (requested by user {current_user.id})")
+        
         # Generate AI analysis
         analysis_result = await ai_analysis_service.analyze_health_data(
             db=db,
-            user_id=current_user.id,
+            user_id=target_user_id,
             health_record_type_id=request.health_record_type_id,
             force_check=request.force_check
         )
@@ -112,6 +136,7 @@ async def get_ai_analysis_status(
 @router.get("/check-new-records", response_model=Dict[str, Any])
 async def check_for_new_records(
     health_record_type_id: int = 1,
+    patient_id: Optional[int] = Query(None, description="Patient ID to access (requires permission)"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -120,6 +145,7 @@ async def check_for_new_records(
     
     Args:
         health_record_type_id: Health record type ID to check
+        patient_id: Optional patient ID to check (requires permission)
         current_user: Current authenticated user
         db: Database session
         
@@ -127,10 +153,33 @@ async def check_for_new_records(
         Information about whether there are new records and the reason
     """
     try:
-        logger.info(f"Checking for new records for user {current_user.id}, type {health_record_type_id}")
+        # Determine target user ID
+        target_user_id = current_user.id
+        
+        if patient_id:
+            # Check permissions
+            from app.core.patient_access import check_patient_access
+            
+            has_access, error_message = await check_patient_access(
+                db=db,
+                patient_id=patient_id,
+                current_user=current_user,
+                permission_type="view_health_records"
+            )
+            
+            if not has_access:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=error_message or "You don't have permission to access this patient's health records"
+                )
+            
+            target_user_id = patient_id
+            logger.info(f"Checking for new records for patient {patient_id} (requested by user {current_user.id}), type {health_record_type_id}")
+        else:
+            logger.info(f"Checking for new records for user {current_user.id}, type {health_record_type_id}")
         
         # Get user's health data to count current records
-        health_data = await ai_analysis_service._get_user_health_data(db, current_user.id, health_record_type_id)
+        health_data = await ai_analysis_service._get_user_health_data(db, target_user_id, health_record_type_id)
         
         if not health_data:
             logger.info("No health data found")
@@ -158,7 +207,7 @@ async def check_for_new_records(
         logger.info(f"Current health record count: {current_health_record_count}, latest update: {latest_health_record_updated_at}")
         
         # Get the latest analysis history to compare
-        latest_analysis = ai_analysis_history_crud.get_by_user_and_type(db, current_user.id, health_record_type_id)
+        latest_analysis = ai_analysis_history_crud.get_by_user_and_type(db, target_user_id, health_record_type_id)
         
         if not latest_analysis:
             logger.info("No previous analysis found")

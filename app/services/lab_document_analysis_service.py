@@ -751,6 +751,9 @@ class LabDocumentAnalysisService:
         try:
             logger.info(f"Creating medical document with s3_url: {s3_url}")
             
+            # Ensure health_record_type_id=1 exists (for lab results/analysis)
+            health_record_type_id = self._ensure_health_record_type(db, type_id=1)
+            
             # Parse the lab test date if provided
             parsed_lab_test_date = None
             if lab_test_date:
@@ -762,7 +765,7 @@ class LabDocumentAnalysisService:
                     logger.warning(f"Could not parse lab_test_date '{lab_test_date}': {date_error}")
             
             doc_data = HealthRecordDocLabCreate(
-                health_record_type_id=1,
+                health_record_type_id=health_record_type_id,
                 lab_doc_type=document_type or "Other",
                 file_name=file_name,
                 s3_url=s3_url,
@@ -815,6 +818,42 @@ class LabDocumentAnalysisService:
             logger.error(f"Failed to create health record: {e}")
             return None
 
+    def _ensure_health_record_type(self, db: Session, type_id: int = 1) -> int:
+        """
+        Ensure health record type exists, creating it if necessary.
+        Returns the health_record_type_id to use.
+        """
+        from app.models.health_record import HealthRecordType
+        
+        health_record_type = db.query(HealthRecordType).filter(HealthRecordType.id == type_id).first()
+        
+        if not health_record_type:
+            # Try to initialize health record types
+            logger.warning(f"Health record type ID {type_id} not found. Attempting to initialize...")
+            try:
+                from app.core.init_db import init_health_record_types
+                init_health_record_types(db, force=False)
+                # Check again after initialization
+                health_record_type = db.query(HealthRecordType).filter(HealthRecordType.id == type_id).first()
+            except Exception as init_error:
+                logger.error(f"Failed to initialize health record types: {init_error}")
+            
+            # If still not found, try to use an existing active type as fallback
+            if not health_record_type:
+                health_record_type = db.query(HealthRecordType).filter(
+                    HealthRecordType.is_active == True
+                ).first()
+                if health_record_type:
+                    logger.warning(f"Using health record type ID {health_record_type.id} as fallback (ID {type_id} not available)")
+                else:
+                    raise ValueError(
+                        f"Health record type ID {type_id} is required but not found. "
+                        "Please ensure database initialization has run. "
+                        "The app should initialize this automatically on startup."
+                    )
+        
+        return health_record_type.id
+
     async def _get_or_create_section(self, db: Session, user_id: int, section_type: str) -> HealthRecordSection:
         """Get or create health record section (both tmp and main tables)"""
         try:
@@ -822,8 +861,11 @@ class LabDocumentAnalysisService:
                 raise ValueError("Section type is required but was None or empty")
             section_name = section_type.lower().replace(" ", "_")
             
+            # Ensure health_record_type_id=1 exists
+            health_record_type_id = self._ensure_health_record_type(db, type_id=1)
+            
             # First, ensure section exists in template table
-            tmp_section = health_record_section_template_crud.get_by_name_and_type(db, section_name, 1)
+            tmp_section = health_record_section_template_crud.get_by_name_and_type(db, section_name, health_record_type_id)
             
             if not tmp_section:
                 # Create in template table
@@ -831,7 +873,7 @@ class LabDocumentAnalysisService:
                     "name": section_name,
                     "display_name": section_type,
                     "description": "",
-                    "health_record_type_id": 1,
+                    "health_record_type_id": health_record_type_id,
                     "is_active": True,
                     "is_default": False,
                     "created_by": user_id,
@@ -843,7 +885,7 @@ class LabDocumentAnalysisService:
             # Then, ensure section exists in main table for UI
             existing_section = db.query(HealthRecordSection).filter(
                 HealthRecordSection.name == section_name,
-                HealthRecordSection.health_record_type_id == 1,
+                HealthRecordSection.health_record_type_id == health_record_type_id,
                 HealthRecordSection.created_by == user_id
             ).first()
             
@@ -853,7 +895,7 @@ class LabDocumentAnalysisService:
                     name=section_name,
                     display_name=section_type,
                     description="",
-                    health_record_type_id=1,
+                    health_record_type_id=health_record_type_id,
                     is_default=False
                 )
                 existing_section = health_record_section_crud.create(db, section_data, user_id)
