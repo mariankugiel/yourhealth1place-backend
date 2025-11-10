@@ -34,6 +34,8 @@ class Settings(BaseSettings):
     # Security
     SECRET_KEY: str = "your-secret-key-here-make-it-long-and-random"
     ALGORITHM: str = "HS256"
+    PATIENT_TOKEN_SECRET: str = ""
+    PATIENT_TOKEN_EXPIRES_MINUTES: int = 0  # 0 = no expiration (stable tokens)
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     

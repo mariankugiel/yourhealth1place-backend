@@ -70,19 +70,22 @@ async def analyze_health_data(
         
         if not analysis_result.get("success", False):
             message = analysis_result.get("message", "Unknown error")
-            
-            # Check if this is a "no data" response (should return 200, not 500)
+
+            # Treat "no data" or fallback analysis as normal 200 responses.
             if "No health" in message and "found for analysis" in message:
                 logger.info(f"No health data found for user {current_user.id} (type {request.health_record_type_id}): {message}")
-                return analysis_result  # Return 200 with the "no data" response
-            else:
-                # This is an actual error
-                logger.warning(f"AI analysis failed for user {current_user.id}: {message}")
-                logger.info(f"Returning 500 error with analysis result: {analysis_result}")
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=message
-                )
+                return analysis_result
+
+            if message.startswith("AI analysis failed:"):
+                logger.warning(f"AI analysis fell back to local mode for user {current_user.id}: {message}")
+                return analysis_result
+
+            logger.warning(f"AI analysis failed for user {current_user.id}: {message}")
+            logger.info(f"Returning 500 error with analysis result: {analysis_result}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=message
+            )
         
         logger.info(f"AI analysis completed successfully for user {current_user.id}")
         logger.info(f"Returning analysis result: {analysis_result}")

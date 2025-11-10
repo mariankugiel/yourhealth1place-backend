@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.config import settings
 from app.core.supabase_client import supabase_service
+from app.core.patient_token import generate_patient_token
 from app.services.doctor_supabase_service import doctor_supabase_service
 from app.models.user import User, UserRole
 from app.models.permissions import HealthRecordPermission
@@ -1114,8 +1115,10 @@ async def get_accessible_patients(
             "patient_supabase_id": current_user_db.supabase_user_id,
             "patient_name": current_user_name,
             "patient_email": current_user_db.email,
+            "patient_token": generate_patient_token(current_user_db.id),
             "permissions": {
                 "can_view_health_records": True,
+                "health_records_download": True,
                 "can_view_medical_history": True,
                 "can_view_health_plans": True,
                 "can_view_medications": True,
@@ -1274,8 +1277,10 @@ async def get_accessible_patients(
                     "patient_supabase_id": patient.supabase_user_id,
                     "patient_name": patient_name,
                     "patient_email": patient.email,
+            "patient_token": generate_patient_token(patient.id),
                     "permissions": {
                         "can_view_health_records": perm.can_view_health_records,
+                        "health_records_download": False,
                         "can_view_medical_history": perm.can_view_medical_history,
                         "can_view_health_plans": perm.can_view_health_plans,
                         "can_view_medications": perm.can_view_medications,
@@ -1334,6 +1339,7 @@ async def _add_accessible_patient(
         # Map permissions from contact to our format
         permissions = {
             "can_view_health_records": contact.get("health_records_view", False),
+            "health_records_download": contact.get("health_records_download", False),
             "can_view_medical_history": contact.get("medical_history_view", False),
             "can_view_health_plans": contact.get("health_plan_view", False),
             "can_view_medications": contact.get("medications_view", False),
@@ -1357,6 +1363,7 @@ async def _add_accessible_patient(
             "patient_supabase_id": patient_supabase_id,
             "patient_name": patient_name,
             "patient_email": patient.email,
+            "patient_token": generate_patient_token(patient.id),
             "permissions": permissions,
             "granted_for": contact.get("permissions_relationship", "shared_access"),
             "expires_at": expires_at

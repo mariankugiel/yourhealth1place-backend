@@ -35,10 +35,34 @@ from datetime import datetime
 import logging
 import uuid
 from app.core.aws_service import aws_service
+from app.core.patient_token import decode_patient_token
 
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+def _resolve_patient_identifier(
+    patient_id: Optional[int],
+    patient_token: Optional[str]
+) -> Optional[int]:
+    """
+    Resolve patient ID from either explicit ID or an encoded token.
+    Returns None when neither is provided.
+    """
+    if patient_id:
+        return patient_id
+
+    if patient_token:
+        decoded_id = decode_patient_token(patient_token)
+        if decoded_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid or expired patient token"
+            )
+        return decoded_id
+
+    return None
 
 # ============================================================================
 # HEALTH RECORDS ENDPOINTS
@@ -182,6 +206,7 @@ async def read_health_records(
     start_date: Optional[datetime] = Query(None),
     end_date: Optional[datetime] = Query(None),
     patient_id: Optional[int] = Query(None, description="Patient ID to access (requires permission)"),
+    patient_token: Optional[str] = Query(None, description="Patient token to access (requires permission)"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -190,13 +215,15 @@ async def read_health_records(
         # Determine target user ID
         target_user_id = current_user.id
         
-        if patient_id:
+        resolved_patient_id = _resolve_patient_identifier(patient_id, patient_token)
+        
+        if resolved_patient_id:
             # Check permissions
             has_access, error_message = await check_patient_access(
                 db=db,
-                patient_id=patient_id,
+                patient_id=resolved_patient_id,
                 current_user=current_user,
-                permission_type="download_health_records"
+                permission_type="view_health_records"
             )
             
             if not has_access:
@@ -753,6 +780,7 @@ async def get_health_record_doc_lab(
     limit: int = Query(100, ge=1, le=1000),
     document_type: Optional[str] = None,
     patient_id: Optional[int] = Query(None, description="Patient ID to access (requires permission)"),
+    patient_token: Optional[str] = Query(None, description="Patient token to access (requires permission)"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -761,11 +789,13 @@ async def get_health_record_doc_lab(
         # Determine target user ID
         target_user_id = current_user.id
         
-        if patient_id:
+        resolved_patient_id = _resolve_patient_identifier(patient_id, patient_token)
+        
+        if resolved_patient_id:
             # Check permissions
             has_access, error_message = await check_patient_access(
                 db=db,
-                patient_id=patient_id,
+                patient_id=resolved_patient_id,
                 current_user=current_user,
                 permission_type="view_health_records"
             )
@@ -776,8 +806,8 @@ async def get_health_record_doc_lab(
                     detail=error_message or "You don't have permission to access this patient's health records"
                 )
             
-            target_user_id = patient_id
-            logger.info(f"Accessing lab documents for patient {patient_id} (requested by user {current_user.id})")
+            target_user_id = resolved_patient_id
+            logger.info(f"Accessing lab documents for patient {resolved_patient_id} (requested by user {current_user.id})")
         
         documents = health_record_doc_lab_crud.get_by_user(db, target_user_id, skip, limit)
         logger.info(f"Found {len(documents)} health record lab documents for user {target_user_id}")
@@ -798,6 +828,7 @@ async def get_health_record_doc_lab(
 async def get_medical_document(
     document_id: int,
     patient_id: Optional[int] = Query(None, description="Patient ID to access (requires permission)"),
+    patient_token: Optional[str] = Query(None, description="Patient token to access (requires permission)"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -806,11 +837,13 @@ async def get_medical_document(
         # Determine target user ID
         target_user_id = current_user.id
         
-        if patient_id:
+        resolved_patient_id = _resolve_patient_identifier(patient_id, patient_token)
+        
+        if resolved_patient_id:
             # Check permissions
             has_access, error_message = await check_patient_access(
                 db=db,
-                patient_id=patient_id,
+                patient_id=resolved_patient_id,
                 current_user=current_user,
                 permission_type="view_health_records"
             )
@@ -821,8 +854,8 @@ async def get_medical_document(
                     detail=error_message or "You don't have permission to access this patient's health records"
                 )
             
-            target_user_id = patient_id
-            logger.info(f"Accessing medical document {document_id} for patient {patient_id} (requested by user {current_user.id})")
+            target_user_id = resolved_patient_id
+            logger.info(f"Accessing medical document {document_id} for patient {resolved_patient_id} (requested by user {current_user.id})")
         
         document = health_record_doc_lab_crud.get_by_id(db, document_id, target_user_id)
         if not document:
@@ -962,6 +995,7 @@ async def replace_health_record_doc_lab_file(
 async def download_health_record_doc_lab(
     document_id: int,
     patient_id: Optional[int] = Query(None, description="Patient ID to access (requires permission)"),
+    patient_token: Optional[str] = Query(None, description="Patient token to access (requires permission)"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -970,13 +1004,15 @@ async def download_health_record_doc_lab(
         # Determine target user ID
         target_user_id = current_user.id
         
-        if patient_id:
+        resolved_patient_id = _resolve_patient_identifier(patient_id, patient_token)
+        
+        if resolved_patient_id:
             # Check permissions
             has_access, error_message = await check_patient_access(
                 db=db,
-                patient_id=patient_id,
+                patient_id=resolved_patient_id,
                 current_user=current_user,
-                permission_type="view_health_records"
+                permission_type="download_health_records"
             )
             
             if not has_access:
@@ -985,8 +1021,8 @@ async def download_health_record_doc_lab(
                     detail=error_message or "You don't have permission to access this patient's health records"
                 )
             
-            target_user_id = patient_id
-            logger.info(f"Downloading medical document {document_id} for patient {patient_id} (requested by user {current_user.id})")
+            target_user_id = resolved_patient_id
+            logger.info(f"Downloading medical document {document_id} for patient {resolved_patient_id} (requested by user {current_user.id})")
         
         # Get the document
         document = health_record_doc_lab_crud.get_by_id(db, document_id, target_user_id)
