@@ -178,26 +178,26 @@ async def register(registration_data: UserRegistration, db: Session = Depends(ge
                 profile={k: v for k, v in profile_data.items() if v is not None}
             )
             
-            # Create minimal internal user record for application linkage
-            db_user = User(
-                supabase_user_id=supabase_response.user.id,  # Link to Supabase
-                email=registration_data.email,  # For lookups only
-                role=user_role,  # Set role in User model
-                is_active=True
-            )
-            
-            db.add(db_user)
-            db.commit()
-            db.refresh(db_user)
-            
-            return UserResponse(
-                id=db_user.id,
-                email=registration_data.email,
-                is_active=db_user.is_active,
-                role=db_user.role,
-                created_at=db_user.created_at,
-                updated_at=db_user.updated_at
-            )
+        # Create minimal internal user record for application linkage (for any role)
+        db_user = User(
+            supabase_user_id=supabase_response.user.id,  # Link to Supabase
+            email=registration_data.email,  # For lookups only
+            role=user_role,  # Set role in User model
+            is_active=True
+        )
+        
+        db.add(db_user)
+        db.commit()
+        db.refresh(db_user)
+        
+        return UserResponse(
+            id=db_user.id,
+            email=registration_data.email,
+            is_active=db_user.is_active,
+            role=db_user.role,
+            created_at=db_user.created_at,
+            updated_at=db_user.updated_at
+        )
         
     except Exception as e:
         logger.error(f"Registration error: {e}")
