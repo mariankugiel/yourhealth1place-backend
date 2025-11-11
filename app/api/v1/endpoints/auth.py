@@ -128,6 +128,9 @@ async def register(registration_data: UserRegistration, db: Session = Depends(ge
                 detail="Failed to register user with Supabase"
             )
         
+        # Auto-confirm the user's email so they can log in immediately
+        await supabase_service.confirm_user_email(supabase_response.user.id)
+        
         # Extract profile data for Supabase storage
         profile_data = {
             "email": registration_data.email,  # Store email in profile for easy access
