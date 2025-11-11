@@ -77,4 +77,28 @@ class AcuityWebhookPayload(BaseModel):
     canceled: Optional[bool] = False
     calendarTimezone: Optional[str] = None
     canClientCancel: Optional[bool] = True
-    canClientReschedule: Optional[bool] = True 
+    canClientReschedule: Optional[bool] = True
+
+
+class AppointmentBookRequest(BaseModel):
+    """Request model for booking appointment via Acuity API"""
+    calendar_id: str
+    appointment_type_id: int = 0
+    datetime: str  # ISO format with timezone
+    first_name: str
+    last_name: str
+    email: str
+    phone: Optional[str] = None
+    appointment_type: str  # "virtual", "in-person", or "phone"
+    location: Optional[str] = None  # Required for in-person
+    note: Optional[str] = None
+    timezone: Optional[str] = None 
+
+
+class AppointmentRescheduleRequest(BaseModel):
+    """Request model for rescheduling an appointment via Acuity API"""
+    appointment_date: datetime
+    calendar_id: Optional[str] = None
+    timezone: Optional[str] = None
+    note: Optional[str] = None
+    appointment_type: Optional[str] = None

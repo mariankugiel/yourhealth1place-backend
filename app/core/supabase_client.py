@@ -4,8 +4,6 @@ from typing import Optional, Dict, Any, List
 import logging
 import httpx
 import jwt
-import asyncio
-from functools import partial
 from jwt.exceptions import InvalidTokenError, ExpiredSignatureError
 
 logger = logging.getLogger(__name__)
@@ -253,83 +251,136 @@ class SupabaseService:
             logger.error(f"Supabase store user profile error: {e}")
             return False
     
-    def _get_user_profile_sync(self, user_id: str, user_token: Optional[str] = None) -> Dict[str, Any]:
-        """Synchronous helper to fetch user profile data from Supabase."""
-        logger.info(f"🔍 (sync) Getting user profile for user_id: {user_id}")
-
-        profile_data: Dict[str, Any] = {}
-
-        try:
-            client = create_client(
-                settings.SUPABASE_URL,
-                settings.SUPABASE_SERVICE_ROLE_KEY
-            )
-
-            profile_response = client.table("user_profiles").select("*").eq("user_id", user_id).execute()
-            rows = getattr(profile_response, "data", None)
-
-            if rows:
-                raw_data = rows[0].copy()
-                supabase_uuid = raw_data.get("id")
-
-                for field in ("id", "user_id", "created_at", "updated_at"):
-                    raw_data.pop(field, None)
-
-                raw_data["supabase_user_id"] = supabase_uuid or user_id
-
-                if raw_data.get("role"):
-                    role_mapping = {"patient": "PATIENT", "doctor": "DOCTOR", "admin": "ADMIN"}
-                    raw_data["role"] = role_mapping.get(str(raw_data["role"]).lower(), "PATIENT")
-
-                img_url_value = raw_data.get("img_url")
-                avatar_url_value = raw_data.get("avatar_url")
-
-                if img_url_value and str(img_url_value).strip().lower() not in {"", "null", "none"}:
-                    raw_data["avatar_url"] = img_url_value
-                elif avatar_url_value and str(avatar_url_value).strip().lower() not in {"", "null", "none"}:
-                    raw_data["avatar_url"] = avatar_url_value
-                else:
-                    raw_data["avatar_url"] = None
-
-                profile_data = raw_data
-
-            if not profile_data:
-                profile_data = {}
-
-            # Attempt to include email if available via admin API
-            try:
-                admin_client = create_client(
-                    settings.SUPABASE_URL,
-                    settings.SUPABASE_SERVICE_ROLE_KEY
-                )
-                admin_response = admin_client.auth.admin.get_user_by_id(user_id)
-                if getattr(admin_response, "user", None) and getattr(admin_response.user, "email", None):
-                    profile_data.setdefault("email", admin_response.user.email)
-                    profile_data.setdefault("supabase_user_id", admin_response.user.id)
-            except Exception as admin_error:
-                logger.debug(f"Could not retrieve email for user {user_id}: {admin_error}")
-
-        except Exception as e:
-            logger.error(f"Supabase synchronous profile fetch error: {e}", exc_info=True)
-
-        return profile_data
-
     async def get_user_profile(self, user_id: str, user_token: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Retrieve user profile from Supabase database"""
-        loop = asyncio.get_running_loop()
-
         try:
-            result = await asyncio.wait_for(
-                loop.run_in_executor(None, partial(self._get_user_profile_sync, user_id, user_token)),
-                timeout=6.0
-            )
-            return result or {}
-        except asyncio.TimeoutError:
-            logger.warning(f"Supabase get_user_profile timed out for user_id={user_id}")
-            return {}
+            print(f"🔍 [get_user_profile] Getting user profile for user_id: {user_id}")
+            logger.info(f"🔍 Getting user profile for user_id: {user_id}")
+            # Always use service role client to avoid token expiration issues
+            # The service role client is initialized with SUPABASE_SERVICE_ROLE_KEY in __init__
+            # This key bypasses RLS and never expires (it's not a JWT)
+            client = self.client
+            
+            # Get profile data from user_profiles table using * to get all columns
+            # Note: If columns don't exist, they will be missing from the response
+            try:
+                # Explicitly select img_url and avatar_url to ensure they're included
+                profile_response = client.table("user_profiles").select("*").eq("user_id", user_id).execute()
+                print(f"📊 [get_user_profile] Query executed, rows returned: {len(profile_response.data) if profile_response.data else 0}")
+                
+                # If we got data, log the raw response structure
+                if profile_response.data and len(profile_response.data) > 0:
+                    raw_data = profile_response.data[0]
+                    print(f"📊 [get_user_profile] Raw response sample keys: {list(raw_data.keys())[:10]}...")
+                    print(f"📊 [get_user_profile] Checking for img_url in raw response: {'img_url' in raw_data}")
+                    print(f"📊 [get_user_profile] Checking for avatar_url in raw response: {'avatar_url' in raw_data}")
+                
+                logger.info(f"📊 Query executed, rows returned: {len(profile_response.data) if profile_response.data else 0}")
+            except Exception as query_error:
+                error_str = str(query_error)
+                # Check if it's a JWT expiration error
+                if "JWT expired" in error_str or "PGRST303" in error_str:
+                    logger.error(f"❌ JWT expired error detected even with fresh service role client!")
+                    logger.error(f"   This suggests the service role key may be invalid or misconfigured.")
+                    logger.error(f"   Error details: {query_error}")
+                    logger.error(f"⚠️ Attempting to recreate client with service role key...")
+                    # Recreate client to ensure clean state - this clears any cached user tokens
+                    try:
+                        fresh_client = create_client(
+                            settings.SUPABASE_URL,
+                            settings.SUPABASE_SERVICE_ROLE_KEY
+                        )
+                        # Verify service role key is configured
+                        if not settings.SUPABASE_SERVICE_ROLE_KEY or settings.SUPABASE_SERVICE_ROLE_KEY == "your-supabase-service-role-key":
+                            logger.error("❌ SUPABASE_SERVICE_ROLE_KEY is not configured correctly!")
+                            return {}
+                        profile_response = fresh_client.table("user_profiles").select("*").eq("user_id", user_id).execute()
+                        logger.info(f"✅ Query succeeded after recreating client, rows returned: {len(profile_response.data) if profile_response.data else 0}")
+                    except Exception as retry_error:
+                        logger.error(f"❌ Retry with fresh client also failed: {retry_error}")
+                        return {}
+                else:
+                    logger.error(f"Database query error (columns may not exist): {query_error}")
+                    # Return empty profile if query fails
+                    return {}
+            profile_data = {}
+            
+            if profile_response.data and len(profile_response.data) > 0:
+                profile_data = profile_response.data[0].copy()  # Make a copy to avoid modifying original
+                
+                # Extract the UUID (id field) before removing it - it's the Supabase user ID
+                supabase_uuid = profile_data.get("id")
+                
+                # Remove system columns and user_id
+                profile_data.pop("id", None)
+                profile_data.pop("user_id", None)
+                profile_data.pop("created_at", None)
+                profile_data.pop("updated_at", None)
+                
+                # Add the Supabase UUID explicitly for frontend use (from user_profiles.id or use the passed user_id)
+                if supabase_uuid:
+                    profile_data["supabase_user_id"] = supabase_uuid
+                else:
+                    # Fallback: use the user_id parameter if id wasn't in the response
+                    profile_data["supabase_user_id"] = user_id
+                
+                # Convert role from lowercase (Supabase) to uppercase (PostgreSQL enum)
+                if "role" in profile_data and profile_data["role"]:
+                    role_mapping = {
+                        "patient": "PATIENT",
+                        "doctor": "DOCTOR", 
+                        "admin": "ADMIN"
+                    }
+                    # Convert to uppercase for PostgreSQL enum compatibility
+                    profile_data["role"] = role_mapping.get(profile_data["role"].lower(), "PATIENT")
+                
+                # Prioritize img_url over avatar_url for avatar image URL
+                # If img_url exists, use it; otherwise fall back to avatar_url
+                # Note: img_url might be None in the database, so we need to check explicitly
+                img_url_value = profile_data.get("img_url")
+                avatar_url_value = profile_data.get("avatar_url")
+                
+                # Check if img_url has a valid value (not None, not empty string, not "null")
+                if img_url_value is not None and str(img_url_value).strip() and str(img_url_value).strip().lower() not in ["null", "none", ""]:
+                    profile_data["avatar_url"] = img_url_value
+                    # Keep img_url in the data for debugging/frontend use
+                    profile_data["img_url"] = img_url_value
+                elif avatar_url_value is not None and str(avatar_url_value).strip() and str(avatar_url_value).strip().lower() not in ["null", "none", ""]:
+                    pass  # Keep existing avatar_url
+                else:
+                    # Try to get avatar from Supabase Storage as fallback
+                    try:
+                        storage_avatar_url = await self.get_avatar_signed_url(user_id)
+                        if storage_avatar_url:
+                            profile_data["avatar_url"] = storage_avatar_url
+                            profile_data["img_url"] = storage_avatar_url
+                        else:
+                            profile_data["avatar_url"] = None
+                            profile_data["img_url"] = None
+                    except Exception as storage_error:
+                        logger.warning(f"Error getting avatar from Storage: {storage_error}")
+                        profile_data["avatar_url"] = None
+                        profile_data["img_url"] = None
+            
+            # Get email from auth.users table using admin client
+            # Only try to get email if it's not already in profile data
+            if "email" not in profile_data or not profile_data.get("email"):
+                try:
+                    # Use admin client to get user by ID
+                    admin_client = self.client
+                    logger.info(f"🔍 Attempting to get email from auth.admin.get_user_by_id for user {user_id}")
+                    user_response = admin_client.auth.admin.get_user_by_id(user_id)
+                    if user_response and hasattr(user_response, 'user'):
+                        if hasattr(user_response.user, 'email') and user_response.user.email:
+                            profile_data["email"] = user_response.user.email
+                except Exception as admin_error:
+                    # This is expected if service role doesn't have admin permissions
+                    logger.error(f"Could not get email from admin auth: {admin_error}")
+            
+            return profile_data if profile_data else {}
         except Exception as e:
-            logger.error(f"Supabase get_user_profile error: {e}", exc_info=True)
-            return {}
+            logger.error(f"Supabase get user profile error: {e}", exc_info=True)
+            return {}  # Return empty dict instead of None
     
     async def get_avatar_signed_url(self, user_id: str) -> Optional[str]:
         """Get avatar URL from user_profiles table or Supabase Storage

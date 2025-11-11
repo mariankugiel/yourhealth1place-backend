@@ -85,17 +85,14 @@ class DailyService:
             "privacy": "private",
             "properties": {
                 "exp": expiry_timestamp,
+                "nbf": int(scheduled_time.timestamp()),
                 "enable_knocking": True,
                 "enable_screenshare": True,
                 "enable_chat": True,
                 "start_video_off": False,
                 "start_audio_off": False,
-            },
-            "config": {
                 "max_participants": 10,
-                "nbf": int(scheduled_time.timestamp()),
-                "exp": expiry_timestamp
-            }
+            },
         }
         
         result = self._make_request("POST", "rooms", data=room_config)

@@ -73,6 +73,10 @@ class Settings(BaseSettings):
     # Acuity Scheduling API Configuration
     ACUITY_USER_ID: str = ""
     ACUITY_API_KEY: str = ""
+    # Acuity Custom Field IDs (for storing appointment type, location, virtual meeting URL)
+    ACUITY_FIELD_ID_APPOINTMENT_TYPE: int = 0  # Field ID for appointment type (virtual/in-person/phone)
+    ACUITY_FIELD_ID_LOCATION: int = 0  # Field ID for location (in-person appointments)
+    ACUITY_FIELD_ID_VIRTUAL_MEETING_URL: int = 0  # Field ID for virtual meeting URL (virtual appointments)
     
     # Daily.co Video API Configuration
     DAILY_API_KEY: str = ""

@@ -69,6 +69,7 @@ def lambda_handler(event, context):
             email_address = message.get('email_address')
             title = message.get('title')
             content = message.get('message')
+            html_message = message.get('html_message')  # Support custom HTML messages
             priority = message.get('priority', 'normal')
             metadata = message.get('metadata', {})
             
@@ -78,9 +79,9 @@ def lambda_handler(event, context):
             print(f"📧 Sending email to {email_address} for notification {notification_id}")
             
             # Build email content
-            subject = f"[YourHealth1Place] {title}"
-            html_body = _build_html_email(title, content, metadata)
-            text_body = _build_text_email(title, content)
+            subject = f"[YourHealth1Place] {title}" if not title.startswith("[YourHealth1Place]") else title
+            html_body = html_message if html_message else _build_html_email(title, content, metadata)
+            text_body = content if content else _build_text_email(title, content)
             
             # Send email via SES
             ses_response = ses_client.send_email(
