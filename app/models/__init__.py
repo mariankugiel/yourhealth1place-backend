@@ -38,6 +38,7 @@ from .documents import (
 
 # Messaging System
 from .message import Message, Conversation, MessageDeliveryLog, MessageAction, MessageType, MessagePriority, MessageStatus, SenderType
+from .message_document import MessageDocument
 
 # Payment System
 from .payment import SubscriptionPlan, UserSubscription, PaymentTransaction
@@ -187,6 +188,7 @@ __all__ = [
     "MessagePriority",
     "MessageStatus",
     "SenderType",
+    "MessageDocument",
     
     # Payment System
     "SubscriptionPlan",
