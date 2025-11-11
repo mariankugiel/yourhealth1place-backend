@@ -64,6 +64,22 @@ class SupabaseService:
             logger.error(f"Supabase sign up error: {e}")
             raise
     
+    async def confirm_user_email(self, user_id: str) -> bool:
+        """Force-confirm a user's email address using the service role key."""
+        try:
+            logger.info(f"Confirming email for user {user_id}")
+            self.client.auth.admin.update_user_by_id(
+                user_id,
+                {
+                    "email_confirm": True,
+                    "email_confirmed_at": datetime.now(timezone.utc).isoformat()
+                }
+            )
+            return True
+        except Exception as e:
+            logger.warning(f"Unable to auto-confirm email for user {user_id}: {e}")
+            return False
+    
     async def sign_in(self, email: str, password: str) -> Dict[str, Any]:
         """Sign in user with Supabase Auth"""
         try:
