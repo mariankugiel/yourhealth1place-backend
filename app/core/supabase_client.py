@@ -455,10 +455,7 @@ class SupabaseService:
             # Create a fresh client with service role key to avoid token expiration issues
             # This ensures we always have a valid service role client
             try:
-                fresh_client = create_client(
-                    settings.SUPABASE_URL,
-                    settings.SUPABASE_SERVICE_ROLE_KEY
-                )
+                client = self.client
                 # Verify service role key is configured
                 if not settings.SUPABASE_SERVICE_ROLE_KEY or settings.SUPABASE_SERVICE_ROLE_KEY == "your-supabase-service-role-key":
                     logger.error("❌ SUPABASE_SERVICE_ROLE_KEY is not configured correctly!")
