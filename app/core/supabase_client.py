@@ -6,7 +6,6 @@ import httpx
 import jwt
 import asyncio
 from functools import partial
-from datetime import datetime, timezone
 from jwt.exceptions import InvalidTokenError, ExpiredSignatureError
 
 logger = logging.getLogger(__name__)
@@ -64,22 +63,6 @@ class SupabaseService:
         except Exception as e:
             logger.error(f"Supabase sign up error: {e}")
             raise
-    
-    async def confirm_user_email(self, user_id: str) -> bool:
-        """Force-confirm a user's email address using the service role key."""
-        try:
-            logger.info(f"Confirming email for user {user_id}")
-            self.client.auth.admin.update_user_by_id(
-                user_id,
-                {
-                    "email_confirm": True,
-                    "email_confirmed_at": datetime.now(timezone.utc).isoformat()
-                }
-            )
-            return True
-        except Exception as e:
-            logger.warning(f"Unable to auto-confirm email for user {user_id}: {e}")
-            return False
     
     async def sign_in(self, email: str, password: str) -> Dict[str, Any]:
         """Sign in user with Supabase Auth"""
@@ -455,10 +438,11 @@ class SupabaseService:
             # Create a fresh client with service role key to avoid token expiration issues
             # This ensures we always have a valid service role client
             try:
-                client = create_client(
+                fresh_client = create_client(
                     settings.SUPABASE_URL,
                     settings.SUPABASE_SERVICE_ROLE_KEY
                 )
+                client = fresh_client
                 # Verify service role key is configured
                 if not settings.SUPABASE_SERVICE_ROLE_KEY or settings.SUPABASE_SERVICE_ROLE_KEY == "your-supabase-service-role-key":
                     logger.error("❌ SUPABASE_SERVICE_ROLE_KEY is not configured correctly!")
