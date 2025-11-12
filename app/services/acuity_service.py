@@ -306,6 +306,61 @@ class AcuityService:
                 logger.error(f"Response body: {e.response.text}")
             return None
 
+    def get_appointment_types_map(self) -> Dict[str, Dict]:
+        """
+        Return a dictionary of appointment types keyed by their ID as a string.
+        Uses cached appointment types when available.
+        """
+        if (
+            self._appointment_types_cache
+            and self._appointment_types_cache_timestamp
+            and (datetime.utcnow() - self._appointment_types_cache_timestamp).total_seconds() < 600
+        ):
+            types_list = self._appointment_types_cache
+        else:
+            types_list = self.get_appointment_types()
+            if types_list:
+                self._appointment_types_cache = types_list
+                self._appointment_types_cache_timestamp = datetime.utcnow()
+
+        if not types_list:
+            return {}
+
+        result: Dict[str, Dict] = {}
+        for item in types_list:
+            type_id = item.get("id") or item.get("appointmentTypeID")
+            if type_id is not None:
+                result[str(type_id)] = item
+        return result
+
+    def get_appointment_types_for_calendar(self, calendar_id: Optional[str]) -> List[Dict]:
+        """
+        Return appointment types available for the specified calendar.
+        If calendar_id is None, returns an empty list.
+        """
+        if not calendar_id:
+            return []
+
+        appointment_types_map = self.get_appointment_types_map()
+        if not appointment_types_map:
+            return []
+
+        calendar_id_str = str(calendar_id)
+        filtered: List[Dict] = []
+        for item in appointment_types_map.values():
+            calendar_ids = item.get("calendarIDs")
+            # If calendarIDs is None or empty, the type is available on all calendars
+            if not calendar_ids:
+                filtered.append(item)
+            else:
+                try:
+                    if any(str(cid) == calendar_id_str for cid in calendar_ids):
+                        filtered.append(item)
+                except Exception:
+                    # calendarIDs might not be iterable; skip on error
+                    continue
+        return filtered
+
     def get_default_appointment_type_id(self) -> Optional[int]:
         """Return the first appointment type ID configured in Acuity"""
         # Basic caching for 10 minutes to avoid repeated API calls

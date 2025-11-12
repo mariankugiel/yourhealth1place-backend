@@ -182,17 +182,16 @@ async def get_conversations(
             # Debug logging to see what we got from get_user_profile
             print(f"🔍 Contact {contact_id} (supabase_user_id: {contact_user.supabase_user_id})")
             print(f"   Profile keys: {list(contact_profile.keys()) if contact_profile else 'None'}")
-            print(f"   img_url in profile: {contact_profile.get('img_url') if contact_profile else 'N/A'}")
             print(f"   avatar_url in profile: {contact_profile.get('avatar_url') if contact_profile else 'N/A'}")
             
-            # Get avatar URL - prioritize img_url from profile (already a signed URL stored in database)
-            # Only generate new signed URL if img_url doesn't exist in database
-            avatar_url = contact_profile.get('avatar_url') if contact_profile else None  # This is img_url mapped from get_user_profile
+            # Get avatar URL from profile (already a signed URL stored in database)
+            # Only generate new signed URL if avatar_url doesn't exist in database
+            avatar_url = contact_profile.get('avatar_url') if contact_profile else None
             print(f"   Extracted avatar_url: {avatar_url}")
             
             if not avatar_url:
                 print(f"   ⚠️ No avatar_url from profile, trying get_avatar_signed_url...")
-                # Fallback: Generate signed URL from Supabase Storage if img_url not in database
+                # Fallback: Generate signed URL from Supabase Storage if avatar_url not in database
                 avatar_url = await supabase_service.get_avatar_signed_url(contact_user.supabase_user_id)
                 print(f"   Fallback avatar_url result: {avatar_url}")
             else:
@@ -205,7 +204,7 @@ async def get_conversations(
                 'contact_supabase_user_id': contact_profile.get('supabase_user_id') or contact_user.supabase_user_id,
                 'contact_name': contact_profile.get('full_name', 'Unknown'),
                 'contact_role': contact_profile.get('role', 'PATIENT'),
-                'contact_avatar': avatar_url,  # Use img_url from profile if available, otherwise generated URL
+                'contact_avatar': avatar_url,  # Use avatar_url from profile if available, otherwise generated URL
                 'contact_initials': get_initials(contact_profile.get('full_name', 'Unknown'))
             }
         except Exception as e:
@@ -248,10 +247,10 @@ async def get_conversations(
         
         # Add target user information to conversation (the user whose messages we're viewing)
         if target_user_profile:
-            # Get target user's avatar URL - prioritize img_url from profile (already a signed URL)
-            target_user_avatar_url = target_user_profile.get('avatar_url')  # This is img_url mapped from get_user_profile
+            # Get target user's avatar URL from profile (already a signed URL)
+            target_user_avatar_url = target_user_profile.get('avatar_url')
             if not target_user_avatar_url and target_user_db and target_user_db.supabase_user_id:
-                # Fallback: Generate signed URL from Supabase Storage if img_url not in database
+                # Fallback: Generate signed URL from Supabase Storage if avatar_url not in database
                 target_user_avatar_url = await supabase_service.get_avatar_signed_url(target_user_db.supabase_user_id)
             
             conversation.current_user_name = target_user_profile.get('full_name', 'Unknown')
@@ -489,10 +488,10 @@ async def send_message(
             from app.core.supabase_client import supabase_service
             profile = await supabase_service.get_user_profile(message.sender.supabase_user_id)
             sender_role = profile.get('role', 'Patient')
-            # Prioritize img_url from profile (already a signed URL stored in database)
-            sender_avatar = profile.get('avatar_url')  # This is img_url mapped from get_user_profile
+            # Get avatar_url from profile (already a signed URL stored in database)
+            sender_avatar = profile.get('avatar_url')
             if not sender_avatar and message.sender.supabase_user_id:
-                # Fallback: Generate signed URL from Supabase Storage if img_url not in database
+                # Fallback: Generate signed URL from Supabase Storage if avatar_url not in database
                 sender_avatar = await supabase_service.get_avatar_signed_url(message.sender.supabase_user_id)
         except Exception:
             sender_role = "Patient"  # Default role

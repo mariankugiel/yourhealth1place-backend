@@ -89,7 +89,7 @@ class AppointmentBookRequest(BaseModel):
     last_name: str
     email: str
     phone: Optional[str] = None
-    appointment_type: str  # "virtual", "in-person", or "phone"
+    consultation_type: str  # "virtual", "in-person", or "phone"
     location: Optional[str] = None  # Required for in-person
     note: Optional[str] = None
     timezone: Optional[str] = None 
@@ -101,4 +101,5 @@ class AppointmentRescheduleRequest(BaseModel):
     calendar_id: Optional[str] = None
     timezone: Optional[str] = None
     note: Optional[str] = None
-    appointment_type: Optional[str] = None
+    consultation_type: Optional[str] = None
+    appointment_type_id: Optional[int] = None

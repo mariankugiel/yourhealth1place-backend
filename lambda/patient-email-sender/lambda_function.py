@@ -8,21 +8,22 @@ and logs delivery status to the database.
 import json
 import boto3
 import psycopg2
+import os
 from datetime import datetime
 
 # ============================================================================
-# CONFIGURATION - Hardcoded variables
+# CONFIGURATION - Use environment variables with fallback to hardcoded
 # ============================================================================
-# Database Configuration (hardcoded)
-DB_HOST = 'your-db-hostname'
-DB_NAME = 'your-db-name'
-DB_USER = 'your-db-user'
-DB_PASSWORD = 'your-db-password'
-DB_PORT = '5432'
+# Database Configuration - Use environment variables
+DB_HOST = os.environ.get('DB_HOST', 'your-db-hostname')
+DB_NAME = os.environ.get('DB_NAME', 'your-db-name')
+DB_USER = os.environ.get('DB_USER', 'your-db-user')
+DB_PASSWORD = os.environ.get('DB_PASSWORD', 'your-db-password')
+DB_PORT = os.environ.get('DB_PORT', '5432')
 
-# AWS Configuration (hardcoded)
-AWS_REGION = 'us-east-1'
-SES_FROM_EMAIL = 'notifications@yourhealth1place.com'
+# AWS Configuration - Use environment variables
+AWS_REGION = os.environ.get('AWS_REGION', 'us-east-1')
+SES_FROM_EMAIL = os.environ.get('SES_FROM_EMAIL', 'notifications@yourhealth1place.com')
 
 # Initialize AWS clients
 ses_client = boto3.client('ses', region_name=AWS_REGION)
@@ -33,31 +34,44 @@ def lambda_handler(event, context):
     Process email notifications from SQS FIFO queue
     Send emails via AWS SES
     """
-    print(f"📧 Processing {len(event['Records'])} email messages")
+    # Extract email addresses from all records for logging
+    email_addresses = []
+    for record in event['Records']:
+        try:
+            message = json.loads(record['body'])
+            email_addr = message.get('email_address', 'unknown')
+            email_addresses.append(email_addr)
+        except:
+            email_addresses.append('unknown')
+    
+    email_list = ', '.join(email_addresses)
+    print(f"📧 Processing {len(event['Records'])} email messages to: {email_list}")
     
     processed = 0
     failed = 0
     
-    # Connect to database for logging
+    # Connect to database for logging (optional - continue even if DB fails)
+    conn = None
+    cursor = None
+    db_connected = False
     try:
-        conn = psycopg2.connect(
-            host=DB_HOST,
-            database=DB_NAME,
-            user=DB_USER,
-            password=DB_PASSWORD,
-            port=DB_PORT,
-        )
-        cursor = conn.cursor()
+        if DB_HOST and DB_HOST != 'your-db-hostname':
+            conn = psycopg2.connect(
+                host=DB_HOST,
+                database=DB_NAME,
+                user=DB_USER,
+                password=DB_PASSWORD,
+                port=DB_PORT,
+            )
+            cursor = conn.cursor()
+            db_connected = True
+            print(f"✅ Database connection established")
+        else:
+            print(f"⚠️ Database not configured (using placeholder values), skipping database logging")
     except Exception as db_error:
         error_msg = f"Database connection failed: {db_error}"
-        print(f"❌ {error_msg}")
-        return {
-            'statusCode': 500,
-            'body': json.dumps({
-                'error': error_msg,
-                'timestamp': datetime.utcnow().isoformat()
-            })
-        }
+        print(f"⚠️ {error_msg} - Continuing without database logging")
+        # Don't return early - continue processing emails even if DB fails
     
     for record in event['Records']:
         try:
@@ -77,13 +91,22 @@ def lambda_handler(event, context):
                 raise ValueError("Email address is required")
             
             print(f"📧 Sending email to {email_address} for notification {notification_id}")
+            print(f"   Subject: {title}")
+            print(f"   From: {SES_FROM_EMAIL}")
+            print(f"   Region: {AWS_REGION}")
             
             # Build email content
             subject = f"[YourHealth1Place] {title}" if not title.startswith("[YourHealth1Place]") else title
             html_body = html_message if html_message else _build_html_email(title, content, metadata)
             text_body = content if content else _build_text_email(title, content)
             
+            # Validate email address
+            if not email_address or '@' not in email_address:
+                raise ValueError(f"Invalid email address: {email_address}")
+            
             # Send email via SES
+            print(f"   Calling SES send_email API...")
+            try:
             ses_response = ses_client.send_email(
                 Source=SES_FROM_EMAIL,
                 Destination={'ToAddresses': [email_address]},
@@ -98,11 +121,19 @@ def lambda_handler(event, context):
             
             ses_message_id = ses_response.get('MessageId')
             print(f"✅ Email sent successfully. SES MessageId: {ses_message_id}")
+            except Exception as ses_error:
+                error_type = type(ses_error).__name__
+                error_details = str(ses_error)
+                print(f"❌ SES send_email failed: {error_type}: {error_details}")
+                # Re-raise to be caught by outer exception handler
+                raise
             
-            # Log delivery to database
+            # Log delivery to database (if connected)
+            if db_connected and cursor and conn:
             now = datetime.utcnow()
             try:
                 # Update notification status
+                    if notification_id:
                 cursor.execute(
                     """
                     UPDATE notifications 
@@ -131,19 +162,28 @@ def lambda_handler(event, context):
                     )
                 )
                 conn.commit()
+                    print(f"✅ Delivery logged to database")
             except Exception as log_error:
                 print(f"⚠️ Failed to log delivery to database: {log_error}")
+                    if conn:
                 conn.rollback()
+            else:
+                print(f"⚠️ Skipping database logging (not connected)")
             
             processed += 1
             
         except Exception as e:
+            error_type = type(e).__name__
             error_msg = str(e)
-            print(f"❌ Failed to send email: {error_msg}")
+            print(f"❌ Failed to send email to {message.get('email_address', 'unknown')}: {error_type}: {error_msg}")
+            import traceback
+            print(f"   Traceback: {traceback.format_exc()}")
             
-            # Log failure to database
+            # Log failure to database (if connected)
+            if db_connected and cursor and conn:
             try:
                 now = datetime.utcnow()
+                    if message.get('notification_id'):
                 cursor.execute(
                     """
                     UPDATE notifications 
@@ -164,22 +204,28 @@ def lambda_handler(event, context):
                         'email',
                         'failed',
                         message.get('email_address'),
-                        json.dumps({'error': error_msg}),
+                            json.dumps({'error': error_msg, 'error_type': error_type}),
                         now,
                     )
                 )
                 conn.commit()
             except Exception as log_error:
                 print(f"⚠️ Failed to log failure to database: {log_error}")
+                    if conn:
                 conn.rollback()
             
             failed += 1
             # Don't raise - continue processing other messages
     
-    # Close database connection
+    # Close database connection (if connected)
+    if db_connected and conn:
+        try:
     conn.commit()
     cursor.close()
     conn.close()
+            print(f"✅ Database connection closed")
+        except Exception as close_error:
+            print(f"⚠️ Error closing database connection: {close_error}")
     
     print(f"📊 Email processing complete: {processed} sent, {failed} failed")
     
