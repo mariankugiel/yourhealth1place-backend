@@ -29,10 +29,14 @@ from app.schemas.health_metrics import (
 # Health Record Template CRUD Functions
 def create_health_record_section_template(db: Session, template: HealthRecordSectionTemplateCreate, user_id: int) -> HealthRecordSectionTemplate:
     """Create a new health record section template"""
+    from app.utils.user_language import get_user_language_sync
+    source_language = get_user_language_sync(user_id, db) or 'en'
+    
     db_template = HealthRecordSectionTemplate(
         name=template.name,
         display_name=template.display_name,
         description=template.description,
+        source_language=source_language,
         health_record_type_id=template.health_record_type_id,
         created_by=user_id
     )
@@ -133,12 +137,16 @@ def create_health_record_section_template(db: Session, template: HealthRecordSec
     return db_template
 
 def create_health_record_metric_template(db: Session, template: HealthRecordMetricTemplateCreate, user_id: int) -> HealthRecordMetricTemplate:
+    from app.utils.user_language import get_user_language_sync
+    source_language = get_user_language_sync(user_id, db) or 'en'
+    
     db_template = HealthRecordMetricTemplate(
         section_template_id=template.section_template_id,
         name=template.name,
         display_name=template.display_name,
         description=template.description,
         default_unit=template.default_unit,
+        source_language=source_language,
         normal_range_min=template.normal_range_min,
         normal_range_max=template.normal_range_max,
         data_type=template.data_type,

@@ -199,6 +199,7 @@ class HealthRecordSection(Base):
     name = Column(String(100), nullable=False)
     display_name = Column(String(100), nullable=False)
     description = Column(Text)
+    source_language = Column(String(10), nullable=False, default='en')  # Language of original content ('en', 'es', 'pt')
     health_record_type_id = Column(Integer, ForeignKey("health_record_type.id"), nullable=False)
     section_template_id = Column(Integer, ForeignKey("health_record_sections_tmp.id"), nullable=True)  # Link to template section
     is_default = Column(Boolean, default=True)  # true = admin, false = user custom
@@ -223,6 +224,7 @@ class HealthRecordMetric(Base):
     display_name = Column(String(100), nullable=False)
     description = Column(Text)
     default_unit = Column(String(20))
+    source_language = Column(String(10), nullable=False, default='en')  # Language of original content ('en', 'es', 'pt')
     reference_data = Column(JSON)  # Reference ranges
     data_type = Column(String(50), nullable=False)  # "number", "json", "text", "boolean"
     is_default = Column(Boolean, default=True)  # true = admin, false = user custom
@@ -300,6 +302,8 @@ class MedicalCondition(Base):
     source = Column(Enum(ConditionSource))
     treatment_plan = Column(Text)
     resolved_date = Column(Date)
+    source_language = Column(String(10), nullable=False, default='en')  # Language of original content ('en', 'es', 'pt')
+    version = Column(Integer, nullable=False, default=1)  # Content version for translation invalidation
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     updated_by = Column(Integer, ForeignKey("users.id"))
@@ -330,6 +334,8 @@ class FamilyMedicalHistory(Base):
     outcome = Column(Text, nullable=True)
     status = Column(Enum(FamilyHistoryStatus), nullable=True)
     source = Column(Enum(FamilyHistorySource), nullable=True)
+    source_language = Column(String(10), nullable=False, default='en')  # Language of original content ('en', 'es', 'pt')
+    version = Column(Integer, nullable=False, default=1)  # Content version for translation invalidation
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

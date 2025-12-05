@@ -111,6 +111,9 @@ from .surgery_hospitalization import (
 # AI Analysis System
 from .ai_analysis import AIAnalysisHistory
 
+# Translation System
+from .translation import Translation
+
 # Permission System
 from .permissions import (
     Permission,
@@ -241,6 +244,9 @@ __all__ = [
     
     # AI Analysis System
     "AIAnalysisHistory",
+    
+    # Translation System
+    "Translation",
     
     # Permission System
     "Permission",

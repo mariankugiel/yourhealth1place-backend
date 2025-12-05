@@ -45,13 +45,10 @@ class HealthRecordSectionTemplate(Base):
     __tablename__ = "health_record_sections_tmp"
     
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    name = Column(String(100), nullable=False)  # e.g., "Blood Work", "Chemistry Panel" (English)
-    display_name = Column(String(100), nullable=False)  # English display name
-    name_pt = Column(Text)  # Portuguese name
-    display_name_pt = Column(Text)  # Portuguese display name
-    name_es = Column(Text)  # Spanish name
-    display_name_es = Column(Text)  # Spanish display name
+    name = Column(String(100), nullable=False)  # e.g., "Blood Work", "Chemistry Panel"
+    display_name = Column(String(100), nullable=False)  # Display name in source language
     description = Column(Text)
+    source_language = Column(String(10), nullable=False, default='en')  # Language of original content ('en', 'es', 'pt')
     health_record_type_id = Column(Integer, ForeignKey("health_record_type.id"), nullable=False)
     is_active = Column(Boolean, default=True)
     is_default = Column(Boolean, default=True)  # True for admin pre-defined, False for user custom
@@ -71,16 +68,11 @@ class HealthRecordMetricTemplate(Base):
     
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     section_template_id = Column(Integer, ForeignKey("health_record_sections_tmp.id"), nullable=False)
-    name = Column(String(100), nullable=False)  # e.g., "White Blood Cells" (English)
-    display_name = Column(String(100), nullable=False)  # English display name
-    name_pt = Column(Text)  # Portuguese name
-    display_name_pt = Column(Text)  # Portuguese display name
-    name_es = Column(Text)  # Spanish name
-    display_name_es = Column(Text)  # Spanish display name
+    name = Column(String(100), nullable=False)  # e.g., "White Blood Cells"
+    display_name = Column(String(100), nullable=False)  # Display name in source language
     description = Column(Text)
-    default_unit = Column(String(20))  # e.g., "K/uL" (English)
-    default_unit_pt = Column(Text)  # Portuguese unit
-    default_unit_es = Column(Text)  # Spanish unit
+    default_unit = Column(String(20))  # Unit in source language (e.g., "K/uL")
+    source_language = Column(String(10), nullable=False, default='en')  # Language of original content ('en', 'es', 'pt')
     original_reference = Column(Text)  # Store original reference string like "Men: <25%, Female: <35%"
     reference_data = Column(JSON)  # Store parsed reference data for all metrics (includes gender-specific when applicable)
     data_type = Column(String(50), default="number")  # "number", "json", "text", "boolean"

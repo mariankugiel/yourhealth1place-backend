@@ -89,8 +89,6 @@ class AppointmentBookRequest(BaseModel):
     last_name: str
     email: str
     phone: Optional[str] = None
-    consultation_type: str  # "virtual", "in-person", or "phone"
-    location: Optional[str] = None  # Required for in-person
     note: Optional[str] = None
     timezone: Optional[str] = None 
 
@@ -103,3 +101,8 @@ class AppointmentRescheduleRequest(BaseModel):
     note: Optional[str] = None
     consultation_type: Optional[str] = None
     appointment_type_id: Optional[int] = None
+
+
+class AppointmentPhoneUpdateRequest(BaseModel):
+    """Request model for updating appointment phone number"""
+    phone: str

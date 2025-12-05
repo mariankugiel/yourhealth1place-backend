@@ -57,7 +57,7 @@ class ManualAppointment(Base):
     patient = relationship("User", foreign_keys=[patient_id], backref="patient_manual_appointments")
     professional = relationship("User", foreign_keys=[professional_id], backref="professional_manual_appointments")
     location = relationship("ProfessionalLocation", backref="manual_appointments")
-    appointments = relationship("Appointment", back_populates="manual_appointment")
+    # appointments relationship removed - Appointment model no longer has manual_appointment_id
 
 class Appointment(Base):
     __tablename__ = "appointments"
@@ -65,14 +65,8 @@ class Appointment(Base):
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     
     # Basic Appointment Info
-    appointment_type_id = Column(Integer, ForeignKey("appointment_types.id"), nullable=False)
     patient_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     professional_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    location_id = Column(Integer, ForeignKey("professional_locations.id"), nullable=False)
-    
-    # Health Plan and Documents
-    # health_plan_id = Column(Integer, ForeignKey("health_plans.id"))  # HealthPlan model removed
-    related_document_ids = Column(JSON)  # Array of document IDs related to this appointment
     
     # Consultation Type
     consultation_type = Column(String(50), nullable=False)  # "in_person", "virtual", "phone"
@@ -82,52 +76,27 @@ class Appointment(Base):
     duration_minutes = Column(Integer, nullable=False)  # Actual duration
     timezone = Column(String(50), nullable=False, default="UTC")
     
-    # Status and Type
+    # Status
     status = Column(String(50), nullable=False, default="SCHEDULED")  # "SCHEDULED", "CONFIRMED", "IN_PROGRESS", "COMPLETED", "CANCELLED", "NO_SHOW"
-    appointment_category = Column(String(50), nullable=False)  # "consultation", "follow_up", "emergency", "routine_checkup"
     
-    # Cost and Payment
-    appointment_type_pricing_id = Column(Integer, ForeignKey("appointment_type_pricing.id"), nullable=False)
-    cost = Column(Numeric(10, 2), nullable=False)  # Actual cost for this appointment
+    # Cost and Payment (from Acuity)
+    cost = Column(Numeric(10, 2), nullable=False)  # Actual cost for this appointment (from Acuity)
     currency = Column(String(3), default="USD")
     payment_status = Column(String(50), nullable=False, default="PENDING")  # "PENDING", "PAID", "REFUNDED", "FAILED"
-    stripe_payment_intent_id = Column(String(255))  # Stripe Payment Intent ID
-    stripe_charge_id = Column(String(255))  # Stripe Charge ID
     
     # External Service Integration
     acuity_appointment_id = Column(String(255))  # Acuity Scheduling appointment ID
     acuity_calendar_id = Column(String(255))  # Acuity calendar ID
+    acuity_appointment_type_id = Column(String(255))  # Acuity appointment type ID
     
     # Virtual Consultation Details
-    virtual_meeting_url = Column(Text)  # Video call URL
-    virtual_meeting_id = Column(String(255))  # Meeting ID
-    virtual_meeting_platform = Column(String(50))  # "zoom", "teams", "daily_co", "custom"
-    virtual_meeting_password = Column(String(100))  # Meeting password if required
+    virtual_meeting_url = Column(Text)  # Video call URL (stored in DB, not Acuity custom fields)
     
-    # Booking Information
-    booked_by = Column(Integer, ForeignKey("users.id"), nullable=False)  # Who booked the appointment
-    booked_at = Column(DateTime, nullable=False)  # When it was booked
-    booking_notes = Column(Text)  # Notes from booking process
+    # Location (for in-person appointments)
+    location = Column(Text)  # Doctor's address for in-person appointments
     
     # Appointment Details
-    reason = Column(Text)  # Patient's reason for appointment
-    symptoms = Column(Text)  # Patient's symptoms
-    notes = Column(Text)  # Professional's notes (shared with patient)
-    private_notes = Column(Text)  # Professional's private notes (NOT shared with patient)
-    diagnosis = Column(Text)  # Professional's diagnosis
-    treatment_plan = Column(Text)  # Treatment plan
-    prescription = Column(Text)  # Prescription if any
-    
-    # Medical Impact
-    medical_condition_updates = Column(JSON)  # Array of medical condition changes
-    
-    # Follow-up
-    follow_up_required = Column(Boolean, default=False)
-    follow_up_date = Column(Date)
-    follow_up_notes = Column(Text)
-    
-    # Manual Appointment Link
-    manual_appointment_id = Column(Integer, ForeignKey("manual_appointments.id"))  # Link to manual appointment if created from one
+    notes = Column(Text)  # Notes from Acuity (patient's reason/notes)
     
     # Audit fields
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -136,13 +105,8 @@ class Appointment(Base):
     updated_by = Column(Integer, ForeignKey("users.id"))
     
     # Relationships
-    appointment_type = relationship("AppointmentType", backref="appointments")
     patient = relationship("User", foreign_keys=[patient_id], backref="patient_appointments")
     professional = relationship("User", foreign_keys=[professional_id], backref="professional_appointments")
-    location = relationship("ProfessionalLocation", back_populates="appointments")
-    # health_plan = relationship("HealthPlan", back_populates="appointments")  # HealthPlan model removed
-    appointment_type_pricing = relationship("AppointmentTypePricing", backref="appointments")
-    manual_appointment = relationship("ManualAppointment", back_populates="appointments")
     reminders = relationship("AppointmentReminder", back_populates="appointment")
     documents = relationship("Document", back_populates="appointment")
     document_assignments = relationship("ProfessionalDocumentAssignment", back_populates="appointment")

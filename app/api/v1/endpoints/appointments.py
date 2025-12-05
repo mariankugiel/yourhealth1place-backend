@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict
 from datetime import datetime, timedelta
@@ -16,6 +17,7 @@ from app.schemas.appointment import (
     AcuityWebhookPayload,
     AppointmentBookRequest,
     AppointmentRescheduleRequest,
+    AppointmentPhoneUpdateRequest,
 )
 from app.api.v1.endpoints.auth import get_current_user
 from app.crud.user import get_user, get_user_by_email
@@ -220,7 +222,8 @@ YourHealth1Place Team
 
 @router.get("/doctors")
 async def get_doctors(
-    search: Optional[str] = Query(None, description="Search query for filtering doctors"),
+    search: Optional[str] = Query(None, description="Search query for filtering doctors by name or email"),
+    location: Optional[str] = Query(None, description="Location filter (city, state, or country)"),
     offset: int = Query(0, ge=0, description="Number of doctors to skip"),
     limit: int = Query(20, ge=1, le=100, description="Maximum number of doctors to return"),
     db: Session = Depends(get_db),
@@ -242,15 +245,20 @@ async def get_doctors(
 
         print('!!!!!!!!!!!!!!!!!!!!!!!!!');
         
-        # Apply search filter if provided (search by email or name)
+        # Note: We'll apply name and location filters after fetching profiles
+        # since they're stored in Supabase, not the local database
+        # For now, we can still filter by email in the database query
         if search and search.strip():
             search_term = f"%{search.strip().lower()}%"
             doctors_query = doctors_query.filter(
                 User.email.ilike(search_term)
             )
         
-        # Apply pagination and order by email
-        doctors = doctors_query.offset(offset).limit(limit).all()
+        # Get all doctors first (we'll filter by name/location after fetching profiles)
+        all_doctors = doctors_query.all()
+        
+        if not all_doctors:
+            return []
         
         # Get online users list once for efficiency
         online_users = await manager.get_online_users()
@@ -265,50 +273,58 @@ async def get_doctors(
                 if calendar and calendar.get("id") is not None
             }
 
+        # Collect all supabase_user_ids for bulk fetch
+        supabase_user_ids = [doc.supabase_user_id for doc in all_doctors if doc.supabase_user_id]
+        
+        # Bulk fetch all doctor profiles in one query
+        profiles_dict = await doctor_supabase_service.get_doctor_profiles_bulk(supabase_user_ids)
+        
+        # Collect all doctor_ids for bulk calendar fetch
+        doctor_ids = []
+        for profile in profiles_dict.values():
+            doctor_id = profile.get("id") or profile.get("user_id")
+            if doctor_id:
+                doctor_ids.append(doctor_id)
+        
+        # Bulk fetch all Acuity calendar IDs in one query
+        calendars_dict = await doctor_supabase_service.get_acuity_calendars_bulk(doctor_ids)
+        
+        # Add calendar IDs to profiles
+        for doctor_id, calendar_id in calendars_dict.items():
+            if doctor_id in profiles_dict:
+                profiles_dict[doctor_id]["acuity_calendar_id"] = calendar_id
+
         # Format response with profile data from doctor's Supabase
+        # Apply name and location filters after fetching profiles
         result = []
-        for doctor in doctors:
+        search_term_lower = search.strip().lower() if search and search.strip() else None
+        location_filter_lower = location.strip().lower() if location and location.strip() else None
+        
+        # Get Acuity owner ID from backend environment variable (shared across all doctors)
+        acuity_owner_id = settings.ACUITY_USER_ID if settings.ACUITY_USER_ID else None
+        
+        for doctor in all_doctors:
             try:
-                # Fetch doctor profile from doctor's Supabase
-                profile = {}
-                specialty = None
-                full_name = None
-                acuity_calendar_id = None
-                acuity_owner_id = None
+                # Get profile from bulk fetched data
+                profile = profiles_dict.get(doctor.supabase_user_id, {}) if doctor.supabase_user_id else {}
+                
+                specialty = profile.get("specialty")
+                full_name = profile.get("full_name")
+                address = profile.get("address")
+                acuity_calendar_id = profile.get("acuity_calendar_id")
                 calendar_timezone = None
                 
-                # Get Acuity owner ID from backend environment variable (shared across all doctors)
-                acuity_owner_id = settings.ACUITY_USER_ID if settings.ACUITY_USER_ID else None
-
-                if doctor.supabase_user_id:
-                    try:
-                        # Get doctor profile from doctor_profiles table (includes acuity_calendar_id if available)
-                        profile = await doctor_supabase_service.get_doctor_profile(doctor.supabase_user_id, include_acuity_calendar=True) or {}
-                        logger.debug(f"Doctor {doctor.id} (email: {doctor.email}, supabase_user_id: {doctor.supabase_user_id}): Profile found: {bool(profile)}, Keys: {list(profile.keys()) if profile else []}")
-                        
-                        specialty = profile.get("specialty")
-                        full_name = profile.get("full_name")
-                        acuity_calendar_id = profile.get("acuity_calendar_id")  # Get from profile (fetched together)
-                        
-                        if acuity_calendar_id:
-                            logger.debug(f"✅ Found Acuity calendar ID {acuity_calendar_id} for doctor {doctor.id} (email: {doctor.email})")
-                            calendar_timezone = (
-                                profile.get("calendar_timezone")
-                                or profile.get("timezone")
-                                or profile.get("time_zone")
-                            )
-                            if not calendar_timezone:
-                                calendar_info = calendars_by_id.get(str(acuity_calendar_id))
-                                if calendar_info:
-                                    calendar_timezone = calendar_info.get("timezone")
-                        else:
-                            logger.debug(f"⚠️ No Acuity calendar ID in profile for doctor {doctor.id} (email: {doctor.email})")
-                    except Exception as e:
-                        logger.error(f"❌ Failed to fetch doctor profile for user {doctor.id} (email: {doctor.email}, supabase_user_id: {doctor.supabase_user_id}): {e}", exc_info=True)
-                        profile = {}
-                else:
-                    logger.warning(f"⚠️ Doctor {doctor.id} (email: {doctor.email}) has no supabase_user_id - cannot fetch profile or calendar")
-                    profile = {}
+                # Get timezone from profile or calendar
+                if acuity_calendar_id:
+                    calendar_timezone = (
+                        profile.get("calendar_timezone")
+                        or profile.get("timezone")
+                        or profile.get("time_zone")
+                    )
+                    if not calendar_timezone:
+                        calendar_info = calendars_by_id.get(str(acuity_calendar_id))
+                        if calendar_info:
+                            calendar_timezone = calendar_info.get("timezone")
                 
                 # Build display name
                 if full_name and full_name.strip():
@@ -323,6 +339,25 @@ async def get_doctors(
                     first_name = email_parts[0].split('.')[0].title() if '.' in email_parts[0] else email_parts[0].title()
                     last_name = ""
                 
+                # Apply name search filter (if provided)
+                if search_term_lower:
+                    # Check if search matches email, name, or specialty
+                    email_match = search_term_lower in doctor.email.lower()
+                    name_match = full_name and search_term_lower in full_name.lower()
+                    specialty_match = specialty and search_term_lower in specialty.lower()
+                    if not (email_match or name_match or specialty_match):
+                        continue  # Skip this doctor if no match
+                
+                # Apply location filter (if provided)
+                if location_filter_lower and address:
+                    address_lower = address.lower()
+                    # Check if location filter matches any part of the address
+                    if location_filter_lower not in address_lower:
+                        continue  # Skip this doctor if address doesn't match
+                elif location_filter_lower and not address:
+                    # If location filter is provided but doctor has no address, skip
+                    continue
+                
                 # Check if user is online using WebSocket status
                 is_online = doctor.id in online_users
                 
@@ -333,6 +368,7 @@ async def get_doctors(
                     "lastName": last_name,
                     "specialty": specialty,
                     "avatar": profile.get("avatar_url"),
+                    "address": address,
                     "isOnline": is_online,
                     "email": doctor.email,
                     "acuityCalendarId": acuity_calendar_id,
@@ -375,7 +411,10 @@ async def get_doctors(
                     "appointmentTypes": []
                 })
         
-        return result
+        # Apply pagination after filtering
+        paginated_result = result[offset:offset + limit]
+        
+        return paginated_result
         
     except Exception as e:
         logger.error(f"Error getting doctors: {e}", exc_info=True)
@@ -495,14 +534,14 @@ async def get_video_room(
         )
     
     # Check if appointment has video room
-    if not appointment.virtual_meeting_url or appointment.virtual_meeting_platform != "daily_co":
+    if not appointment.virtual_meeting_url:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="This appointment does not have a video room"
         )
     
-    # Get room name from virtual_meeting_id
-    room_name = appointment.virtual_meeting_id or f"appointment-{appointment_id}"
+    # Get room name from acuity_appointment_id
+    room_name = f"appointment-{appointment.acuity_appointment_id}" if appointment.acuity_appointment_id else f"appointment-{appointment_id}"
     
     # Generate tokens
     patient_token = daily_service.create_meeting_token(
@@ -568,12 +607,9 @@ async def acuity_webhook(
             if existing_appointment:
                 existing_appointment.status = "CANCELLED"
                 # Delete Daily.co room if exists
-                # Try to get room name from stored virtual_meeting_id or construct from Acuity appointment ID
+                # Construct room name from Acuity appointment ID (format: appointment-{acuity_appointment_id})
                 room_name_to_delete = None
-                if existing_appointment.virtual_meeting_id and existing_appointment.virtual_meeting_platform == "daily_co":
-                    room_name_to_delete = existing_appointment.virtual_meeting_id
-                elif existing_appointment.acuity_appointment_id:
-                    # Construct room name from Acuity appointment ID (format: appointment-{acuity_appointment_id})
+                if existing_appointment.acuity_appointment_id:
                     room_name_to_delete = f"appointment-{existing_appointment.acuity_appointment_id}"
                 
                 if room_name_to_delete:
@@ -631,73 +667,59 @@ async def acuity_webhook(
             logger.warning(f"Professional not found for calendarID: {payload.calendarID}")
             return {"status": "error", "message": f"Professional not found for calendar: {payload.calendarID}"}
         
-        # Get professional location (use first location or create default)
-        from app.models.professional_locations import ProfessionalLocation
-        location = db.query(ProfessionalLocation).filter(
-            ProfessionalLocation.practice_id == professional.id
-        ).first()
+        # Get doctor's address for location field
+        doctor_address = None
+        try:
+            doctor_id = await doctor_supabase_service.get_doctor_id_by_calendar_id(payload.calendarID)
+            if doctor_id:
+                profile_response = supabase_service.client.table("doctor_profiles").select("address").eq("id", doctor_id).limit(1).execute()
+                if profile_response.data and profile_response.data[0].get("address"):
+                    doctor_address = profile_response.data[0].get("address")
+        except Exception as e:
+            logger.warning(f"Could not fetch doctor address for calendar {payload.calendarID}: {e}")
         
-        if not location:
-            logger.warning(f"No location found for professional {professional.id}, using default")
-            # For now, we'll need to handle this case - might need to create a default location
-            return {"status": "error", "message": f"No location configured for professional"}
-        
-        # Get default appointment type and pricing
-        from app.models.appointment_types import AppointmentType, AppointmentTypePricing
-        appointment_type = db.query(AppointmentType).filter(
-            AppointmentType.professional_id == professional.id
-        ).first()
-        
-        # Determine consultation type (virtual, in-person, phone)
-        # First, try to get it from Acuity appointment fields (most accurate)
+        # Determine consultation type from appointment type category (Virtual, Phone, Person)
         consultation_type = "in-person"  # default
         is_virtual = False
         virtual_meeting_url = None
         
-        # Fetch appointment from Acuity to get fields array
-        acuity_appointment_data = acuity_service.get_appointment(payload.id)
-        if acuity_appointment_data and acuity_appointment_data.get("fields"):
-            for field in acuity_appointment_data["fields"]:
-                field_id = field.get("id")
-                field_value = field.get("value")
-                
-                if field_id == settings.ACUITY_FIELD_ID_APPOINTMENT_TYPE:
-                    # This is our consultation_type field
-                    consultation_type = field_value or "in-person"
-                    if consultation_type == "virtual":
+        # Get virtual meeting URL from existing DB appointment if it exists
+        if existing_appointment:
+            virtual_meeting_url = existing_appointment.virtual_meeting_url
+        
+        # Get category from appointment type
+        appointment_type_id = payload.appointmentTypeID
+        if appointment_type_id:
+            appointment_types_lookup = acuity_service.get_appointment_types_map()
+            if appointment_types_lookup:
+                appointment_type_info = appointment_types_lookup.get(str(appointment_type_id))
+                if appointment_type_info:
+                    category = appointment_type_info.get("category", "Person")
+                    category_lower = category.lower() if category else "person"
+                    if category_lower == "virtual":
+                        consultation_type = "virtual"
                         is_virtual = True
-                elif field_id == settings.ACUITY_FIELD_ID_VIRTUAL_MEETING_URL:
-                    virtual_meeting_url = field_value
+                    elif category_lower == "phone":
+                        consultation_type = "phone"
+                    else:
+                        consultation_type = "in-person"
         
-        # Fallback: Check appointment type name if consultation_type still default
-        if consultation_type == "in-person" and appointment_type and appointment_type.name:
-            type_name_lower = appointment_type.name.lower()
-            if "virtual" in type_name_lower or "video" in type_name_lower or "online" in type_name_lower:
-                consultation_type = "virtual"
-                is_virtual = True
-            elif "phone" in type_name_lower or "telephone" in type_name_lower:
-                consultation_type = "phone"
+        # Get default cost from Acuity appointment type if available
+        cost = 0
+        if appointment_type_id:
+            appointment_types_lookup = acuity_service.get_appointment_types_map()
+            if appointment_types_lookup:
+                appointment_type_info = appointment_types_lookup.get(str(appointment_type_id))
+                if appointment_type_info and appointment_type_info.get("price"):
+                    try:
+                        cost = float(appointment_type_info.get("price"))
+                    except (TypeError, ValueError):
+                        cost = 0
         
-        # Also check notes if consultation type still not determined
-        if consultation_type == "in-person" and payload.notes:
-            notes_lower = payload.notes.lower()
-            if "virtual" in notes_lower or "video" in notes_lower or "online" in notes_lower:
-                consultation_type = "virtual"
-                is_virtual = True
-            elif "phone" in notes_lower or "telephone" in notes_lower:
-                consultation_type = "phone"
-        
-        if not appointment_type:
-            logger.warning(f"No appointment type found for professional {professional.id}")
-            return {"status": "error", "message": "No appointment type configured for professional"}
-        
-        pricing = db.query(AppointmentTypePricing).filter(
-            AppointmentTypePricing.appointment_type_id == appointment_type.id
-        ).first()
-        
-        if not pricing:
-            logger.warning(f"No pricing found for appointment type {appointment_type.id}")
-            return {"status": "error", "message": "No pricing configured for appointment type"}
+        # Get location for in-person appointments
+        location_for_db = None
+        if consultation_type == "in-person" and doctor_address:
+            location_for_db = doctor_address
         
         # Create or update appointment
         if existing_appointment:
@@ -705,45 +727,36 @@ async def acuity_webhook(
             existing_appointment.scheduled_at = scheduled_at or existing_appointment.scheduled_at
             existing_appointment.status = "SCHEDULED"
             existing_appointment.consultation_type = consultation_type
-            existing_appointment.reason = payload.notes or existing_appointment.reason
+            existing_appointment.notes = payload.notes or existing_appointment.notes
             existing_appointment.acuity_calendar_id = payload.calendarID
+            existing_appointment.acuity_appointment_type_id = str(appointment_type_id) if appointment_type_id else None
+            existing_appointment.location = location_for_db
             appointment = existing_appointment
             logger.info(f"Updated existing appointment {existing_appointment.id} for Acuity appointment {payload.id}")
         else:
             # Create new appointment
             appointment = Appointment(
-                appointment_type_id=appointment_type.id,
                 patient_id=patient.id,
                 professional_id=professional.id,
-                location_id=location.id,
                 consultation_type=consultation_type,
                 scheduled_at=scheduled_at or datetime.utcnow(),
                 duration_minutes=30,  # Default, could be fetched from Acuity
                 timezone=payload.timezone or payload.calendarTimezone or "UTC",
                 status="SCHEDULED",
-                appointment_category="consultation",
-                appointment_type_pricing_id=pricing.id,
-                cost=pricing.base_fee or 0,
+                cost=cost,
                 currency="USD",
                 payment_status="PENDING",
                 acuity_appointment_id=payload.id,
                 acuity_calendar_id=payload.calendarID,
-                booked_by=patient.id,
-                booked_at=datetime.utcnow(),
-                reason=payload.notes,
+                acuity_appointment_type_id=str(appointment_type_id) if appointment_type_id else None,
+                location=location_for_db,
+                notes=payload.notes,
                 created_by=patient.id
             )
             db.add(appointment)
             db.flush()  # Get the appointment ID
         
-        # Store virtual_meeting_url if we got it from Acuity fields
-        if virtual_meeting_url and existing_appointment:
-            existing_appointment.virtual_meeting_url = virtual_meeting_url
-            # Extract room name from URL or construct it
-            if not existing_appointment.virtual_meeting_id:
-                # Room name format: appointment-{acuity_appointment_id}
-                existing_appointment.virtual_meeting_id = f"appointment-{payload.id}"
-                existing_appointment.virtual_meeting_platform = "daily_co"
+        # virtual_meeting_url is already set from existing_appointment if it exists
         
         # Create Daily.co room if virtual appointment
         logger.info(f"Checking if appointment is virtual: is_virtual={is_virtual}, consultation_type={consultation_type}")
@@ -770,10 +783,9 @@ async def acuity_webhook(
                 )
                 
                 if room_data:
-                    appointment.virtual_meeting_url = room_data.get("room_url")
-                    appointment.virtual_meeting_id = room_data.get("room_name") or room_data.get("id")
-                    appointment.virtual_meeting_platform = "daily_co"
-                    logger.info(f"✅ Created Daily.co room for appointment {appointment.id}: room_name={room_data.get('room_name')}, url={room_data.get('room_url')}")
+                    virtual_meeting_url = room_data.get("room_url")
+                    appointment.virtual_meeting_url = virtual_meeting_url
+                    logger.info(f"✅ Created Daily.co room for appointment {appointment.id}: url={virtual_meeting_url}")
                 else:
                     logger.warning(f"⚠️ Daily.co room creation returned None for appointment {appointment.id}")
             except Exception as e:
@@ -789,9 +801,7 @@ async def acuity_webhook(
             # Appointment is in the past, mark as completed and delete room if virtual
             if consultation_type == "virtual":
                 room_name_to_delete = None
-                if appointment.virtual_meeting_id and appointment.virtual_meeting_platform == "daily_co":
-                    room_name_to_delete = appointment.virtual_meeting_id
-                elif appointment.acuity_appointment_id:
+                if appointment.acuity_appointment_id:
                     room_name_to_delete = f"appointment-{appointment.acuity_appointment_id}"
                 
                 if room_name_to_delete:
@@ -833,10 +843,8 @@ async def acuity_webhook(
                 except:
                     formatted_datetime = payload.datetime or "TBD"
                 
-                # Get location address if available
-                location_address = None
-                if consultation_type == "in-person" and location:
-                    location_address = location.address if hasattr(location, 'address') else str(location)
+                # Get location address from appointment or doctor profile
+                location_address = appointment.location if appointment.location else doctor_address
                 
                 # Send email to patient
                 if patient.email:
@@ -846,7 +854,7 @@ async def acuity_webhook(
                         doctor_name=professional_name,
                         appointment_datetime=formatted_datetime,
                         consultation_type=consultation_type,
-                        location=location_address,
+                        location=location_address if consultation_type == "in-person" else None,
                         phone=payload.phone if consultation_type == "phone" else None,
                         virtual_meeting_url=appointment.virtual_meeting_url,
                         note=payload.notes,
@@ -861,7 +869,7 @@ async def acuity_webhook(
                         doctor_name=professional_name,
                         appointment_datetime=formatted_datetime,
                         consultation_type=consultation_type,
-                        location=location_address,
+                        location=location_address if consultation_type == "in-person" else None,
                         phone=payload.phone if consultation_type == "phone" else None,
                         virtual_meeting_url=appointment.virtual_meeting_url,
                         note=payload.notes,
@@ -1058,26 +1066,25 @@ async def create_appointment(
 ):
     """Create a new appointment via Acuity API"""
     try:
-        # Build fields array
-        fields = []
-        
-        # Always include consultation type
-        if settings.ACUITY_FIELD_ID_APPOINTMENT_TYPE:
-            consultation_type_value = appointment.consultation_type
-            logger.info(f"Saving consultation_type to Acuity field {settings.ACUITY_FIELD_ID_APPOINTMENT_TYPE}: {consultation_type_value}")
-            fields.append({
-                "id": settings.ACUITY_FIELD_ID_APPOINTMENT_TYPE,
-                "value": consultation_type_value
-            })
-        else:
-            logger.warning("ACUITY_FIELD_ID_APPOINTMENT_TYPE is not configured, consultation_type will not be saved to Acuity")
-        
         virtual_meeting_url = None
         effective_appointment_type_id = appointment.appointment_type_id
         
         # Determine appointment type ID if not provided
         if not effective_appointment_type_id:
             effective_appointment_type_id = acuity_service.get_default_appointment_type_id()
+        
+        # Get appointment type info to determine category (Virtual, Phone, or Person)
+        appointment_category = "Person"  # default
+        if effective_appointment_type_id:
+            appointment_types_lookup = acuity_service.get_appointment_types_map()
+            if appointment_types_lookup:
+                appointment_type_info = appointment_types_lookup.get(str(effective_appointment_type_id))
+                if appointment_type_info:
+                    appointment_category = appointment_type_info.get("category", "Person")
+                    logger.info(f"Appointment type {effective_appointment_type_id} has category: {appointment_category}")
+        
+        # Normalize category to lowercase for comparison
+        category_lower = appointment_category.lower() if appointment_category else "person"
 
         # Format datetime with timezone for Acuity API
         # Acuity expects: YYYY-MM-DDTHH:MM:SS-TZ:TZ (e.g., 2024-01-15T10:00:00-0500)
@@ -1110,7 +1117,7 @@ async def create_appointment(
             email=appointment.email,
             phone=appointment.phone,
             notes=appointment.note,  # No "Note: " prefix
-            fields=fields if fields else None
+            fields=None  # No longer using custom fields
         )
         
         if not acuity_appointment:
@@ -1122,17 +1129,19 @@ async def create_appointment(
         # Get Acuity appointment ID for room creation
         acuity_appointment_id = str(acuity_appointment.get("id", ""))
         
-        # Get doctor name and email from calendar ID
+        # Get doctor name, email, and address from calendar ID
         doctor_name = "Doctor"
         doctor_email = None
+        doctor_address = None
         try:
             # Find doctor by calendar ID
             doctor_id = await doctor_supabase_service.get_doctor_id_by_calendar_id(appointment.calendar_id)
             if doctor_id:
-                # Get doctor profile for name
-                profile_response = supabase_service.client.table("doctor_profiles").select("full_name").eq("id", doctor_id).limit(1).execute()
+                # Get doctor profile for name and address
+                profile_response = supabase_service.client.table("doctor_profiles").select("full_name,address").eq("id", doctor_id).limit(1).execute()
                 if profile_response.data:
                     doctor_name = profile_response.data[0].get("full_name", doctor_name)
+                    doctor_address = profile_response.data[0].get("address")
                 
                 # Get doctor's Supabase user_id to find the User record
                 supabase_user_id = await doctor_supabase_service.get_supabase_user_id_by_doctor_id(doctor_id)
@@ -1149,7 +1158,11 @@ async def create_appointment(
             logger.warning(f"Could not fetch doctor information for calendar {appointment.calendar_id}: {e}")
         
         # Handle virtual appointments - create Daily.co room AFTER getting Acuity appointment ID
-        if appointment.consultation_type == "virtual":
+        # Check category from appointment type (Virtual, Phone, Person)
+        is_virtual = category_lower == "virtual"
+        is_phone = category_lower == "phone"
+        
+        if is_virtual:
             try:
                 # Get patient information
                 patient_profile = await supabase_service.get_user_profile(current_user.supabase_user_id)
@@ -1181,22 +1194,6 @@ async def create_appointment(
                 
                 if room_data and room_data.get("room_url"):
                     virtual_meeting_url = room_data.get("room_url")
-                    # Update the appointment in Acuity with the virtual meeting URL
-                    if settings.ACUITY_FIELD_ID_VIRTUAL_MEETING_URL:
-                        try:
-                            acuity_service.update_appointment(
-                                appointment_id=acuity_appointment_id,
-                                updates={
-                                    "fields": [
-                                        {
-                                            "id": settings.ACUITY_FIELD_ID_VIRTUAL_MEETING_URL,
-                                            "value": virtual_meeting_url
-                                        }
-                                    ]
-                                }
-                            )
-                        except Exception as e:
-                            logger.warning(f"Could not update Acuity appointment with virtual meeting URL: {e}")
                     logger.info(f"Created Daily.co room: {virtual_meeting_url}")
             except Exception as e:
                 logger.error(f"Error creating Daily.co room: {e}")
@@ -1212,15 +1209,22 @@ async def create_appointment(
         # Send confirmation emails to both patient and doctor
         patient_name = f"{appointment.first_name} {appointment.last_name}"
         
+        # Map category to consultation_type for email (backward compatibility)
+        consultation_type_for_email = "in-person"  # default
+        if is_virtual:
+            consultation_type_for_email = "virtual"
+        elif is_phone:
+            consultation_type_for_email = "phone"
+        
         # Send email to patient
         send_appointment_confirmation_email(
             email=appointment.email,
             patient_name=patient_name,
             doctor_name=doctor_name,
             appointment_datetime=formatted_datetime,
-            consultation_type=appointment.consultation_type,
+            consultation_type=consultation_type_for_email,
             location=None,
-            phone=appointment.phone if appointment.consultation_type == "phone" else None,
+            phone=appointment.phone if is_phone else None,
             virtual_meeting_url=virtual_meeting_url,
             note=appointment.note,
             is_doctor_email=False
@@ -1233,15 +1237,122 @@ async def create_appointment(
                 patient_name=patient_name,
                 doctor_name=doctor_name,
                 appointment_datetime=formatted_datetime,
-                consultation_type=appointment.consultation_type,
+                consultation_type=consultation_type_for_email,
                 location=None,
-                phone=appointment.phone if appointment.consultation_type == "phone" else None,
+                phone=appointment.phone if is_phone else None,
                 virtual_meeting_url=virtual_meeting_url,
                 note=appointment.note,
                 is_doctor_email=True
             )
         else:
             logger.warning(f"Doctor email not found for calendar {appointment.calendar_id}, skipping doctor notification email")
+        
+        # Save appointment to database
+        try:
+            # Find professional (doctor) by calendar ID
+            professional = None
+            doctor_id = await doctor_supabase_service.get_doctor_id_by_calendar_id(appointment.calendar_id)
+            if doctor_id:
+                supabase_user_id = await doctor_supabase_service.get_supabase_user_id_by_doctor_id(doctor_id)
+                if supabase_user_id:
+                    professional = db.query(User).filter(
+                        User.role == "doctor",
+                        User.supabase_user_id == supabase_user_id
+                    ).first()
+            
+            if not professional:
+                logger.warning(f"Professional not found for calendar {appointment.calendar_id}, skipping DB save")
+            else:
+                # Location is not required - we get it from Acuity if needed
+                if True:
+                    # Get cost from Acuity appointment type
+                    cost = 0
+                    if effective_appointment_type_id:
+                        appointment_types_lookup = acuity_service.get_appointment_types_map()
+                        if appointment_types_lookup:
+                            appointment_type_info = appointment_types_lookup.get(str(effective_appointment_type_id))
+                            if appointment_type_info and appointment_type_info.get("price"):
+                                try:
+                                    cost = float(appointment_type_info.get("price"))
+                                except (TypeError, ValueError):
+                                    cost = 0
+                    
+                    if True:  # Always create appointment if we have professional and location
+                            # Parse scheduled_at datetime
+                            scheduled_at = datetime.utcnow()
+                            try:
+                                scheduled_at = date_parser.parse(appointment_datetime)
+                            except:
+                                pass
+                            
+                            # Get duration from appointment type
+                            duration_minutes = 30
+                            if effective_appointment_type_id:
+                                appointment_types_lookup = acuity_service.get_appointment_types_map()
+                                if appointment_types_lookup:
+                                    appointment_type_info = appointment_types_lookup.get(str(effective_appointment_type_id))
+                                    if appointment_type_info and appointment_type_info.get("duration"):
+                                        try:
+                                            duration_minutes = int(appointment_type_info.get("duration"))
+                                        except (TypeError, ValueError):
+                                            duration_minutes = 30
+                            
+                            # Map category to consultation_type
+                            consultation_type_db = "in-person"
+                            if is_virtual:
+                                consultation_type_db = "virtual"
+                            elif is_phone:
+                                consultation_type_db = "phone"
+                            
+                            # Create or update appointment in DB
+                            existing_db_appointment = db.query(Appointment).filter(
+                                Appointment.acuity_appointment_id == acuity_appointment_id
+                            ).first()
+                            
+                            # Get doctor address for location field
+                            doctor_address_for_db = None
+                            if consultation_type_db == "in-person" and doctor_address:
+                                doctor_address_for_db = doctor_address
+                            
+                            if existing_db_appointment:
+                                # Update existing
+                                existing_db_appointment.scheduled_at = scheduled_at
+                                existing_db_appointment.duration_minutes = duration_minutes
+                                existing_db_appointment.consultation_type = consultation_type_db
+                                existing_db_appointment.virtual_meeting_url = virtual_meeting_url
+                                existing_db_appointment.acuity_appointment_type_id = str(effective_appointment_type_id) if effective_appointment_type_id else None
+                                existing_db_appointment.location = doctor_address_for_db
+                                existing_db_appointment.notes = appointment.note
+                                existing_db_appointment.status = "SCHEDULED"
+                                db.commit()
+                                logger.info(f"Updated DB appointment {existing_db_appointment.id} for Acuity appointment {acuity_appointment_id}")
+                            else:
+                                # Create new
+                                db_appointment = Appointment(
+                                    patient_id=current_user.id,
+                                    professional_id=professional.id,
+                                    consultation_type=consultation_type_db,
+                                    scheduled_at=scheduled_at,
+                                    duration_minutes=duration_minutes,
+                                    timezone=appointment.timezone or "UTC",
+                                    status="SCHEDULED",
+                                    cost=cost,
+                                    currency="USD",
+                                    payment_status="PENDING",
+                                    acuity_appointment_id=acuity_appointment_id,
+                                    acuity_calendar_id=appointment.calendar_id,
+                                    acuity_appointment_type_id=str(effective_appointment_type_id) if effective_appointment_type_id else None,
+                                    virtual_meeting_url=virtual_meeting_url,
+                                    location=doctor_address_for_db,
+                                    notes=appointment.note,
+                                    created_by=current_user.id
+                                )
+                                db.add(db_appointment)
+                                db.commit()
+                                logger.info(f"Created DB appointment {db_appointment.id} for Acuity appointment {acuity_appointment_id}")
+        except Exception as e:
+            logger.error(f"Error saving appointment to database: {e}", exc_info=True)
+            # Don't fail the request if DB save fails - Acuity appointment is already created
         
         # Return created appointment
         return {
@@ -1284,23 +1395,77 @@ async def read_appointments(
         
         appointment_types_lookup = acuity_service.get_appointment_types_map()
 
+        # Get DB appointments for virtual meeting URLs
+        acuity_appointment_ids = [str(apt.get("id")) for apt in acuity_appointments if apt.get("id")]
+        db_appointments = {}
+        if acuity_appointment_ids:
+            db_appts = db.query(Appointment).filter(
+                Appointment.acuity_appointment_id.in_(acuity_appointment_ids)
+            ).all()
+            db_appointments = {str(apt.acuity_appointment_id): apt for apt in db_appts if apt.acuity_appointment_id}
+        
         # Parse and enrich appointments
-        doctor_profile_cache: Dict[str, Dict] = {}
+        # Collect all unique calendar IDs for bulk fetching
+        unique_calendar_ids = set()
+        for apt in acuity_appointments:
+            calendar_id = apt.get("calendarID")
+            if calendar_id:
+                unique_calendar_ids.add(str(calendar_id))
+        
+        # Bulk fetch all doctor IDs by calendar IDs
+        calendar_to_doctor_id: Dict[str, str] = {}
+        if unique_calendar_ids:
+            calendar_to_doctor_id = await doctor_supabase_service.get_doctor_ids_by_calendar_ids_bulk(list(unique_calendar_ids))
+        
+        # Collect all unique doctor IDs for bulk profile fetching
+        unique_doctor_ids = set(calendar_to_doctor_id.values())
+        
+        # Bulk fetch all doctor profiles
+        doctor_profiles_dict: Dict[str, Dict] = {}
+        if unique_doctor_ids:
+            # Use existing bulk method but we need to get profiles by doctor_id (UUID)
+            # The get_doctor_profiles_bulk expects supabase_user_ids, but we have doctor_ids
+            # So we'll use a direct query here
+            try:
+                client = supabase_service.client
+                profile_response = client.table("doctor_profiles").select("id,full_name,specialty").in_("id", list(unique_doctor_ids)).execute()
+                if profile_response.data:
+                    for profile in profile_response.data:
+                        doctor_id = profile.get("id")
+                        if doctor_id:
+                            doctor_profiles_dict[doctor_id] = profile
+            except Exception as e:
+                logger.error(f"Error bulk fetching doctor profiles: {e}", exc_info=True)
+        
         result = []
         for apt in acuity_appointments:
-            # Parse fields array to extract custom data
-            consultation_type = "in-person"  # default
-            virtual_meeting_url = None
+            acuity_appt_id = str(apt.get("id", ""))
             
-            if apt.get("fields"):
-                for field in apt["fields"]:
-                    field_id = field.get("id")
-                    field_value = field.get("value")
-                    
-                    if field_id == settings.ACUITY_FIELD_ID_APPOINTMENT_TYPE:
-                        consultation_type = field_value or "in-person"
-                    elif field_id == settings.ACUITY_FIELD_ID_VIRTUAL_MEETING_URL:
-                        virtual_meeting_url = field_value
+            # Get virtual meeting URL and location from DB instead of Acuity custom fields
+            virtual_meeting_url = None
+            location_address = None
+            db_appointment = db_appointments.get(acuity_appt_id)
+            if db_appointment:
+                virtual_meeting_url = db_appointment.virtual_meeting_url
+                location_address = db_appointment.location
+            
+            # Get phone from Acuity appointment data
+            phone_number = apt.get("phone")
+            
+            # Get consultation type from appointment type category
+            consultation_type = "in-person"  # default
+            appointment_type_id = apt.get("appointmentTypeID")
+            if appointment_type_id and appointment_types_lookup:
+                appointment_type_info = appointment_types_lookup.get(str(appointment_type_id))
+                if appointment_type_info:
+                    category = appointment_type_info.get("category", "Person")
+                    category_lower = category.lower() if category else "person"
+                    if category_lower == "virtual":
+                        consultation_type = "virtual"
+                    elif category_lower == "phone":
+                        consultation_type = "phone"
+                    else:
+                        consultation_type = "in-person"
             
             # Map status to frontend format
             canceled = apt.get("canceled", False)
@@ -1321,28 +1486,20 @@ async def read_appointments(
                 else:
                     frontend_status = "upcoming"
             
-            # Get doctor information from calendar ID
+            # Get doctor information from calendar ID (using bulk-fetched data)
             calendar_id = apt.get("calendarID")
             doctor_name = "Unknown Doctor"
             doctor_specialty = None
             timezone = apt.get("timezone") or apt.get("calendarTimezone")
 
             if calendar_id:
-                try:
-                    doctor_id = await doctor_supabase_service.get_doctor_id_by_calendar_id(str(calendar_id))
-                    if doctor_id:
-                        if doctor_id in doctor_profile_cache:
-                            profile = doctor_profile_cache[doctor_id]
-                        else:
-                            profile_response = supabase_service.client.table("doctor_profiles").select("full_name,specialty").eq("id", doctor_id).limit(1).execute()
-                            profile = profile_response.data[0] if profile_response.data else {}
-                            doctor_profile_cache[doctor_id] = profile
-
-                        if profile:
-                            doctor_name = profile.get("full_name", doctor_name)
-                            doctor_specialty = profile.get("specialty")
-                except Exception as e:
-                    logger.warning(f"Could not fetch doctor info for calendar {calendar_id}: {e}")
+                calendar_id_str = str(calendar_id)
+                doctor_id = calendar_to_doctor_id.get(calendar_id_str)
+                if doctor_id:
+                    profile = doctor_profiles_dict.get(doctor_id)
+                    if profile:
+                        doctor_name = profile.get("full_name", doctor_name)
+                        doctor_specialty = profile.get("specialty")
 
             # Duration and appointment type
             duration_raw = apt.get("duration") or apt.get("durationMinutes")
@@ -1433,6 +1590,9 @@ async def read_appointments(
                 "appointment_type_name": appointment_type_info.get("name") if appointment_type_info else None,
                 "appointment_type_duration": appointment_type_info.get("duration") if appointment_type_info else None,
                 "appointment_type_price": appointment_type_price,
+                # Phone and location for display
+                "phone": phone_number,
+                "location": location_address,
             }
             result.append(appointment_data)
         
@@ -1521,6 +1681,73 @@ async def reschedule_appointment(
         "message": "Appointment rescheduled successfully",
         "appointment": acuity_response,
     }
+
+
+@router.options("/{appointment_id}/phone")
+async def options_update_appointment_phone():
+    """Handle OPTIONS preflight request for PATCH endpoint"""
+    return Response(
+        status_code=200,
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "PATCH, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization",
+            "Access-Control-Max-Age": "3600",
+        }
+    )
+
+
+@router.patch("/{appointment_id}/phone")
+async def update_appointment_phone(
+    appointment_id: str,
+    phone_data: AppointmentPhoneUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Update phone number for an appointment in Acuity.
+    """
+    try:
+        # Get appointment from local DB to verify access
+        appointment = db.query(Appointment).filter(
+            Appointment.acuity_appointment_id == appointment_id
+        ).first()
+        
+        if not appointment:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Appointment not found"
+            )
+        
+        # Verify user has access
+        if current_user.role.value == "patient" and appointment.patient_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have access to this appointment"
+            )
+        
+        # Update phone number in Acuity
+        updates = {"phone": phone_data.phone}
+        acuity_response = acuity_service.update_appointment(appointment_id, updates)
+        
+        if acuity_response is None:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to update appointment phone number in Acuity."
+            )
+        
+        return {
+            "message": "Phone number updated successfully",
+            "appointment": acuity_response
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating appointment phone number: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update phone number: {str(e)}"
+        )
 
 
 @router.delete("/{appointment_id}")

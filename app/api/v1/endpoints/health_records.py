@@ -36,6 +36,17 @@ import logging
 import uuid
 from app.core.aws_service import aws_service
 from app.core.patient_token import decode_patient_token
+from app.utils.translation_helpers import (
+    apply_translations_to_sections_with_metrics,
+    apply_translations_to_medical_condition,
+    apply_translations_to_family_history,
+    apply_translations_to_imaging_document,
+    apply_translations_to_section_template,
+    apply_translations_to_metric_template,
+    apply_translations_to_surgery_hospitalization,
+    apply_translations_to_section,
+    apply_translations_to_metric
+)
 
 
 logger = logging.getLogger(__name__)
@@ -360,7 +371,7 @@ async def create_medical_condition(
 ):
     """Create a new medical condition"""
     try:
-        db_condition = medical_condition_crud.create(db, condition, current_user.id)
+        db_condition = await medical_condition_crud.create(db, condition, current_user.id)
         
         return MedicalConditionResponse(
             id=db_condition.id,
@@ -395,22 +406,34 @@ async def read_medical_conditions(
     try:
         conditions = medical_condition_crud.get_by_user(db, current_user.id, skip=skip, limit=limit)
         
-        return [
-            MedicalConditionResponse(
-                id=condition.id,
-                condition_name=condition.condition_name,
-                description=condition.description,
-                diagnosed_date=condition.diagnosed_date,
-                status=condition.status,
-                source=condition.source,
-                treatment_plan=condition.treatment_plan,
-                resolved_date=condition.resolved_date,
-                created_by=condition.created_by,
-                created_at=condition.created_at,
-                updated_at=condition.updated_at,
-                updated_by=condition.updated_by
+        # Convert to dictionaries and apply translations
+        condition_dicts = []
+        for condition in conditions:
+            condition_dict = {
+                "id": condition.id,
+                "condition_name": condition.condition_name,
+                "description": condition.description,
+                "diagnosed_date": condition.diagnosed_date,
+                "status": condition.status,
+                "source": condition.source,
+                "treatment_plan": condition.treatment_plan,
+                "resolved_date": condition.resolved_date,
+                "source_language": getattr(condition, 'source_language', 'en'),
+                "version": getattr(condition, 'version', 1),
+                "created_by": condition.created_by,
+                "created_at": condition.created_at,
+                "updated_at": condition.updated_at,
+                "updated_by": condition.updated_by
+            }
+            # Apply translations
+            translated_condition = await apply_translations_to_medical_condition(
+                db, condition_dict, current_user.id
             )
-            for condition in conditions
+            condition_dicts.append(translated_condition)
+        
+        return [
+            MedicalConditionResponse(**condition_dict)
+            for condition_dict in condition_dicts
         ]
         
     except Exception as e:
@@ -477,22 +500,31 @@ async def update_medical_condition(
                 detail="Medical condition not found"
             )
         
-        db_condition = medical_condition_crud.update(db, condition_id, condition_update, current_user.id)
+        db_condition = await medical_condition_crud.update(db, condition_id, condition_update, current_user.id)
         
-        return MedicalConditionResponse(
-            id=db_condition.id,
-            condition_name=db_condition.condition_name,
-            description=db_condition.description,
-            diagnosed_date=db_condition.diagnosed_date,
-            status=db_condition.status,
-            source=db_condition.source,
-            treatment_plan=db_condition.treatment_plan,
-            resolved_date=db_condition.resolved_date,
-            created_by=db_condition.created_by,
-            created_at=db_condition.created_at,
-            updated_at=db_condition.updated_at,
-            updated_by=db_condition.updated_by
+        # Convert to dictionary and apply translations
+        condition_dict = {
+            "id": db_condition.id,
+            "condition_name": db_condition.condition_name,
+            "description": db_condition.description,
+            "diagnosed_date": db_condition.diagnosed_date,
+            "status": db_condition.status,
+            "source": db_condition.source,
+            "treatment_plan": db_condition.treatment_plan,
+            "resolved_date": db_condition.resolved_date,
+            "source_language": getattr(db_condition, 'source_language', 'en'),
+            "created_by": db_condition.created_by,
+            "created_at": db_condition.created_at,
+            "updated_at": db_condition.updated_at,
+            "updated_by": db_condition.updated_by
+        }
+        
+        # Apply translations
+        translated_condition = await apply_translations_to_medical_condition(
+            db, condition_dict, current_user.id
         )
+        
+        return MedicalConditionResponse(**translated_condition)
         
     except HTTPException:
         raise
@@ -551,7 +583,7 @@ async def create_family_medical_history(
 ):
     """Create a new family medical history record"""
     try:
-        db_history = family_medical_history_crud.create(db, history, current_user.id)
+        db_history = await family_medical_history_crud.create(db, history, current_user.id)
         
         return FamilyMedicalHistoryResponse(
             id=db_history.id,
@@ -589,25 +621,37 @@ async def read_family_medical_history(
     try:
         history_records = family_medical_history_crud.get_by_user(db, current_user.id, skip, limit)
         
-        return [
-            FamilyMedicalHistoryResponse(
-                id=history.id,
-                relation=history.relation,
-                is_deceased=history.is_deceased,
-                age_at_death=history.age_at_death,
-                cause_of_death=history.cause_of_death,
-                chronic_diseases=history.chronic_diseases or [],
-                condition_name=history.condition_name,
-                age_of_onset=history.age_of_onset,
-                description=history.description,
-                status=history.status,
-                source=history.source,
-                created_by=history.created_by,
-                created_at=history.created_at,
-                updated_at=history.updated_at,
-                updated_by=history.updated_by
+        # Convert to dictionaries and apply translations
+        history_dicts = []
+        for history in history_records:
+            history_dict = {
+                "id": history.id,
+                "relation": history.relation,
+                "is_deceased": history.is_deceased,
+                "age_at_death": history.age_at_death,
+                "cause_of_death": history.cause_of_death,
+                "chronic_diseases": history.chronic_diseases or [],
+                "condition_name": history.condition_name,
+                "age_of_onset": history.age_of_onset,
+                "description": history.description,
+                "status": history.status,
+                "source": history.source,
+                "source_language": getattr(history, 'source_language', 'en'),
+                "version": getattr(history, 'version', 1),
+                "created_by": history.created_by,
+                "created_at": history.created_at,
+                "updated_at": history.updated_at,
+                "updated_by": history.updated_by
+            }
+            # Apply translations (language will be retrieved from user profile)
+            translated_history = await apply_translations_to_family_history(
+                db, history_dict, current_user.id
             )
-            for history in history_records
+            history_dicts.append(translated_history)
+        
+        return [
+            FamilyMedicalHistoryResponse(**history_dict)
+            for history_dict in history_dicts
         ]
         
     except Exception as e:
@@ -633,23 +677,33 @@ async def read_family_medical_history_by_id(
                 detail="Family medical history record not found"
             )
         
-        return FamilyMedicalHistoryResponse(
-            id=history.id,
-            relation=history.relation,
-            is_deceased=history.is_deceased,
-            age_at_death=history.age_at_death,
-            cause_of_death=history.cause_of_death,
-            chronic_diseases=history.chronic_diseases or [],
-            condition_name=history.condition_name,
-            age_of_onset=history.age_of_onset,
-            description=history.description,
-            status=history.status,
-            source=history.source,
-            created_by=history.created_by,
-            created_at=history.created_at,
-            updated_at=history.updated_at,
-            updated_by=history.updated_by
+        # Convert to dictionary and apply translations
+        history_dict = {
+            "id": history.id,
+            "relation": history.relation,
+            "is_deceased": history.is_deceased,
+            "age_at_death": history.age_at_death,
+            "cause_of_death": history.cause_of_death,
+            "chronic_diseases": history.chronic_diseases or [],
+            "condition_name": history.condition_name,
+            "age_of_onset": history.age_of_onset,
+            "description": history.description,
+            "status": history.status,
+            "source": history.source,
+            "source_language": getattr(history, 'source_language', 'en'),
+            "version": getattr(history, 'version', 1),
+            "created_by": history.created_by,
+            "created_at": history.created_at,
+            "updated_at": history.updated_at,
+            "updated_by": history.updated_by
+        }
+        
+        # Apply translations
+        translated_history = await apply_translations_to_family_history(
+            db, history_dict, current_user.id
         )
+        
+        return FamilyMedicalHistoryResponse(**translated_history)
         
     except HTTPException:
         raise
@@ -677,25 +731,33 @@ async def update_family_medical_history(
                 detail="Family medical history record not found"
             )
         
-        db_family_history = family_medical_history_crud.update(db, history_id, family_history_update, current_user.id)
+        db_family_history = await family_medical_history_crud.update(db, history_id, family_history_update, current_user.id)
         
-        return FamilyMedicalHistoryResponse(
-            id=db_family_history.id,
-            relation=db_family_history.relation,
-            is_deceased=db_family_history.is_deceased,
-            age_at_death=db_family_history.age_at_death,
-            cause_of_death=db_family_history.cause_of_death,
-            chronic_diseases=db_family_history.chronic_diseases or [],
-            condition_name=db_family_history.condition_name,
-            age_of_onset=db_family_history.age_of_onset,
-            description=db_family_history.description,
-            status=db_family_history.status,
-            source=db_family_history.source,
-            created_by=db_family_history.created_by,
-            created_at=db_family_history.created_at,
-            updated_at=db_family_history.updated_at,
-            updated_by=db_family_history.updated_by
+        # Convert to dictionary and apply translations
+        history_dict = {
+            "id": db_family_history.id,
+            "relation": db_family_history.relation,
+            "is_deceased": db_family_history.is_deceased,
+            "age_at_death": db_family_history.age_at_death,
+            "cause_of_death": db_family_history.cause_of_death,
+            "chronic_diseases": db_family_history.chronic_diseases or [],
+            "condition_name": db_family_history.condition_name,
+            "age_of_onset": db_family_history.age_of_onset,
+            "description": db_family_history.description,
+            "status": db_family_history.status,
+            "source": db_family_history.source,
+            "created_by": db_family_history.created_by,
+            "created_at": db_family_history.created_at,
+            "updated_at": db_family_history.updated_at,
+            "updated_by": db_family_history.updated_by
+        }
+        
+        # Apply translations
+        translated_history = await apply_translations_to_family_history(
+            db, history_dict, current_user.id
         )
+        
+        return FamilyMedicalHistoryResponse(**translated_history)
         
     except HTTPException:
         raise
@@ -1170,7 +1232,7 @@ async def create_medical_condition(
 ):
     """Create a new medical condition"""
     try:
-        db_condition = medical_condition_crud.create(db, condition, current_user.id)
+        db_condition = await medical_condition_crud.create(db, condition, current_user.id)
         
         return MedicalConditionResponse(
             id=db_condition.id,
@@ -1205,23 +1267,32 @@ async def read_medical_conditions(
     try:
         conditions = medical_condition_crud.get_by_user(db, current_user.id, skip, limit)
         
-        return [
-            MedicalConditionResponse(
-                id=condition.id,
-                condition_name=condition.condition_name,
-                description=condition.description,
-                diagnosed_date=condition.diagnosed_date,
-                status=condition.status,
-                source=condition.source,
-                treatment_plan=condition.treatment_plan,
-                resolved_date=condition.resolved_date,
-                created_by=condition.created_by,
-                created_at=condition.created_at,
-                updated_at=condition.updated_at,
-                updated_by=condition.updated_by
+        # Convert to dictionaries and apply translations
+        condition_dicts = []
+        for condition in conditions:
+            condition_dict = {
+                "id": condition.id,
+                "condition_name": condition.condition_name,
+                "description": condition.description,
+                "diagnosed_date": condition.diagnosed_date,
+                "status": condition.status,
+                "source": condition.source,
+                "treatment_plan": condition.treatment_plan,
+                "resolved_date": condition.resolved_date,
+                "source_language": getattr(condition, 'source_language', 'en'),
+                "version": getattr(condition, 'version', 1),
+                "created_by": condition.created_by,
+                "created_at": condition.created_at,
+                "updated_at": condition.updated_at,
+                "updated_by": condition.updated_by
+            }
+            # Apply translations (language will be retrieved from user profile)
+            translated_condition = await apply_translations_to_medical_condition(
+                db, condition_dict, current_user.id
             )
-            for condition in conditions
-        ]
+            condition_dicts.append(translated_condition)
+        
+        return [MedicalConditionResponse(**cond) for cond in condition_dicts]
         
     except Exception as e:
         logger.error(f"Failed to retrieve medical conditions: {e}")
@@ -1279,7 +1350,7 @@ async def update_medical_condition(
 ):
     """Update a medical condition"""
     try:
-        updated_condition = medical_condition_crud.update(
+        updated_condition = await medical_condition_crud.update(
             db, condition_id, condition_update, current_user.id
         )
         
@@ -1387,7 +1458,13 @@ async def get_sections_with_metrics(
         sections = health_record_section_metric_crud.get_sections_with_metrics(
             db, current_user.id, include_inactive, health_record_type_id
         )
-        return sections
+        
+        # Apply translations (language will be retrieved from user profile)
+        translated_sections = await apply_translations_to_sections_with_metrics(
+            db, sections, current_user.id
+        )
+        
+        return translated_sections
         
     except Exception as e:
         logger.error(f"Failed to get sections with metrics: {e}")
@@ -1589,7 +1666,8 @@ async def update_health_record_section(
             current_user.id
         )
         
-        return {
+        # Convert to dictionary and apply translations
+        section_dict = {
             "id": updated_section.id,
             "name": updated_section.name,
             "display_name": updated_section.display_name,
@@ -1602,6 +1680,13 @@ async def update_health_record_section(
             "updated_by": updated_section.updated_by,
             "metrics": []
         }
+        
+        # Apply translations
+        translated_section = await apply_translations_to_section(
+            db, section_dict, current_user.id
+        )
+        
+        return translated_section
         
     except HTTPException:
         raise
@@ -1657,12 +1742,17 @@ async def get_analysis_dashboard(
             db, target_user_id, include_inactive=False, health_record_type_id=1
         )
         
+        # Apply translations (language will be retrieved from user profile)
+        translated_sections = await apply_translations_to_sections_with_metrics(
+            db, sections_with_metrics, current_user.id
+        )
+        
         # Get summary statistics
         summary_stats = get_analysis_dashboard_summary(db, target_user_id)
         
         # Convert sections to the expected format
         sections = []
-        for section in sections_with_metrics:
+        for section in translated_sections:
             sections.append({
                 "id": section.get("id"),
                 "name": section.get("name"),
@@ -1728,12 +1818,17 @@ async def get_sections_combined(
             db, health_record_type_id
         )
         
-        logger.info(f"User sections count: {len(user_sections)}")
+        # Apply translations (language will be retrieved from user profile)
+        translated_user_sections = await apply_translations_to_sections_with_metrics(
+            db, user_sections, current_user.id
+        )
+        
+        logger.info(f"User sections count: {len(translated_user_sections)}")
         logger.info(f"Admin templates count: {len(admin_templates)}")
         
         return {
-            "user_sections": user_sections,
-            "admin_templates": admin_templates
+            "user_sections": translated_user_sections,
+            "admin_templates": admin_templates  # Templates don't need translation (they have built-in translations)
         }
         
     except Exception as e:
@@ -1787,14 +1882,9 @@ async def get_all_user_metrics(
                     "section_id": metric.section_id,
                     "name": metric.name,
                     "display_name": metric.display_name,
-                    "name_pt": getattr(metric, 'name_pt', None),
-                    "display_name_pt": getattr(metric, 'display_name_pt', None),
-                    "name_es": getattr(metric, 'name_es', None),
-                    "display_name_es": getattr(metric, 'display_name_es', None),
                     "description": metric.description,
                     "default_unit": metric.default_unit,
-                    "default_unit_pt": getattr(metric, 'default_unit_pt', None),
-                    "default_unit_es": getattr(metric, 'default_unit_es', None),
+                    "source_language": getattr(metric, 'source_language', 'en'),
                     "unit": getattr(metric, 'unit', metric.default_unit),
                     "reference_data": metric.reference_data,
                     "original_reference": getattr(metric, 'original_reference', None),
@@ -1808,7 +1898,11 @@ async def get_all_user_metrics(
                     "section_name": section.name,
                     "section_display_name": section.display_name
                 }
-                all_metrics.append(metric_data)
+                # Apply translations (language will be retrieved from user profile)
+                translated_metric = await apply_translations_to_metric(
+                    db, metric_data, current_user.id
+                )
+                all_metrics.append(translated_metric)
         
         return all_metrics
         
@@ -1836,7 +1930,12 @@ async def get_section_metrics(
                 db, metric.id, current_user.id
             )
             if metric_details:
-                metrics_with_stats.append(metric_details)
+                # Apply translations to metric
+                from app.utils.translation_helpers import apply_translations_to_metric
+                translated_metric = await apply_translations_to_metric(
+                    db, metric_details, current_user.id
+                )
+                metrics_with_stats.append(translated_metric)
         
         return metrics_with_stats
         
@@ -2047,7 +2146,8 @@ async def update_health_record_metric(
             db, metric_id, metric_data, current_user.id
         )
         
-        return {
+        # Convert to dictionary and apply translations
+        metric_dict = {
             "id": updated_metric.id,
             "section_id": updated_metric.section_id,
             "name": updated_metric.name,
@@ -2062,6 +2162,13 @@ async def update_health_record_metric(
             "created_by": updated_metric.created_by,
             "updated_by": updated_metric.updated_by
         }
+        
+        # Apply translations
+        translated_metric = await apply_translations_to_metric(
+            db, metric_dict, current_user.id
+        )
+        
+        return translated_metric
         
     except HTTPException:
         raise
@@ -2234,6 +2341,26 @@ async def upload_medical_image_pdf(
                 detail="File size must be less than 50MB"
             )
         
+        # Check for duplicate files
+        from app.crud.health_record import health_record_doc_exam_crud
+        duplicate_doc = health_record_doc_exam_crud.check_duplicate_file(
+            db, current_user.id, file.filename, file.size or 0
+        )
+        
+        if duplicate_doc:
+            return {
+                "success": False,
+                "duplicate_found": True,
+                "status": 409,
+                "existing_document": {
+                    "id": duplicate_doc.id,
+                    "file_name": duplicate_doc.original_filename,
+                    "file_size_bytes": duplicate_doc.file_size_bytes,
+                    "created_at": duplicate_doc.created_at.isoformat() if duplicate_doc.created_at else None
+                },
+                "message": f"A file with the same name and size already exists: {duplicate_doc.original_filename}"
+            }
+        
         # Read file content
         file_content = await file.read()
         
@@ -2296,16 +2423,16 @@ async def upload_health_record_image(
                 detail="File size must be less than 50MB"
             )
         
-        # Check for duplicate files
-        from app.crud.document import document_crud
-        duplicate_doc = document_crud.check_duplicate_file(
-            db, current_user.id, file.filename, file.size
+        # Check for duplicate files using HealthRecordDocExam CRUD
+        from app.crud.health_record import health_record_doc_exam_crud
+        duplicate_doc = health_record_doc_exam_crud.check_duplicate_file(
+            db, current_user.id, file.filename, file.size or 0
         )
         
         if duplicate_doc:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail=f"A similar file already exists: {duplicate_doc.file_name}"
+                detail=f"A file with the same name and size already exists: {duplicate_doc.original_filename}"
             )
         
         # Read file content
@@ -2462,24 +2589,32 @@ async def get_health_record_doc_exam(
                     logger.warning(f"Failed to generate presigned URL for image {img.id}: {e}")
                     s3_url = None
             
+            # Convert to dictionary for translation
+            image_dict = {
+                "id": img.id,
+                "image_type": img.image_type,
+                "body_part": img.body_part,
+                "image_date": img.image_date,
+                "findings": img.findings,
+                "conclusions": img.conclusions,
+                "interpretation": img.interpretation,
+                "notes": img.notes,
+                "original_filename": img.original_filename,
+                "content_type": img.content_type,
+                "file_size_bytes": img.file_size_bytes,
+                "s3_url": s3_url,
+                "doctor_name": img.doctor_name,
+                "doctor_number": img.doctor_number,
+                "created_at": img.created_at
+            }
+            
+            # Apply translations
+            translated_image = await apply_translations_to_imaging_document(
+                db, image_dict, current_user.id
+            )
+            
             image_summaries.append(
-                HealthRecordDocExamSummary(
-                    id=img.id,
-                    image_type=img.image_type,
-                    body_part=img.body_part,
-                    image_date=img.image_date,
-                    findings=img.findings,
-                    conclusions=img.conclusions,
-                    interpretation=img.interpretation,
-                    notes=img.notes,
-                    original_filename=img.original_filename,
-                    content_type=img.content_type,
-                    file_size_bytes=img.file_size_bytes,
-                    s3_url=s3_url,
-                    doctor_name=img.doctor_name,
-                    doctor_number=img.doctor_number,
-                    created_at=img.created_at
-                )
+                HealthRecordDocExamSummary(**translated_image)
             )
         
         # Calculate pagination info
@@ -2534,31 +2669,39 @@ async def get_health_record_image(
             except Exception as e:
                 logger.warning(f"Failed to generate presigned URL for image {image.id}: {e}")
         
-        return HealthRecordDocExamResponse(
-            id=image.id,
-            created_by=image.created_by,
-            image_type=image.image_type,
-            body_part=image.body_part,
-            image_date=image.image_date,
-            findings=image.findings,
-            conclusions=image.conclusions,
-            interpretation=image.interpretation,
-            notes=image.notes,
-            original_filename=image.original_filename,
-            file_size_bytes=image.file_size_bytes,
-            content_type=image.content_type,
-            s3_bucket=image.s3_bucket,
-            s3_key=image.s3_key,
-            s3_url=s3_url,
-            file_id=image.file_id,
-            doctor_name=image.doctor_name,
-            doctor_number=image.doctor_number,
-            is_archived=image.is_archived,
-            review_status=image.review_status,
-            created_at=image.created_at,
-            updated_at=image.updated_at,
-            updated_by=image.updated_by
+        # Convert to dictionary for translation
+        image_dict = {
+            "id": image.id,
+            "created_by": image.created_by,
+            "image_type": image.image_type,
+            "body_part": image.body_part,
+            "image_date": image.image_date,
+            "findings": image.findings,
+            "conclusions": image.conclusions,
+            "interpretation": image.interpretation,
+            "notes": image.notes,
+            "original_filename": image.original_filename,
+            "file_size_bytes": image.file_size_bytes,
+            "content_type": image.content_type,
+            "s3_bucket": image.s3_bucket,
+            "s3_key": image.s3_key,
+            "s3_url": s3_url,
+            "file_id": image.file_id,
+            "doctor_name": image.doctor_name,
+            "doctor_number": image.doctor_number,
+            "is_archived": image.is_archived,
+            "review_status": image.review_status,
+            "created_at": image.created_at,
+            "updated_at": image.updated_at,
+            "updated_by": image.updated_by
+        }
+        
+        # Apply translations
+        translated_image = await apply_translations_to_imaging_document(
+            db, image_dict, current_user.id
         )
+        
+        return HealthRecordDocExamResponse(**translated_image)
         
     except HTTPException:
         raise
@@ -2914,39 +3057,6 @@ async def get_admin_section_templates(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Get admin-defined section templates"""
-    try:
-        from app.models.health_metrics import HealthRecordSectionTemplate
-        
-        # Get both admin-defined (is_default=True) and user custom (is_default=False) templates
-        sections = db.query(HealthRecordSectionTemplate).filter(
-            HealthRecordSectionTemplate.health_record_type_id == health_record_type_id
-        ).all()
-        
-        return [
-            {
-                "id": section.id,
-                "name": section.name,
-                "display_name": section.display_name,
-                "description": section.description,
-                "health_record_type_id": section.health_record_type_id,
-                "is_default": section.is_default
-            }
-            for section in sections
-        ]
-    except Exception as e:
-        logger.error(f"Failed to get admin section templates: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get admin section templates: {str(e)}"
-        )
-
-@router.get("/admin-templates/sections")
-async def get_admin_section_templates(
-    health_record_type_id: int = Query(1),
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
     """Get admin-defined section templates with language support"""
     try:
         from app.models.health_metrics import HealthRecordSectionTemplate
@@ -2956,21 +3066,25 @@ async def get_admin_section_templates(
             HealthRecordSectionTemplate.is_default == True
         ).all()
         
-        return [
-            {
+        # Convert to dictionaries and apply translations
+        section_dicts = []
+        for section in sections:
+            section_dict = {
                 "id": section.id,
                 "name": section.name,
                 "display_name": section.display_name,
-                "name_pt": section.name_pt,
-                "display_name_pt": section.display_name_pt,
-                "name_es": section.name_es,
-                "display_name_es": section.display_name_es,
                 "description": section.description,
+                "source_language": getattr(section, 'source_language', 'en'),
                 "health_record_type_id": section.health_record_type_id,
                 "is_default": section.is_default
             }
-            for section in sections
-        ]
+            # Apply translations (language will be retrieved from user profile)
+            translated_section = await apply_translations_to_section_template(
+                db, section_dict, current_user.id
+            )
+            section_dicts.append(translated_section)
+        
+        return section_dicts
     except Exception as e:
         logger.error(f"Failed to get admin section templates: {e}")
         raise HTTPException(
@@ -3002,27 +3116,29 @@ async def get_admin_metric_templates(
         
         metrics = query.all()
         
-        return [
-            {
+        # Convert to dictionaries and apply translations
+        metric_dicts = []
+        for metric in metrics:
+            metric_dict = {
                 "id": metric.id,
                 "section_template_id": metric.section_template_id,
                 "name": metric.name,
                 "display_name": metric.display_name,
-                "name_pt": metric.name_pt,
-                "display_name_pt": metric.display_name_pt,
-                "name_es": metric.name_es,
-                "display_name_es": metric.display_name_es,
                 "description": metric.description,
                 "default_unit": metric.default_unit,
-                "default_unit_pt": metric.default_unit_pt,
-                "default_unit_es": metric.default_unit_es,
+                "source_language": getattr(metric, 'source_language', 'en'),
                 "original_reference": metric.original_reference,
                 "reference_data": metric.reference_data,
                 "data_type": metric.data_type,
                 "is_default": metric.is_default
             }
-            for metric in metrics
-        ]
+            # Apply translations (language will be retrieved from user profile)
+            translated_metric = await apply_translations_to_metric_template(
+                db, metric_dict, current_user.id
+            )
+            metric_dicts.append(translated_metric)
+        
+        return metric_dicts
     except Exception as e:
         logger.error(f"Failed to get admin metric templates: {e}")
         raise HTTPException(
@@ -3046,8 +3162,35 @@ async def get_surgeries_hospitalizations(
         surgeries = surgery_hospitalization_crud.get_by_user(db, current_user.id, skip, limit)
         total = len(surgery_hospitalization_crud.get_by_user(db, current_user.id, 0, 10000))
         
+        # Convert to dictionaries and apply translations
+        surgery_dicts = []
+        for surgery in surgeries:
+            surgery_dict = {
+                "id": surgery.id,
+                "user_id": surgery.user_id,
+                "procedure_type": surgery.procedure_type,
+                "name": surgery.name,
+                "procedure_date": surgery.procedure_date,
+                "reason": surgery.reason,
+                "treatment": surgery.treatment,
+                "body_area": surgery.body_area,
+                "recovery_status": surgery.recovery_status,
+                "notes": surgery.notes,
+                "source_language": getattr(surgery, 'source_language', 'en'),
+                "version": getattr(surgery, 'version', 1),
+                "created_at": surgery.created_at,
+                "updated_at": surgery.updated_at,
+                "created_by": surgery.created_by,
+                "updated_by": surgery.updated_by
+            }
+            # Apply translations (language will be retrieved from user profile)
+            translated_surgery = await apply_translations_to_surgery_hospitalization(
+                db, surgery_dict, current_user.id
+            )
+            surgery_dicts.append(translated_surgery)
+        
         return SurgeryHospitalizationListResponse(
-            surgeries=surgeries,
+            surgeries=surgery_dicts,
             total=total,
             skip=skip,
             limit=limit
@@ -3083,7 +3226,31 @@ async def get_surgery_hospitalization(
                 detail="Access denied to this surgery/hospitalization"
             )
         
-        return surgery
+        # Convert to dictionary and apply translations
+        surgery_dict = {
+            "id": surgery.id,
+            "user_id": surgery.user_id,
+            "procedure_type": surgery.procedure_type,
+            "name": surgery.name,
+            "procedure_date": surgery.procedure_date,
+            "reason": surgery.reason,
+            "treatment": surgery.treatment,
+            "body_area": surgery.body_area,
+            "recovery_status": surgery.recovery_status,
+            "notes": surgery.notes,
+            "source_language": getattr(surgery, 'source_language', 'en'),
+            "created_at": surgery.created_at,
+            "updated_at": surgery.updated_at,
+            "created_by": surgery.created_by,
+            "updated_by": surgery.updated_by
+        }
+        
+        # Apply translations (language will be retrieved from user profile)
+        translated_surgery = await apply_translations_to_surgery_hospitalization(
+            db, surgery_dict, current_user.id
+        )
+        
+        return SurgeryHospitalizationResponse(**translated_surgery)
         
     except HTTPException:
         raise
@@ -3102,8 +3269,28 @@ async def create_surgery_hospitalization(
 ):
     """Create a new surgery or hospitalization record"""
     try:
-        surgery = surgery_hospitalization_crud.create(db, surgery_data, current_user.id)
-        return surgery
+        surgery = await surgery_hospitalization_crud.create(db, surgery_data, current_user.id)
+        
+        # Convert to dictionary for response (translations not needed on create, will be applied on read)
+        surgery_dict = {
+            "id": surgery.id,
+            "user_id": surgery.user_id,
+            "procedure_type": surgery.procedure_type,
+            "name": surgery.name,
+            "procedure_date": surgery.procedure_date,
+            "reason": surgery.reason,
+            "treatment": surgery.treatment,
+            "body_area": surgery.body_area,
+            "recovery_status": surgery.recovery_status,
+            "notes": surgery.notes,
+            "source_language": getattr(surgery, 'source_language', 'en'),
+            "created_at": surgery.created_at,
+            "updated_at": surgery.updated_at,
+            "created_by": surgery.created_by,
+            "updated_by": surgery.updated_by
+        }
+        
+        return SurgeryHospitalizationResponse(**surgery_dict)
         
     except Exception as e:
         logger.error(f"Failed to create surgery/hospitalization: {e}")
@@ -3136,8 +3323,39 @@ async def update_surgery_hospitalization(
                 detail="Access denied to this surgery/hospitalization"
             )
         
-        updated_surgery = surgery_hospitalization_crud.update(db, surgery_id, surgery_data, current_user.id)
-        return updated_surgery
+        updated_surgery = await surgery_hospitalization_crud.update(db, surgery_id, surgery_data, current_user.id)
+        
+        if not updated_surgery:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to update surgery/hospitalization"
+            )
+        
+        # Convert to dictionary and apply translations
+        surgery_dict = {
+            "id": updated_surgery.id,
+            "user_id": updated_surgery.user_id,
+            "procedure_type": updated_surgery.procedure_type,
+            "name": updated_surgery.name,
+            "procedure_date": updated_surgery.procedure_date,
+            "reason": updated_surgery.reason,
+            "treatment": updated_surgery.treatment,
+            "body_area": updated_surgery.body_area,
+            "recovery_status": updated_surgery.recovery_status,
+            "notes": updated_surgery.notes,
+            "source_language": getattr(updated_surgery, 'source_language', 'en'),
+            "created_at": updated_surgery.created_at,
+            "updated_at": updated_surgery.updated_at,
+            "created_by": updated_surgery.created_by,
+            "updated_by": updated_surgery.updated_by
+        }
+        
+        # Apply translations (language will be retrieved from user profile)
+        translated_surgery = await apply_translations_to_surgery_hospitalization(
+            db, surgery_dict, current_user.id
+        )
+        
+        return SurgeryHospitalizationResponse(**translated_surgery)
         
     except HTTPException:
         raise
@@ -3404,10 +3622,10 @@ async def upload_and_analyze_lab_document(
                 detail="File size must be less than 10MB"
             )
         
-        # Check for duplicate files
-        from app.crud.document import document_crud
-        duplicate_doc = document_crud.check_duplicate_file(
-            db, current_user.id, file.filename, file.size
+        # Check for duplicate files using HealthRecordDocLab CRUD
+        from app.crud.health_record import health_record_doc_lab_crud
+        duplicate_doc = health_record_doc_lab_crud.check_duplicate_file(
+            db, current_user.id, file.filename, file.size or 0
         )
         
         if duplicate_doc:
@@ -3416,11 +3634,11 @@ async def upload_and_analyze_lab_document(
                 "duplicate_found": True,
                 "existing_document": {
                     "id": duplicate_doc.id,
-                    "file_name": duplicate_doc.original_file_name,
-                    "file_size_bytes": duplicate_doc.file_size,
-                    "created_at": duplicate_doc.created_at.isoformat()
+                    "file_name": duplicate_doc.file_name,
+                    "file_size_bytes": file.size or 0,
+                    "created_at": duplicate_doc.created_at.isoformat() if duplicate_doc.created_at else None
                 },
-                "message": f"A similar file already exists: {duplicate_doc.original_file_name}"
+                "message": f"A file with the same name and size already exists: {duplicate_doc.file_name}"
             }
         
         # Import lab service

@@ -34,6 +34,8 @@ class SurgeryHospitalization(Base):
     body_area = Column(String(100))
     recovery_status = Column(String(50), nullable=False, default="full_recovery")
     notes = Column(Text)
+    source_language = Column(String(10), nullable=False, default='en')  # Language of original content ('en', 'es', 'pt')
+    version = Column(Integer, nullable=False, default=1)  # Content version for translation invalidation
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)

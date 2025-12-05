@@ -3,7 +3,7 @@ Doctor Supabase Service
 Refactored to use main Supabase project (single project for all users)
 """
 from app.core.supabase_client import supabase_service
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import logging
 
 logger = logging.getLogger(__name__)
@@ -134,6 +134,108 @@ class DoctorSupabaseService:
         except Exception as e:
             logger.error(f"Error getting doctor profile: {e}", exc_info=True)
             return None
+    
+    async def get_doctor_profiles_bulk(self, supabase_user_ids: List[str]) -> Dict[str, Dict[str, Any]]:
+        """
+        Bulk fetch multiple doctor profiles from Supabase
+        
+        Args:
+            supabase_user_ids: List of Supabase user IDs to fetch profiles for
+        
+        Returns:
+            Dictionary mapping supabase_user_id -> profile data
+        """
+        if not supabase_user_ids:
+            return {}
+        
+        try:
+            client = supabase_service.client
+            
+            # Fetch all profiles in one query using IN clause
+            profile_response = client.table("doctor_profiles").select("*").in_("id", supabase_user_ids).execute()
+            
+            # Build dictionary mapping id -> profile
+            profiles_dict = {}
+            if profile_response.data:
+                for profile in profile_response.data:
+                    profile_id = profile.get("id") or profile.get("user_id")
+                    if profile_id:
+                        # Remove system columns
+                        profile_copy = profile.copy()
+                        profile_copy.pop("created_at", None)
+                        profile_copy.pop("updated_at", None)
+                        profiles_dict[profile_id] = profile_copy
+            
+            return profiles_dict
+        except Exception as e:
+            logger.error(f"Supabase bulk get doctor profiles error: {e}", exc_info=True)
+            return {}
+    
+    async def get_acuity_calendars_bulk(self, doctor_ids: List[str]) -> Dict[str, str]:
+        """
+        Bulk fetch Acuity calendar IDs for multiple doctors
+        
+        Args:
+            doctor_ids: List of doctor IDs (from doctor_profiles.id)
+        
+        Returns:
+            Dictionary mapping doctor_id -> calendar_id
+        """
+        if not doctor_ids:
+            return {}
+        
+        try:
+            client = supabase_service.client
+            
+            # Fetch all calendar mappings in one query
+            calendar_response = client.table("doctor_acuity_calendars").select("doctor_id,calendar_id").in_("doctor_id", doctor_ids).execute()
+            
+            # Build dictionary mapping doctor_id -> calendar_id
+            calendars_dict = {}
+            if calendar_response.data:
+                for calendar in calendar_response.data:
+                    doctor_id = calendar.get("doctor_id")
+                    calendar_id = calendar.get("calendar_id")
+                    if doctor_id and calendar_id:
+                        calendars_dict[doctor_id] = calendar_id
+            
+            return calendars_dict
+        except Exception as e:
+            logger.error(f"Supabase bulk get acuity calendars error: {e}", exc_info=True)
+            return {}
+    
+    async def get_doctor_ids_by_calendar_ids_bulk(self, calendar_ids: List[str]) -> Dict[str, str]:
+        """
+        Bulk fetch doctor IDs for multiple calendar IDs
+        
+        Args:
+            calendar_ids: List of Acuity calendar IDs
+        
+        Returns:
+            Dictionary mapping calendar_id -> doctor_id
+        """
+        if not calendar_ids:
+            return {}
+        
+        try:
+            client = supabase_service.client
+            
+            # Fetch all doctor IDs in one query using IN clause
+            calendar_response = client.table("doctor_acuity_calendars").select("doctor_id,calendar_id").in_("calendar_id", calendar_ids).execute()
+            
+            # Build dictionary mapping calendar_id -> doctor_id
+            calendars_dict = {}
+            if calendar_response.data:
+                for calendar in calendar_response.data:
+                    doctor_id = calendar.get("doctor_id")
+                    calendar_id = calendar.get("calendar_id")
+                    if doctor_id and calendar_id:
+                        calendars_dict[calendar_id] = doctor_id
+            
+            return calendars_dict
+        except Exception as e:
+            logger.error(f"Supabase bulk get doctor IDs by calendar IDs error: {e}", exc_info=True)
+            return {}
     
     async def get_doctor_id_by_calendar_id(self, calendar_id: str) -> Optional[str]:
         """

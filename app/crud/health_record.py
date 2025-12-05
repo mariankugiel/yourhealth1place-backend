@@ -311,9 +311,13 @@ class HealthRecordCRUD:
 class MedicalConditionCRUD:
     """CRUD operations for MedicalCondition model"""
     
-    def create(self, db: Session, condition: MedicalConditionCreate, user_id: int) -> MedicalCondition:
+    async def create(self, db: Session, condition: MedicalConditionCreate, user_id: int) -> MedicalCondition:
         """Create a new medical condition"""
         try:
+            # Get user's current language to save as source_language
+            from app.utils.user_language import get_user_language
+            source_lang = await get_user_language(user_id, db)
+            
             db_condition = MedicalCondition(
                 condition_name=condition.condition_name,
                 description=condition.description,
@@ -322,6 +326,8 @@ class MedicalConditionCRUD:
                 source=condition.source,
                 treatment_plan=condition.treatment_plan,
                 resolved_date=condition.resolved_date,
+                source_language=source_lang,
+                version=1,  # Initial version
                 created_by=user_id
             )
             
@@ -366,22 +372,66 @@ class MedicalConditionCRUD:
             logger.error(f"Failed to get medical conditions for user {user_id}: {e}")
             return []
     
-    def update(
+    async def update(
         self, 
         db: Session, 
         condition_id: int, 
         condition_update: MedicalConditionUpdate, 
         user_id: int
     ) -> Optional[MedicalCondition]:
-        """Update a medical condition"""
+        """Update a medical condition. If user's current language differs from source_language, saves to translations table."""
         try:
             db_condition = self.get_by_id(db, condition_id, user_id)
             if not db_condition:
                 return None
             
-            update_data = condition_update.dict(exclude_unset=True)
-            update_data['updated_by'] = user_id
+            # Get user's current language
+            from app.utils.user_language import get_user_language
+            current_language = await get_user_language(user_id, db)
+            source_language = getattr(db_condition, 'source_language', 'en')
             
+            update_data = condition_update.dict(exclude_unset=True)
+            
+            # Text fields that can be translated
+            text_fields = ['condition_name', 'description', 'treatment_plan']
+            text_fields_updated = {field: update_data[field] for field in text_fields if field in update_data}
+            
+            # If user's language differs from source language and text fields are being updated
+            if current_language != source_language and text_fields_updated:
+                # Save to translations table instead of original entry
+                from app.crud.translation import translation_crud
+                
+                current_version = getattr(db_condition, 'version', 1)
+                
+                for field, value in text_fields_updated.items():
+                    if value:  # Only save non-empty values
+                        translation_crud.create_translation(
+                            db=db,
+                            entity_type='medical_condition',
+                            entity_id=condition_id,
+                            field_name=field,
+                            language=current_language,
+                            translated_text=str(value),
+                            source_language=source_language,
+                            content_version=current_version
+                        )
+                        # Remove from update_data so we don't update the original
+                        del update_data[field]
+                
+                logger.info(f"Saved translations for condition {condition_id} in language {current_language}")
+            
+            # Update non-text fields or if languages match
+            if update_data:
+                update_data['updated_by'] = user_id
+            
+                # If updating original entry and text fields changed, increment version
+                if current_language == source_language:
+                    text_fields_updated_in_original = any(field in update_data for field in text_fields)
+                    if text_fields_updated_in_original:
+                        current_version = getattr(db_condition, 'version', 1)
+                        update_data['version'] = current_version + 1
+                        logger.info(f"Incrementing version for condition {condition_id} from {current_version} to {update_data['version']}")
+                
             for field, value in update_data.items():
                 setattr(db_condition, field, value)
             
@@ -417,9 +467,13 @@ class MedicalConditionCRUD:
 class FamilyMedicalHistoryCRUD:
     """CRUD operations for FamilyMedicalHistory model"""
     
-    def create(self, db: Session, history: FamilyMedicalHistoryCreate, user_id: int) -> FamilyMedicalHistory:
+    async def create(self, db: Session, history: FamilyMedicalHistoryCreate, user_id: int) -> FamilyMedicalHistory:
         """Create a new family medical history record"""
         try:
+            # Get user's current language to save as source_language
+            from app.utils.user_language import get_user_language
+            source_lang = await get_user_language(user_id, db)
+            
             # Convert chronic_diseases to dict format for JSON column
             chronic_diseases_data = [disease.dict() for disease in history.chronic_diseases] if history.chronic_diseases else []
             
@@ -435,6 +489,8 @@ class FamilyMedicalHistoryCRUD:
                 description=history.description,
                 status=history.status,
                 source=history.source,
+                source_language=source_lang,
+                version=1,  # Initial version
                 created_by=user_id
             )
             
@@ -479,18 +535,23 @@ class FamilyMedicalHistoryCRUD:
             logger.error(f"Failed to get family medical history for user {user_id}: {e}")
             return []
     
-    def update(
+    async def update(
         self, 
         db: Session, 
         history_id: int, 
         history_update: FamilyMedicalHistoryUpdate, 
         user_id: int
     ) -> Optional[FamilyMedicalHistory]:
-        """Update a family medical history record"""
+        """Update a family medical history record. If user's current language differs from source_language, saves to translations table."""
         try:
             db_history = self.get_by_id(db, history_id, user_id)
             if not db_history:
                 return None
+            
+            # Get user's current language
+            from app.utils.user_language import get_user_language
+            current_language = await get_user_language(user_id, db)
+            source_language = getattr(db_history, 'source_language', 'en')
             
             update_data = history_update.dict(exclude_unset=True)
             
@@ -501,8 +562,67 @@ class FamilyMedicalHistoryCRUD:
                     for disease in update_data['chronic_diseases']
                 ]
             
-            update_data['updated_by'] = user_id
+            # Text fields that can be translated
+            text_fields = ['cause_of_death', 'condition_name', 'description', 'outcome']
+            text_fields_updated = {field: update_data[field] for field in text_fields if field in update_data}
             
+            # Handle chronic_diseases separately (it's a JSON field)
+            chronic_diseases_updated = 'chronic_diseases' in update_data
+            
+            # If user's language differs from source language and text fields are being updated
+            if current_language != source_language and (text_fields_updated or chronic_diseases_updated):
+                # Save to translations table instead of original entry
+                from app.crud.translation import translation_crud
+                import json
+                
+                current_version = getattr(db_history, 'version', 1)
+                
+                # Save text field translations
+                for field, value in text_fields_updated.items():
+                    if value:  # Only save non-empty values
+                        translation_crud.create_translation(
+                            db=db,
+                            entity_type='family_medical_history',
+                            entity_id=history_id,
+                            field_name=field,
+                            language=current_language,
+                            translated_text=str(value),
+                            source_language=source_language,
+                            content_version=current_version
+                        )
+                        # Remove from update_data so we don't update the original
+                        del update_data[field]
+                
+                # Save chronic_diseases translation (as JSON string)
+                if chronic_diseases_updated and update_data['chronic_diseases']:
+                    chronic_diseases_json = json.dumps(update_data['chronic_diseases'], ensure_ascii=False)
+                    translation_crud.create_translation(
+                        db=db,
+                        entity_type='family_medical_history',
+                        entity_id=history_id,
+                        field_name='chronic_diseases',
+                        language=current_language,
+                        translated_text=chronic_diseases_json,
+                        source_language=source_language,
+                        content_version=current_version
+                    )
+                    # Remove from update_data so we don't update the original
+                    del update_data['chronic_diseases']
+                
+                logger.info(f"Saved translations for family history {history_id} in language {current_language}")
+            
+            # Update non-text fields or if languages match
+            if update_data:
+                update_data['updated_by'] = user_id
+            
+                # If updating original entry and text fields changed, increment version
+                if current_language == source_language:
+                    text_fields_updated_in_original = any(field in update_data for field in text_fields + ['chronic_diseases'])
+                    if text_fields_updated_in_original:
+                        current_version = getattr(db_history, 'version', 1)
+                        update_data['version'] = current_version + 1
+                        logger.info(f"Incrementing version for family history {history_id} from {current_version} to {update_data['version']}")
+                
             for field, value in update_data.items():
                 setattr(db_history, field, value)
             
@@ -651,6 +771,30 @@ class HealthRecordDocLabCRUD:
             logger.error(f"Failed to delete medical document {document_id}: {e}")
             db.rollback()
             return False
+    
+    def check_duplicate_file(
+        self,
+        db: Session,
+        user_id: int,
+        filename: str,
+        file_size: int
+    ) -> Optional[HealthRecordDocLab]:
+        """Check for duplicate lab document by filename AND file size (both must match)"""
+        try:
+            # Note: HealthRecordDocLab doesn't have file_size field, so we check by filename only
+            # In the future, file_size should be added to the model for proper duplicate detection
+            duplicate = db.query(HealthRecordDocLab).filter(
+                and_(
+                    HealthRecordDocLab.created_by == user_id,
+                    HealthRecordDocLab.file_name == filename
+                )
+            ).first()
+            
+            return duplicate
+            
+        except Exception as e:
+            logger.error(f"Error checking for duplicate lab document: {e}")
+            return None
 
 # ============================================================================
 # HEALTH RECORD TYPE CRUD
@@ -753,10 +897,15 @@ class HealthRecordSectionCRUD:
     def create(self, db: Session, section_data, user_id: int):
         """Create a new health record section"""
         try:
+            # Get user's language preference for source_language
+            from app.utils.user_language import get_user_language_sync
+            source_language = get_user_language_sync(user_id, db) or 'en'
+            
             db_section = HealthRecordSection(
                 name=section_data.name,
                 display_name=section_data.display_name,
                 description=section_data.description,
+                source_language=source_language,
                 health_record_type_id=section_data.health_record_type_id,
                 section_template_id=getattr(section_data, 'section_template_id', None),
                 is_default=section_data.is_default,
@@ -919,6 +1068,10 @@ class HealthRecordMetricCRUD:
     def create(self, db: Session, metric_data, user_id: int):
         """Create a new health record metric"""
         try:
+            # Get user's language preference for source_language
+            from app.utils.user_language import get_user_language_sync
+            source_language = get_user_language_sync(user_id, db) or 'en'
+            
             db_metric = HealthRecordMetric(
                 section_id=metric_data.section_id,
                 metric_tmp_id=metric_data.metric_tmp_id,
@@ -926,6 +1079,7 @@ class HealthRecordMetricCRUD:
                 display_name=metric_data.display_name,
                 description=metric_data.description,
                 default_unit=metric_data.default_unit,
+                source_language=source_language,
                 reference_data=metric_data.reference_data,
                 data_type=metric_data.data_type,
                 is_default=metric_data.is_default,
@@ -1537,6 +1691,33 @@ class HealthRecordDocExamCRUD:
             HealthRecordDocExam.created_by == user_id
         ).order_by(HealthRecordDocExam.created_at.desc()).limit(limit).all()
     
+    def check_duplicate_file(
+        self,
+        db: Session,
+        user_id: int,
+        filename: str,
+        file_size: int
+    ) -> Optional[HealthRecordDocExam]:
+        """Check for duplicate medical image by filename AND file size (both must match)"""
+        try:
+            if file_size > 0:
+                duplicate = db.query(HealthRecordDocExam).filter(
+                    and_(
+                        HealthRecordDocExam.created_by == user_id,
+                        HealthRecordDocExam.original_filename == filename,
+                        HealthRecordDocExam.file_size_bytes == file_size
+                    )
+                ).first()
+                
+                if duplicate:
+                    return duplicate
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error checking for duplicate medical image: {e}")
+            return None
+    
     def get_image_statistics(self, db: Session, user_id: int) -> dict:
         """Get statistics about user's images"""
         total_images = db.query(HealthRecordDocExam).filter(
@@ -1594,6 +1775,15 @@ class HealthRecordSectionTemplateCRUD:
     def create(self, db: Session, section_data: Dict[str, Any]) -> HealthRecordSectionTemplate:
         """Create a new section template definition"""
         try:
+            # Get creator's language preference for source_language if not provided
+            if 'source_language' not in section_data:
+                from app.utils.user_language import get_user_language_sync
+                creator_id = section_data.get('created_by')
+                if creator_id:
+                    section_data['source_language'] = get_user_language_sync(creator_id, db) or 'en'
+                else:
+                    section_data['source_language'] = 'en'
+            
             db_section = HealthRecordSectionTemplate(**section_data)
             db.add(db_section)
             db.commit()
@@ -1641,6 +1831,15 @@ class HealthRecordMetricTemplateCRUD:
     def create(self, db: Session, metric_data: Dict[str, Any]) -> HealthRecordMetricTemplate:
         """Create a new metric template definition"""
         try:
+            # Get creator's language preference for source_language if not provided
+            if 'source_language' not in metric_data:
+                from app.utils.user_language import get_user_language_sync
+                creator_id = metric_data.get('created_by')
+                if creator_id:
+                    metric_data['source_language'] = get_user_language_sync(creator_id, db) or 'en'
+                else:
+                    metric_data['source_language'] = 'en'
+            
             db_metric = HealthRecordMetricTemplate(**metric_data)
             db.add(db_metric)
             db.commit()

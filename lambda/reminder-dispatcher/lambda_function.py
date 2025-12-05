@@ -32,7 +32,6 @@ SUPABASE_SERVICE_ROLE_KEY = 'your-supabase-service-role-key'
 
 # Initialize AWS clients
 sqs_client = boto3.client('sqs', region_name=AWS_REGION)
-ses_client = boto3.client('ses', region_name=AWS_REGION)
 
 # Initialize Supabase client (lazy initialization)
 supabase_client: Client = None
@@ -119,7 +118,7 @@ def lambda_handler(event, context):
             WHERE mr.enabled = true
               AND mr.status = 'active'
               AND mr.next_scheduled_at <= %s
-              AND mr.next_scheduled_at > %s
+              AND mr.next_scheduled_at >= %s
         """
         
         cursor.execute(query, (check_window, now))
@@ -149,7 +148,55 @@ def lambda_handler(event, context):
                 
                 print(f"Processing reminder {reminder_id} for user {user_id}")
                 
-                # Create notification record
+                # Fetch user preferences and phone number from Supabase FIRST
+                # We need to check the offset before creating the notification
+                user_preferences = DEFAULT_PREFERENCES.copy()
+                phone_number = None
+                phone_country_code = None
+                
+                if supabase_user_id:
+                    try:
+                        client = get_supabase_client()
+                        
+                        # Fetch user notification preferences
+                        try:
+                            prefs_response = client.table("user_notifications").select("*").eq("user_id", supabase_user_id).execute()
+                            if prefs_response.data and len(prefs_response.data) > 0:
+                                prefs = prefs_response.data[0]
+                                user_preferences['email_medications'] = prefs.get('email_medications', DEFAULT_PREFERENCES['email_medications'])
+                                user_preferences['sms_medications'] = prefs.get('sms_medications', DEFAULT_PREFERENCES['sms_medications'])
+                                user_preferences['whatsapp_medications'] = prefs.get('whatsapp_medications', DEFAULT_PREFERENCES['whatsapp_medications'])
+                                user_preferences['medication_minutes_before'] = prefs.get('medication_minutes_before', DEFAULT_PREFERENCES['medication_minutes_before'])
+                                print(f"📋 Loaded preferences for user {user_id}: email={user_preferences['email_medications']}, sms={user_preferences['sms_medications']}, offset={user_preferences['medication_minutes_before']}min")
+                        except Exception as prefs_error:
+                            print(f"⚠️ Could not fetch preferences for user {user_id}, using defaults: {prefs_error}")
+                        
+                        # Fetch phone number from user_profiles
+                        # Note: Field name is 'phone' not 'phone_number' in Supabase schema
+                        try:
+                            profile_response = client.table("user_profiles").select("phone, phone_country_code").eq("id", supabase_user_id).execute()
+                            if profile_response.data and len(profile_response.data) > 0:
+                                profile = profile_response.data[0]
+                                phone_number = profile.get('phone')
+                                phone_country_code = profile.get('phone_country_code')
+                        except Exception as phone_error:
+                            print(f"⚠️ Could not fetch phone number for user {user_id}: {phone_error}")
+                    except Exception as supabase_error:
+                        print(f"⚠️ Supabase error for user {user_id}: {supabase_error}")
+                
+                # Apply reminder offset - check if reminder should be sent now
+                reminder_offset_minutes = int(user_preferences.get('medication_minutes_before', '0'))
+                send_time = next_scheduled_at - timedelta(minutes=reminder_offset_minutes)
+                
+                # Only process if the reminder (with offset) is due now or in the past
+                # We check if send_time <= now (meaning it's time to send)
+                if send_time > now:
+                    print(f"⏰ Reminder {reminder_id} not due yet (with {reminder_offset_minutes}min offset). Actual reminder time: {next_scheduled_at}, Should send at: {send_time}, Current time: {now}")
+                    continue
+                
+                print(f"⏰ Processing reminder {reminder_id} (reminder time: {next_scheduled_at}, sending {reminder_offset_minutes}min early, send time: {send_time})")
+                
+                # Create notification record AFTER confirming it should be sent
                 notification_title = f"💊 Time to take {medication_name}"
                 notification_message = f"It's time to take your {medication_name}"
                 
@@ -187,52 +234,6 @@ def lambda_handler(event, context):
                 notification_id = cursor.fetchone()[0]
                 
                 print(f"✅ Created notification {notification_id} for user {user_id}")
-                
-                # Fetch user preferences and phone number from Supabase
-                user_preferences = DEFAULT_PREFERENCES.copy()
-                phone_number = None
-                phone_country_code = None
-                
-                if supabase_user_id:
-                    try:
-                        client = get_supabase_client()
-                        
-                        # Fetch user notification preferences
-                        try:
-                            prefs_response = client.table("user_notifications").select("*").eq("user_id", supabase_user_id).execute()
-                            if prefs_response.data and len(prefs_response.data) > 0:
-                                prefs = prefs_response.data[0]
-                                user_preferences['email_medications'] = prefs.get('email_medications', DEFAULT_PREFERENCES['email_medications'])
-                                user_preferences['sms_medications'] = prefs.get('sms_medications', DEFAULT_PREFERENCES['sms_medications'])
-                                user_preferences['whatsapp_medications'] = prefs.get('whatsapp_medications', DEFAULT_PREFERENCES['whatsapp_medications'])
-                                user_preferences['medication_minutes_before'] = prefs.get('medication_minutes_before', DEFAULT_PREFERENCES['medication_minutes_before'])
-                                print(f"📋 Loaded preferences for user {user_id}: email={user_preferences['email_medications']}, sms={user_preferences['sms_medications']}, offset={user_preferences['medication_minutes_before']}min")
-                        except Exception as prefs_error:
-                            print(f"⚠️ Could not fetch preferences for user {user_id}, using defaults: {prefs_error}")
-                        
-                        # Fetch phone number from user_profiles
-                        try:
-                            profile_response = client.table("user_profiles").select("phone_number, phone_country_code").eq("id", supabase_user_id).execute()
-                            if profile_response.data and len(profile_response.data) > 0:
-                                profile = profile_response.data[0]
-                                phone_number = profile.get('phone_number')
-                                phone_country_code = profile.get('phone_country_code')
-                        except Exception as phone_error:
-                            print(f"⚠️ Could not fetch phone number for user {user_id}: {phone_error}")
-                    except Exception as supabase_error:
-                        print(f"⚠️ Supabase error for user {user_id}: {supabase_error}")
-                
-                # Apply reminder offset - check if reminder should be sent now
-                reminder_offset_minutes = int(user_preferences.get('medication_minutes_before', '0'))
-                send_time = next_scheduled_at - timedelta(minutes=reminder_offset_minutes)
-                
-                # Only process if the reminder (with offset) is due now or in the past
-                # We check if send_time <= now (meaning it's time to send)
-                if send_time > now:
-                    print(f"⏰ Reminder {reminder_id} not due yet (with {reminder_offset_minutes}min offset). Actual reminder time: {next_scheduled_at}, Should send at: {send_time}, Current time: {now}")
-                    continue
-                
-                print(f"⏰ Processing reminder {reminder_id} (reminder time: {next_scheduled_at}, sending {reminder_offset_minutes}min early, send time: {send_time})")
                 
                 # Format phone number to E.164 if we have both country code and number
                 formatted_phone = None
@@ -319,24 +320,42 @@ def lambda_handler(event, context):
                 next_scheduled = calculate_next_scheduled_time(
                     reminder_time,
                     json.loads(days_of_week) if isinstance(days_of_week, str) else days_of_week,
-                    user_timezone or 'UTC'
+                    user_timezone or 'UTC',
+                    now  # Pass current time for consistency
                 )
                 
-                # Update reminder
-                cursor.execute(
-                    """
-                    UPDATE medication_reminders
-                    SET last_sent_at = %s, next_scheduled_at = %s
-                    WHERE id = %s
-                    """,
-                    (now, next_scheduled, reminder_id)
-                )
+                # Only update reminder if we have a valid next scheduled time
+                if next_scheduled is None:
+                    print(f"⚠️ Could not calculate next scheduled time for reminder {reminder_id}. Reminder may need manual review.")
+                    # Don't update next_scheduled_at, but still mark as sent
+                    cursor.execute(
+                        """
+                        UPDATE medication_reminders
+                        SET last_sent_at = %s
+                        WHERE id = %s
+                        """,
+                        (now, reminder_id)
+                    )
+                else:
+                    # Update reminder with next scheduled time
+                    cursor.execute(
+                        """
+                        UPDATE medication_reminders
+                        SET last_sent_at = %s, next_scheduled_at = %s
+                        WHERE id = %s
+                        """,
+                        (now, next_scheduled, reminder_id)
+                    )
                 
                 processed_count += 1
                 print(f"✅ Processed reminder {reminder_id} for user {user_id}")
                 
             except Exception as reminder_error:
                 print(f"❌ Error processing reminder {row[0]}: {reminder_error}")
+                import traceback
+                print(traceback.format_exc())
+                # Note: We don't rollback here to avoid losing other successfully processed reminders
+                # Individual reminder errors are logged and counted, but processing continues
                 failed_count += 1
                 continue
         
@@ -371,14 +390,29 @@ def lambda_handler(event, context):
         }
 
 
-def calculate_next_scheduled_time(reminder_time, days_of_week, user_timezone):
-    """Calculate the next UTC datetime when the reminder should be sent"""
+def calculate_next_scheduled_time(reminder_time, days_of_week, user_timezone, current_time_utc=None):
+    """
+    Calculate the next UTC datetime when the reminder should be sent
+    
+    Args:
+        reminder_time: Time object (TIME or TIMETZ) for when reminder should occur
+        days_of_week: List of day names (e.g., ['monday', 'tuesday'])
+        user_timezone: Timezone string (e.g., 'America/New_York')
+        current_time_utc: Optional UTC datetime to use as reference (defaults to now)
+    """
     try:
         user_tz = pytz.timezone(user_timezone)
         utc_tz = pytz.UTC
         
-        # Get current time in user's timezone
-        now_user_tz = datetime.now(user_tz)
+        # Use provided current time or get current UTC time
+        if current_time_utc is None:
+            current_time_utc = datetime.utcnow()
+        
+        # Convert current UTC time to user's timezone for comparison
+        if current_time_utc.tzinfo is None:
+            current_time_utc = utc_tz.localize(current_time_utc)
+        
+        now_user_tz = current_time_utc.astimezone(user_tz)
         
         # Extract time from reminder_time (TIMETZ)
         # reminder_time is a time object with timezone info

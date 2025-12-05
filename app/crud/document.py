@@ -55,36 +55,21 @@ class DocumentCRUD:
         filename: str, 
         file_size: int
     ) -> Optional[Document]:
-        """Check for duplicate files by filename, extension, and size"""
+        """Check for duplicate files by filename AND file size (both must match)"""
         try:
-            # Extract file extension
-            file_extension = filename.split('.')[-1].lower() if '.' in filename else ''
-            
-            # Check for exact filename match
-            exact_match = db.query(Document).filter(
-                and_(
-                    Document.owner_id == user_id,
-                    Document.file_name == filename,
-                    Document.status != DocumentStatus.DELETED
-                )
-            ).first()
-            
-            if exact_match:
-                return exact_match
-            
-            # Check for same size and extension
-            if file_size > 0 and file_extension:
-                size_extension_match = db.query(Document).filter(
+            # Check for exact filename AND file size match
+            if file_size > 0:
+                duplicate = db.query(Document).filter(
                     and_(
                         Document.owner_id == user_id,
+                        Document.file_name == filename,
                         Document.file_size == file_size,
-                        Document.file_name.endswith(f'.{file_extension}'),
                         Document.status != DocumentStatus.DELETED
                     )
                 ).first()
                 
-                if size_extension_match:
-                    return size_extension_match
+                if duplicate:
+                    return duplicate
             
             return None
             

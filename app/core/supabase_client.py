@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 import logging
 import httpx
 import jwt
+import asyncio
+import time
 from jwt.exceptions import InvalidTokenError, ExpiredSignatureError
 
 logger = logging.getLogger(__name__)
@@ -19,6 +21,44 @@ class SupabaseService:
             settings.SUPABASE_URL,
             settings.SUPABASE_ANON_KEY
         )
+        # Profile cache: {user_id: (profile_data, timestamp)}
+        self._profile_cache: Dict[str, tuple] = {}
+        self._cache_lock = asyncio.Lock()
+        self._cache_ttl = 60  # Cache TTL in seconds (60 seconds = 1 minute)
+    
+    async def _get_cached_profile(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """Get profile from cache if it exists and is not expired"""
+        async with self._cache_lock:
+            if user_id in self._profile_cache:
+                profile_data, timestamp = self._profile_cache[user_id]
+                current_time = time.time()
+                
+                # Check if cache is still valid
+                if current_time - timestamp < self._cache_ttl:
+                    logger.debug(f"✅ Cache HIT for user_id: {user_id} (age: {current_time - timestamp:.2f}s)")
+                    # Return a copy to prevent mutations affecting cache
+                    return profile_data.copy() if profile_data else None
+                else:
+                    # Cache expired, remove it
+                    logger.debug(f"⏰ Cache EXPIRED for user_id: {user_id} (age: {current_time - timestamp:.2f}s)")
+                    del self._profile_cache[user_id]
+            
+            logger.debug(f"❌ Cache MISS for user_id: {user_id}")
+            return None
+    
+    async def _set_cached_profile(self, user_id: str, profile_data: Dict[str, Any]) -> None:
+        """Store profile in cache with current timestamp"""
+        async with self._cache_lock:
+            # Store a copy to prevent mutations affecting cache
+            self._profile_cache[user_id] = (profile_data.copy() if profile_data else {}, time.time())
+            logger.debug(f"💾 Cached profile for user_id: {user_id}")
+    
+    async def _invalidate_cache(self, user_id: str) -> None:
+        """Remove profile from cache (called when profile is updated)"""
+        async with self._cache_lock:
+            if user_id in self._profile_cache:
+                del self._profile_cache[user_id]
+                logger.debug(f"🗑️ Invalidated cache for user_id: {user_id}")
     
     def _get_user_client(self, user_token: str, refresh_token: Optional[str] = None) -> Client:
         """Create a Supabase client with user's JWT token for RLS enforcement"""
@@ -247,15 +287,25 @@ class SupabaseService:
                 "user_id": user_id,
                 **profile  # Store each field as individual column
             }).execute()
+            
+            # Invalidate cache after successful update
+            await self._invalidate_cache(user_id)
+            
             return True
         except Exception as e:
             logger.error(f"Supabase store user profile error: {e}")
             return False
     
     async def get_user_profile(self, user_id: str, user_token: Optional[str] = None) -> Optional[Dict[str, Any]]:
-        """Retrieve user profile from Supabase database"""
+        """Retrieve user profile from Supabase database with caching"""
         try:
-            logger.info(f"🔍 Getting user profile for user_id: {user_id}")
+            # Check cache first
+            cached_profile = await self._get_cached_profile(user_id)
+            if cached_profile is not None:
+                return cached_profile
+            
+            # Cache miss - fetch from database
+            logger.info(f"🔍 Getting user profile for user_id: {user_id} (cache miss)")
             try:
                 profile_response = self.client.table("user_profiles").select("*").eq("user_id", user_id).execute()
             except Exception as query_error:
@@ -301,7 +351,12 @@ class SupabaseService:
                 except Exception as admin_error:
                     logger.error(f"Could not get email from admin auth for {user_id}: {admin_error}")
 
-            return profile_data if profile_data else {}
+            final_profile = profile_data if profile_data else {}
+            
+            # Cache the profile before returning
+            await self._set_cached_profile(user_id, final_profile)
+            
+            return final_profile
         except Exception as e:
             logger.error(f"Supabase get user profile error: {e}", exc_info=True)
             return {}
@@ -364,15 +419,27 @@ class SupabaseService:
     async def update_user_profile(self, user_id: str, profile: Dict[str, Any], user_token: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Update user profile in Supabase database"""
         try:
-            client = self._get_user_client(user_token) if user_token else self.client
-
             profile_update = profile.copy()
+            
+            # Try with user token first (for RLS enforcement), fall back to service role if token is expired
+            client = self._get_user_client(user_token) if user_token else self.client
 
             try:
                 existing_profile = client.table("user_profiles").select("*").eq("user_id", user_id).execute()
             except Exception as query_error:
-                logger.error(f"Database query error when checking existing profile for {user_id}: {query_error}")
-                existing_profile = type("obj", (object,), {"data": []})()
+                error_str = str(query_error).lower()
+                # If query fails with expired token (PGRST303), retry with service role
+                if ("expired" in error_str or "jwt expired" in error_str or "pgrst303" in error_str) and user_token:
+                    logger.warning(f"JWT token expired for user {user_id}, falling back to service role client")
+                    client = self.client
+                    try:
+                        existing_profile = client.table("user_profiles").select("*").eq("user_id", user_id).execute()
+                    except Exception as retry_error:
+                        logger.error(f"Database query error when checking existing profile for {user_id}: {retry_error}")
+                        existing_profile = type("obj", (object,), {"data": []})()
+                else:
+                    logger.error(f"Database query error when checking existing profile for {user_id}: {query_error}")
+                    existing_profile = type("obj", (object,), {"data": []})()
 
             try:
                 if existing_profile.data:
@@ -388,14 +455,39 @@ class SupabaseService:
                         "updated_at": "now()"
                     }).execute()
             except Exception as upsert_error:
-                logger.error(f"Error updating user profile for {user_id}: {upsert_error}")
-                return None
+                error_str = str(upsert_error).lower()
+                # If update fails with expired token, retry with service role
+                if ("expired" in error_str or "jwt expired" in error_str or "pgrst303" in error_str) and user_token and client != self.client:
+                    logger.warning(f"Update failed with expired token, retrying with service role client")
+                    client = self.client
+                    if existing_profile.data:
+                        response = client.table("user_profiles").update({
+                            **profile_update,
+                            "updated_at": "now()"
+                        }).eq("user_id", user_id).execute()
+                    else:
+                        response = client.table("user_profiles").insert({
+                            "user_id": user_id,
+                            **profile_update,
+                            "created_at": "now()",
+                            "updated_at": "now()"
+                        }).execute()
+                else:
+                    logger.error(f"Error updating user profile for {user_id}: {upsert_error}")
+                    return None
 
             if response.data:
                 profile_data = response.data[0]
                 for field in ("id", "user_id", "created_at", "updated_at"):
                     profile_data.pop(field, None)
+                
+                # Invalidate cache after successful update
+                await self._invalidate_cache(user_id)
+                
                 return profile_data
+
+            # Invalidate cache even if no data returned (profile might have been deleted)
+            await self._invalidate_cache(user_id)
 
             return profile
         except Exception as e:

@@ -266,13 +266,12 @@ class AdminTemplateImporter:
             logger.info(f"Section template already exists: {section_data['name']} (Tab: {tab})")
             return existing
         
-        # Create new section template
+        # Create new section template (source language is 'en' for admin templates)
         section_template_data = {
             "name": section_data["name"],
             "display_name": section_data["display_name"],
-            "display_name_pt": section_data.get("display_name_pt"),
-            "display_name_es": section_data.get("display_name_es"),
             "description": f"Admin-defined {section_data['display_name']} section",
+            "source_language": "en",  # Admin templates are in English
             "health_record_type_id": health_record_type_id,
             "is_active": True,
             "is_default": True,
@@ -280,6 +279,41 @@ class AdminTemplateImporter:
         }
         
         section_template = self.section_crud.create(self.db, section_template_data)
+        
+        # Create translations if provided
+        from app.services.translation_service import translation_service
+        if section_data.get("display_name_pt"):
+            translation_service.get_translated_content(
+                db=self.db,
+                entity_type='health_record_section_template',
+                entity_id=section_template.id,
+                field_name='display_name',
+                original_text=section_data["display_name"],
+                target_language='pt',
+                source_language='en'
+            )
+            # Manually create translation record with provided value
+            from app.crud.translation import translation_crud
+            translation_crud.create_translation(
+                db=self.db,
+                entity_type='health_record_section_template',
+                entity_id=section_template.id,
+                field_name='display_name',
+                language='pt',
+                translated_text=section_data["display_name_pt"],
+                source_language='en'
+            )
+        
+        if section_data.get("display_name_es"):
+            translation_crud.create_translation(
+                db=self.db,
+                entity_type='health_record_section_template',
+                entity_id=section_template.id,
+                field_name='display_name',
+                language='es',
+                translated_text=section_data["display_name_es"],
+                source_language='en'
+            )
         logger.info(f"Created section template: {section_template.display_name} (Tab: {tab}, Health Record Type ID: {health_record_type_id})")
         return section_template
     
@@ -296,17 +330,14 @@ class AdminTemplateImporter:
             logger.info(f"Metric template already exists: {metric_data['name']}")
             return existing
         
-        # Create new metric template
+        # Create new metric template (source language is 'en' for admin templates)
         metric_template_data = {
             "section_template_id": section_template.id,
             "name": metric_data["name"],
             "display_name": metric_data["display_name"],
-            "display_name_pt": metric_data.get("display_name_pt"),
-            "display_name_es": metric_data.get("display_name_es"),
             "description": f"Admin-defined {metric_data['display_name']} metric",
             "default_unit": metric_data.get("unit"),
-            "default_unit_pt": metric_data.get("unit_pt"),
-            "default_unit_es": metric_data.get("unit_es"),
+            "source_language": "en",  # Admin templates are in English
             "original_reference": metric_data.get("reference"),
             "reference_data": metric_data.get("reference_data"),
             "data_type": metric_data.get("data_type", "number"),
@@ -316,6 +347,53 @@ class AdminTemplateImporter:
         }
         
         metric_template = self.metric_crud.create(self.db, metric_template_data)
+        
+        # Create translations if provided
+        from app.crud.translation import translation_crud
+        
+        # Translate display_name
+        if metric_data.get("display_name_pt"):
+            translation_crud.create_translation(
+                db=self.db,
+                entity_type='health_record_metric_template',
+                entity_id=metric_template.id,
+                field_name='display_name',
+                language='pt',
+                translated_text=metric_data["display_name_pt"],
+                source_language='en'
+            )
+        if metric_data.get("display_name_es"):
+            translation_crud.create_translation(
+                db=self.db,
+                entity_type='health_record_metric_template',
+                entity_id=metric_template.id,
+                field_name='display_name',
+                language='es',
+                translated_text=metric_data["display_name_es"],
+                source_language='en'
+            )
+        
+        # Translate default_unit
+        if metric_data.get("unit_pt"):
+            translation_crud.create_translation(
+                db=self.db,
+                entity_type='health_record_metric_template',
+                entity_id=metric_template.id,
+                field_name='default_unit',
+                language='pt',
+                translated_text=metric_data["unit_pt"],
+                source_language='en'
+            )
+        if metric_data.get("unit_es"):
+            translation_crud.create_translation(
+                db=self.db,
+                entity_type='health_record_metric_template',
+                entity_id=metric_template.id,
+                field_name='default_unit',
+                language='es',
+                translated_text=metric_data["unit_es"],
+                source_language='en'
+            )
         logger.info(f"Created metric template: {metric_template.display_name}")
         return metric_template
     

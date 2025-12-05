@@ -48,4 +48,4 @@ class ProfessionalLocation(Base):
     practice = relationship("User", foreign_keys=[practice_id], backref="professional_locations")
     availability_schedules = relationship("ProfessionalAvailabilitySchedule", back_populates="location")
     appointment_slots = relationship("ProfessionalAppointmentSlot", back_populates="location")
-    appointments = relationship("Appointment", back_populates="location") 
+    # appointments relationship removed - Appointment model no longer has location_id 

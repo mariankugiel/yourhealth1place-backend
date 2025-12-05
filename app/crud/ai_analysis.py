@@ -22,7 +22,7 @@ class AIAnalysisHistoryCRUD:
     
     def create(self, db: Session, user_id: int, analysis_type_id: int, 
                health_record_count: int, health_record_updated_at: Optional[datetime] = None,
-               analysis_content: Optional[str] = None) -> AIAnalysisHistory:
+               analysis_content: Optional[str] = None, analysis_language: Optional[str] = None) -> AIAnalysisHistory:
         """Create a new AI analysis history record"""
         try:
             # Deactivate any existing records for this user and analysis type
@@ -45,6 +45,7 @@ class AIAnalysisHistoryCRUD:
                 last_health_record_count=health_record_count,
                 last_health_record_updated_at=health_record_updated_at,
                 analysis_content=analysis_content,
+                analysis_language=analysis_language or 'en',
                 is_active=True
             )
             

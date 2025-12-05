@@ -108,15 +108,94 @@ class AIAnalysisService:
                 db, user_id, health_record_type_id, current_health_record_count, latest_health_record_updated_at, force_check=force_check
             )
                 
+            # Get user's language preference first
+            from app.utils.user_language import get_user_language
+            user_language = await get_user_language(user_id, db)
+            
             if not should_generate:
                 # Return the last analysis if available
                 last_analysis = ai_analysis_history_crud.get_by_user_and_type(db, user_id, health_record_type_id)
                 if last_analysis and last_analysis.analysis_content:
                     try:
-                        return {
-                            "success": True,
-                            "message": f"Using cached analysis ({reason})",
-                            "analysis": json.loads(last_analysis.analysis_content),
+                        cached_analysis = json.loads(last_analysis.analysis_content)
+                        cached_language = getattr(last_analysis, 'analysis_language', 'en') or 'en'
+                        
+                        # Check if cached analysis language matches user's current language
+                        if cached_language == user_language:
+                            # Languages match - return cached analysis as-is
+                            return {
+                                "success": True,
+                                "message": f"Using cached analysis ({reason})",
+                                    "analysis": cached_analysis,
+                                    "generated_at": last_analysis.last_generated_at.isoformat(),
+                                    "cached": True,
+                                    "reason": reason
+                                }
+                        else:
+                            # Languages don't match - need to translate cached analysis
+                            logger.info(f"Cached analysis is in {cached_language}, user wants {user_language}. Translating...")
+                            from app.services.translation_service import translation_service
+                            
+                            # Translate the analysis content
+                            translated_analysis = {}
+                            
+                            # Translate areas_of_concern
+                            if 'areas_of_concern' in cached_analysis and isinstance(cached_analysis['areas_of_concern'], list):
+                                translated_analysis['areas_of_concern'] = []
+                                for i, concern in enumerate(cached_analysis['areas_of_concern']):
+                                    if concern:
+                                        translated_concern = translation_service.get_translated_content(
+                                            db=db,
+                                            entity_type='ai_analysis_history',
+                                            entity_id=last_analysis.id,
+                                            field_name=f'areas_of_concern[{i}]',
+                                            original_text=str(concern),
+                                            target_language=user_language,
+                                            source_language=cached_language
+                                        )
+                                        translated_analysis['areas_of_concern'].append(translated_concern)
+                            
+                            # Translate positive_trends
+                            if 'positive_trends' in cached_analysis and isinstance(cached_analysis['positive_trends'], list):
+                                translated_analysis['positive_trends'] = []
+                                for i, trend in enumerate(cached_analysis['positive_trends']):
+                                    if trend:
+                                        translated_trend = translation_service.get_translated_content(
+                                            db=db,
+                                            entity_type='ai_analysis_history',
+                                            entity_id=last_analysis.id,
+                                            field_name=f'positive_trends[{i}]',
+                                            original_text=str(trend),
+                                            target_language=user_language,
+                                            source_language=cached_language
+                                        )
+                                        translated_analysis['positive_trends'].append(translated_trend)
+                            
+                            # Translate recommendations
+                            if 'recommendations' in cached_analysis and isinstance(cached_analysis['recommendations'], list):
+                                translated_analysis['recommendations'] = []
+                                for i, recommendation in enumerate(cached_analysis['recommendations']):
+                                    if recommendation:
+                                        translated_rec = translation_service.get_translated_content(
+                                            db=db,
+                                            entity_type='ai_analysis_history',
+                                            entity_id=last_analysis.id,
+                                            field_name=f'recommendations[{i}]',
+                                            original_text=str(recommendation),
+                                            target_language=user_language,
+                                            source_language=cached_language
+                                        )
+                                        translated_analysis['recommendations'].append(translated_rec)
+                            
+                            # Copy other fields as-is
+                            for key in cached_analysis:
+                                if key not in ['areas_of_concern', 'positive_trends', 'recommendations']:
+                                    translated_analysis[key] = cached_analysis[key]
+                            
+                            return {
+                                "success": True,
+                                "message": f"Using cached analysis translated to {user_language} ({reason})",
+                                "analysis": translated_analysis,
                             "generated_at": last_analysis.last_generated_at.isoformat(),
                             "cached": True,
                             "reason": reason
@@ -134,14 +213,14 @@ class AIAnalysisService:
                         }
                     }
             
-            # Generate AI analysis using GPT (either forced or required by 5-day rule)
-            ai_analysis_result = await self._generate_ai_analysis(health_data, health_record_type_id)
+            # Generate AI analysis using GPT in user's language (either forced or required by 5-day rule)
+            ai_analysis_result = await self._generate_ai_analysis(health_data, health_record_type_id, target_language=user_language)
             ai_analysis = ai_analysis_result["analysis"]
             ai_success = ai_analysis_result["success"]
             
             if ai_success:
                 
-                # Save analysis to history
+                # Save analysis to history with language
                 try:
                     ai_analysis_history_crud.create(
                         db=db,
@@ -149,7 +228,8 @@ class AIAnalysisService:
                         analysis_type_id=health_record_type_id,
                         health_record_count=current_health_record_count,
                         health_record_updated_at=latest_health_record_updated_at,
-                        analysis_content=json.dumps(ai_analysis)
+                        analysis_content=json.dumps(ai_analysis),
+                        analysis_language=user_language
                     )
                 except Exception as e:
                     logger.error(f"Failed to save AI analysis history for user {user_id}: {e}")
@@ -280,7 +360,12 @@ class AIAnalysisService:
             logger.error(f"Error getting user health data: {e}")
             return {}
     
-    async def _generate_ai_analysis(self, health_data: Dict[str, Any], health_record_type_id: int = 1) -> Dict[str, Any]:
+    async def _generate_ai_analysis(
+        self, 
+        health_data: Dict[str, Any], 
+        health_record_type_id: int = 1,
+        target_language: str = 'en'
+    ) -> Dict[str, Any]:
         """Generate AI analysis using GPT or fallback to local analysis"""
         if not self.openai_enabled:
             return {
@@ -290,8 +375,16 @@ class AIAnalysisService:
             }
         
         try:
+            # Language name mapping
+            language_names = {
+                'en': 'English',
+                'es': 'Spanish',
+                'pt': 'Portuguese'
+            }
+            target_language_name = language_names.get(target_language, 'English')
+            
             # Prepare the prompt for GPT
-            prompt = self._create_analysis_prompt(health_data, health_record_type_id)
+            prompt = self._create_analysis_prompt(health_data, health_record_type_id, target_language)
             
             # Call OpenAI API
             response = self.client.chat.completions.create(
@@ -299,7 +392,9 @@ class AIAnalysisService:
                 messages=[
                     {
                         "role": "system",
-                        "content": """You are a medical AI assistant that analyzes health data and provides insights, recommendations, and assessments. 
+                        "content": f"""You are a medical AI assistant that analyzes health data and provides insights, recommendations, and assessments. 
+                        
+                        IMPORTANT: Provide all your responses in {target_language_name} language.
                         
                         Your role is to:
                         1. Analyze health metrics and identify patterns
@@ -312,7 +407,9 @@ class AIAnalysisService:
                         
                         Always provide evidence-based insights and recommend consulting healthcare providers for medical decisions.
                         Be encouraging but realistic about health status.
-                        Focus on actionable, personalized recommendations."""
+                        Focus on actionable, personalized recommendations.
+                        
+                        All responses must be in {target_language_name}."""
                     },
                     {
                         "role": "user",
@@ -359,12 +456,17 @@ class AIAnalysisService:
                 "analysis": self._generate_fallback_analysis(health_data)
             }
     
-    def _create_analysis_prompt(self, health_data: Dict[str, Any], health_record_type_id: int = 1) -> str:
+    def _create_analysis_prompt(
+        self, 
+        health_data: Dict[str, Any], 
+        health_record_type_id: int = 1,
+        target_language: str = 'en'
+    ) -> str:
         """Create a detailed prompt for GPT analysis"""
         
         # Check if this is for medical images (type ID 5)
         if health_record_type_id == 5:
-            return self._create_medical_images_prompt(health_data)
+            return self._create_medical_images_prompt(health_data, target_language)
         
         prompt = f"""
         Please analyze the following health data and provide a comprehensive health assessment:
@@ -425,14 +527,25 @@ class AIAnalysisService:
         - Be direct but not alarming about concerns
         - Focus on what the user can do to improve their health
         - Avoid medical jargon - use everyday language
+        - All responses must be in {target_language_name} language
         """
         
         return prompt
     
-    def _create_medical_images_prompt(self, health_data: Dict[str, Any]) -> str:
+    def _create_medical_images_prompt(self, health_data: Dict[str, Any], target_language: str = 'en') -> str:
         """Create a specialized prompt for medical images analysis"""
+        # Language name mapping
+        language_names = {
+            'en': 'English',
+            'es': 'Spanish',
+            'pt': 'Portuguese'
+        }
+        target_language_name = language_names.get(target_language, 'English')
+        
         prompt = f"""
-        Please analyze the following medical imaging data and provide a comprehensive summary focused on imaging findings and recommendations:
+        Please analyze the following medical imaging data and provide a comprehensive summary focused on imaging findings and recommendations.
+        
+        IMPORTANT: Provide your entire response in {target_language_name} language.
 
         **Medical Imaging Data Summary:**
         - User ID: {health_data.get('user_id', 'Unknown')}
@@ -487,6 +600,7 @@ class AIAnalysisService:
         - Focus on what the user can do to monitor their imaging health
         - Avoid medical jargon - use everyday language
         - Mention specific imaging types (X-ray, MRI, CT, Ultrasound, etc.) when relevant
+        - All responses must be in {target_language_name} language
         """
         
         return prompt
