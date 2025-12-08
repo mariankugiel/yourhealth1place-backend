@@ -29,8 +29,9 @@ from app.schemas.health_metrics import (
 # Health Record Template CRUD Functions
 def create_health_record_section_template(db: Session, template: HealthRecordSectionTemplateCreate, user_id: int) -> HealthRecordSectionTemplate:
     """Create a new health record section template"""
-    from app.utils.user_language import get_user_language_sync
-    source_language = get_user_language_sync(user_id, db) or 'en'
+    # Note: In sync context, default to 'en' for source_language
+    # This is acceptable as source_language is mainly for tracking original language
+    source_language = 'en'
     
     db_template = HealthRecordSectionTemplate(
         name=template.name,
@@ -137,8 +138,9 @@ def create_health_record_section_template(db: Session, template: HealthRecordSec
     return db_template
 
 def create_health_record_metric_template(db: Session, template: HealthRecordMetricTemplateCreate, user_id: int) -> HealthRecordMetricTemplate:
-    from app.utils.user_language import get_user_language_sync
-    source_language = get_user_language_sync(user_id, db) or 'en'
+    # Note: In sync context, default to 'en' for source_language
+    # This is acceptable as source_language is mainly for tracking original language
+    source_language = 'en'
     
     db_template = HealthRecordMetricTemplate(
         section_template_id=template.section_template_id,

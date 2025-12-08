@@ -315,8 +315,8 @@ class MedicalConditionCRUD:
         """Create a new medical condition"""
         try:
             # Get user's current language to save as source_language
-            from app.utils.user_language import get_user_language
-            source_lang = await get_user_language(user_id, db)
+            from app.utils.user_language import get_user_language_from_cache
+            source_lang = await get_user_language_from_cache(user_id, db)
             
             db_condition = MedicalCondition(
                 condition_name=condition.condition_name,
@@ -385,9 +385,9 @@ class MedicalConditionCRUD:
             if not db_condition:
                 return None
             
-            # Get user's current language
-            from app.utils.user_language import get_user_language
-            current_language = await get_user_language(user_id, db)
+            # Get user's current language from cache
+            from app.utils.user_language import get_user_language_from_cache
+            current_language = await get_user_language_from_cache(user_id, db)
             source_language = getattr(db_condition, 'source_language', 'en')
             
             update_data = condition_update.dict(exclude_unset=True)
@@ -471,8 +471,8 @@ class FamilyMedicalHistoryCRUD:
         """Create a new family medical history record"""
         try:
             # Get user's current language to save as source_language
-            from app.utils.user_language import get_user_language
-            source_lang = await get_user_language(user_id, db)
+            from app.utils.user_language import get_user_language_from_cache
+            source_lang = await get_user_language_from_cache(user_id, db)
             
             # Convert chronic_diseases to dict format for JSON column
             chronic_diseases_data = [disease.dict() for disease in history.chronic_diseases] if history.chronic_diseases else []
@@ -548,9 +548,9 @@ class FamilyMedicalHistoryCRUD:
             if not db_history:
                 return None
             
-            # Get user's current language
-            from app.utils.user_language import get_user_language
-            current_language = await get_user_language(user_id, db)
+            # Get user's current language from cache
+            from app.utils.user_language import get_user_language_from_cache
+            current_language = await get_user_language_from_cache(user_id, db)
             source_language = getattr(db_history, 'source_language', 'en')
             
             update_data = history_update.dict(exclude_unset=True)
@@ -898,8 +898,9 @@ class HealthRecordSectionCRUD:
         """Create a new health record section"""
         try:
             # Get user's language preference for source_language
-            from app.utils.user_language import get_user_language_sync
-            source_language = get_user_language_sync(user_id, db) or 'en'
+            # Note: In sync context, default to 'en' for source_language
+            # This is acceptable as source_language is mainly for tracking original language
+            source_language = 'en'
             
             db_section = HealthRecordSection(
                 name=section_data.name,
@@ -988,13 +989,14 @@ class HealthRecordSectionCRUD:
             
             # First, get all metrics in this section
             from app.models.health_record import HealthRecordMetric, HealthRecord
+            from app.crud.translation import translation_crud
             metrics = db.query(HealthRecordMetric).filter(
                 HealthRecordMetric.section_id == section_id
             ).order_by(HealthRecordMetric.name.asc()).all()
             
             total_deleted_records = 0
             
-            # For each metric, delete all associated health records
+            # For each metric, delete all associated health records and translations
             for metric in metrics:
                 health_records = db.query(HealthRecord).filter(
                     HealthRecord.metric_id == metric.id
@@ -1004,6 +1006,14 @@ class HealthRecordSectionCRUD:
                     db.delete(record)
                     total_deleted_records += 1
                     logger.info(f"Deleted health record {record.id} associated with metric {metric.id}")
+                
+                # Delete translations for this metric
+                translation_crud.delete_translations(
+                    db, 
+                    entity_type='health_record_metrics',
+                    entity_id=metric.id
+                )
+                logger.info(f"Deleted translations for metric {metric.id}")
                 
                 # Delete the metric itself
                 db.delete(metric)
@@ -1046,6 +1056,14 @@ class HealthRecordSectionCRUD:
                     # For admin template sections: delete from normal table only
                     logger.info(f"Deleting admin template section {section_id} from normal table only")
             
+            # Delete translations for this section
+            translation_crud.delete_translations(
+                db,
+                entity_type='health_record_sections',
+                entity_id=section_id
+            )
+            logger.info(f"Deleted translations for section {section_id}")
+            
             # Finally, delete the section itself
             db.delete(db_section)
             db.commit()
@@ -1069,8 +1087,9 @@ class HealthRecordMetricCRUD:
         """Create a new health record metric"""
         try:
             # Get user's language preference for source_language
-            from app.utils.user_language import get_user_language_sync
-            source_language = get_user_language_sync(user_id, db) or 'en'
+            # Note: In sync context, default to 'en' for source_language
+            # This is acceptable as source_language is mainly for tracking original language
+            source_language = 'en'
             
             db_metric = HealthRecordMetric(
                 section_id=metric_data.section_id,
@@ -1173,6 +1192,7 @@ class HealthRecordMetricCRUD:
             
             # First, delete all health records associated with this metric
             from app.models.health_record import HealthRecord
+            from app.crud.translation import translation_crud
             health_records = db.query(HealthRecord).filter(
                 HealthRecord.metric_id == metric_id
             ).all()
@@ -1205,6 +1225,14 @@ class HealthRecordMetricCRUD:
             else:
                 # For admin template metrics: delete from normal table only
                 logger.info(f"Deleting admin template metric {metric_id} from normal table only")
+            
+            # Delete translations for this metric
+            translation_crud.delete_translations(
+                db,
+                entity_type='health_record_metrics',
+                entity_id=metric_id
+            )
+            logger.info(f"Deleted translations for metric {metric_id}")
             
             # Delete the metric itself
             db.delete(db_metric)
@@ -1335,6 +1363,7 @@ class HealthRecordSectionMetricCRUD:
                         "name": metric.name,
                         "display_name": metric.display_name,
                         "description": metric.description,
+                        "source_language": getattr(metric, 'source_language', 'en'),
                         "default_unit": metric.default_unit,
                         "reference_data": metric.reference_data,
                         "data_type": metric.data_type,
@@ -1387,6 +1416,7 @@ class HealthRecordSectionMetricCRUD:
                     "name": section.name,
                     "display_name": section.display_name,
                     "description": section.description,
+                    "source_language": getattr(section, 'source_language', 'en'),
                     "health_record_type_id": section.health_record_type_id,
                     "section_template_id": section.id,
                     "is_default": section.is_default,
@@ -1400,6 +1430,7 @@ class HealthRecordSectionMetricCRUD:
                             "name": metric.name,
                             "display_name": metric.display_name,
                             "description": metric.description,
+                            "source_language": getattr(metric, 'source_language', 'en'),
                             "data_type": metric.data_type,
                             "default_unit": metric.default_unit,
                             "original_reference": metric.original_reference,
@@ -1523,6 +1554,7 @@ class HealthRecordSectionMetricCRUD:
                         "name": metric.name,
                         "display_name": metric.display_name,
                         "description": metric.description,
+                        "source_language": getattr(metric, 'source_language', 'en'),
                         "data_type": metric.data_type,
                         "default_unit": metric.default_unit,
                         "unit": metric.default_unit,  # For compatibility
@@ -1566,6 +1598,7 @@ class HealthRecordSectionMetricCRUD:
                 "name": metric.name,
                 "display_name": metric.display_name,
                 "description": metric.description,
+                "source_language": getattr(metric, 'source_language', 'en'),
                 "data_type": metric.data_type,
                 "default_unit": metric.default_unit,
                 "reference_data": metric.reference_data,
@@ -1777,12 +1810,9 @@ class HealthRecordSectionTemplateCRUD:
         try:
             # Get creator's language preference for source_language if not provided
             if 'source_language' not in section_data:
-                from app.utils.user_language import get_user_language_sync
-                creator_id = section_data.get('created_by')
-                if creator_id:
-                    section_data['source_language'] = get_user_language_sync(creator_id, db) or 'en'
-                else:
-                    section_data['source_language'] = 'en'
+                # Note: In sync context, default to 'en' for source_language
+                # This is acceptable as source_language is mainly for tracking original language
+                section_data['source_language'] = 'en'
             
             db_section = HealthRecordSectionTemplate(**section_data)
             db.add(db_section)
@@ -1833,12 +1863,9 @@ class HealthRecordMetricTemplateCRUD:
         try:
             # Get creator's language preference for source_language if not provided
             if 'source_language' not in metric_data:
-                from app.utils.user_language import get_user_language_sync
-                creator_id = metric_data.get('created_by')
-                if creator_id:
-                    metric_data['source_language'] = get_user_language_sync(creator_id, db) or 'en'
-                else:
-                    metric_data['source_language'] = 'en'
+                # Note: In sync context, default to 'en' for source_language
+                # This is acceptable as source_language is mainly for tracking original language
+                metric_data['source_language'] = 'en'
             
             db_metric = HealthRecordMetricTemplate(**metric_data)
             db.add(db_metric)

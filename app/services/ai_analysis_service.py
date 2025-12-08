@@ -109,8 +109,8 @@ class AIAnalysisService:
             )
                 
             # Get user's language preference first
-            from app.utils.user_language import get_user_language
-            user_language = await get_user_language(user_id, db)
+            from app.utils.user_language import get_user_language_from_cache
+            user_language = await get_user_language_from_cache(user_id, db)
             
             if not should_generate:
                 # Return the last analysis if available

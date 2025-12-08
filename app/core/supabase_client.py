@@ -35,15 +35,11 @@ class SupabaseService:
                 
                 # Check if cache is still valid
                 if current_time - timestamp < self._cache_ttl:
-                    logger.debug(f"✅ Cache HIT for user_id: {user_id} (age: {current_time - timestamp:.2f}s)")
                     # Return a copy to prevent mutations affecting cache
                     return profile_data.copy() if profile_data else None
                 else:
                     # Cache expired, remove it
-                    logger.debug(f"⏰ Cache EXPIRED for user_id: {user_id} (age: {current_time - timestamp:.2f}s)")
                     del self._profile_cache[user_id]
-            
-            logger.debug(f"❌ Cache MISS for user_id: {user_id}")
             return None
     
     async def _set_cached_profile(self, user_id: str, profile_data: Dict[str, Any]) -> None:
@@ -51,14 +47,45 @@ class SupabaseService:
         async with self._cache_lock:
             # Store a copy to prevent mutations affecting cache
             self._profile_cache[user_id] = (profile_data.copy() if profile_data else {}, time.time())
-            logger.debug(f"💾 Cached profile for user_id: {user_id}")
     
     async def _invalidate_cache(self, user_id: str) -> None:
         """Remove profile from cache (called when profile is updated)"""
         async with self._cache_lock:
             if user_id in self._profile_cache:
                 del self._profile_cache[user_id]
-                logger.debug(f"🗑️ Invalidated cache for user_id: {user_id}")
+    
+    async def get_user_language_from_cache(self, supabase_user_id: str) -> str:
+        """
+        Get user's language from cached profile.
+        If cache is expired or missing, fetches fresh profile and updates cache.
+        
+        Args:
+            supabase_user_id: Supabase user ID (string UUID)
+        
+        Returns:
+            Language code: 'en', 'es', or 'pt' (defaults to 'en')
+        """
+        try:
+            # Check cache first
+            cached_profile = await self._get_cached_profile(supabase_user_id)
+            if cached_profile is not None:
+                language = cached_profile.get('language', 'en')
+                if language in ['en', 'es', 'pt']:
+                    return language
+                return 'en'
+            
+            # Cache miss or expired - fetch fresh profile (which will cache it)
+            profile = await self.get_user_profile(supabase_user_id)
+            if profile and profile.get('language'):
+                language = profile['language']
+                if language in ['en', 'es', 'pt']:
+                    return language
+            
+            return 'en'  # Default fallback
+            
+        except Exception as e:
+            logger.warning(f"Failed to get user language from cache for {supabase_user_id}: {e}")
+            return 'en'  # Default fallback
     
     def _get_user_client(self, user_token: str, refresh_token: Optional[str] = None) -> Client:
         """Create a Supabase client with user's JWT token for RLS enforcement"""
@@ -279,8 +306,9 @@ class SupabaseService:
     async def store_user_profile(self, user_id: str, profile: Dict[str, Any], user_token: Optional[str] = None) -> bool:
         """Store user profile in Supabase database"""
         try:
-            # Use user token if provided, otherwise use service role
-            client = self._get_user_client(user_token) if user_token else self.client
+            # Use service role client directly for backend operations
+            # This avoids token expiration issues and improves performance
+            client = self.client
             
             # Use upsert to insert or update existing record
             response = client.table("user_profiles").upsert({
@@ -288,8 +316,15 @@ class SupabaseService:
                 **profile  # Store each field as individual column
             }).execute()
             
-            # Invalidate cache after successful update
+            # Invalidate cache and update with new data immediately
+            # This ensures subsequent calls get the fresh profile data right away
             await self._invalidate_cache(user_id)
+            if response.data and len(response.data) > 0:
+                profile_data = response.data[0].copy()
+                # Remove system columns
+                for field in ("id", "user_id", "created_at", "updated_at"):
+                    profile_data.pop(field, None)
+                await self._set_cached_profile(user_id, profile_data)
             
             return True
         except Exception as e:
@@ -305,7 +340,6 @@ class SupabaseService:
                 return cached_profile
             
             # Cache miss - fetch from database
-            logger.info(f"🔍 Getting user profile for user_id: {user_id} (cache miss)")
             try:
                 profile_response = self.client.table("user_profiles").select("*").eq("user_id", user_id).execute()
             except Exception as query_error:
@@ -421,23 +455,13 @@ class SupabaseService:
         try:
             profile_update = profile.copy()
             
-            # Try with user token first (for RLS enforcement), fall back to service role if token is expired
-            client = self._get_user_client(user_token) if user_token else self.client
+            # Use service role client directly for backend operations
+            # This avoids token expiration issues and improves performance
+            client = self.client
 
             try:
                 existing_profile = client.table("user_profiles").select("*").eq("user_id", user_id).execute()
             except Exception as query_error:
-                error_str = str(query_error).lower()
-                # If query fails with expired token (PGRST303), retry with service role
-                if ("expired" in error_str or "jwt expired" in error_str or "pgrst303" in error_str) and user_token:
-                    logger.warning(f"JWT token expired for user {user_id}, falling back to service role client")
-                    client = self.client
-                    try:
-                        existing_profile = client.table("user_profiles").select("*").eq("user_id", user_id).execute()
-                    except Exception as retry_error:
-                        logger.error(f"Database query error when checking existing profile for {user_id}: {retry_error}")
-                        existing_profile = type("obj", (object,), {"data": []})()
-                else:
                     logger.error(f"Database query error when checking existing profile for {user_id}: {query_error}")
                     existing_profile = type("obj", (object,), {"data": []})()
 
@@ -455,34 +479,56 @@ class SupabaseService:
                         "updated_at": "now()"
                     }).execute()
             except Exception as upsert_error:
-                error_str = str(upsert_error).lower()
-                # If update fails with expired token, retry with service role
-                if ("expired" in error_str or "jwt expired" in error_str or "pgrst303" in error_str) and user_token and client != self.client:
-                    logger.warning(f"Update failed with expired token, retrying with service role client")
-                    client = self.client
-                    if existing_profile.data:
-                        response = client.table("user_profiles").update({
-                            **profile_update,
-                            "updated_at": "now()"
-                        }).eq("user_id", user_id).execute()
-                    else:
-                        response = client.table("user_profiles").insert({
-                            "user_id": user_id,
-                            **profile_update,
-                            "created_at": "now()",
-                            "updated_at": "now()"
-                        }).execute()
-                else:
                     logger.error(f"Error updating user profile for {user_id}: {upsert_error}")
                     return None
 
             if response.data:
-                profile_data = response.data[0]
+                # Process the response data the same way as get_user_profile does
+                # to ensure all fields are included in the cache
+                profile_data = response.data[0].copy()
+                supabase_uuid = profile_data.get("id")
+                
+                # Remove system-managed columns
                 for field in ("id", "user_id", "created_at", "updated_at"):
                     profile_data.pop(field, None)
                 
-                # Invalidate cache after successful update
+                # Add supabase_user_id (same as get_user_profile)
+                profile_data["supabase_user_id"] = supabase_uuid or user_id
+                
+                # Map role (same as get_user_profile)
+                if "role" in profile_data and profile_data["role"]:
+                    role_mapping = {"patient": "PATIENT", "doctor": "DOCTOR", "admin": "ADMIN"}
+                    profile_data["role"] = role_mapping.get(str(profile_data["role"]).lower(), "PATIENT")
+                
+                # Handle avatar_url (same as get_user_profile)
+                avatar_url_value = profile_data.get("avatar_url")
+                if avatar_url_value and str(avatar_url_value).strip().lower() not in {"null", "none", ""}:
+                    # avatar_url already exists, keep it
+                    pass
+                else:
+                    try:
+                        storage_avatar_url = await self.get_avatar_signed_url(user_id)
+                        if storage_avatar_url:
+                            profile_data["avatar_url"] = storage_avatar_url
+                    except Exception as storage_error:
+                        logger.warning(f"Error getting avatar from Storage for user {user_id}: {storage_error}")
+                        profile_data["avatar_url"] = None
+                
+                # Add email if missing (same as get_user_profile)
+                if "email" not in profile_data or not profile_data.get("email"):
+                    try:
+                        user_response = self.client.auth.admin.get_user_by_id(user_id)
+                        if user_response and getattr(user_response, "user", None):
+                            email_value = getattr(user_response.user, "email", None)
+                            if email_value:
+                                profile_data["email"] = email_value
+                    except Exception as admin_error:
+                        logger.warning(f"Could not get email from admin auth for {user_id}: {admin_error}")
+                
+                # Invalidate cache and immediately update with FULL profile data
+                # This ensures subsequent calls get the fresh profile data immediately
                 await self._invalidate_cache(user_id)
+                await self._set_cached_profile(user_id, profile_data)
                 
                 return profile_data
 
@@ -665,14 +711,12 @@ class SupabaseService:
     async def get_user_integrations(self, user_id: str, user_token: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Retrieve user integration preferences from Supabase user_integrations table"""
         try:
-            logger.info(f"🔍 Getting user integrations for user_id: {user_id}")
             client = self.client
             
             try:
                 integrations_response = client.table("user_integrations").select("*").eq("user_id", user_id).execute()
-                logger.info(f"📊 Integrations query executed, rows returned: {len(integrations_response.data) if integrations_response.data else 0}")
             except Exception as query_error:
-                logger.error(f"❌ Database query error (table may not exist): {query_error}")
+                logger.error(f"Database query error (table may not exist): {query_error}")
                 return {}
             
             integrations_data = {}
@@ -684,7 +728,6 @@ class SupabaseService:
                 integrations_data.pop("created_at", None)
                 integrations_data.pop("updated_at", None)
             
-            logger.info(f"✅ Returning integrations: {len(integrations_data)} fields")
             return integrations_data if integrations_data else {}
         except Exception as e:
             logger.error(f"❌ Supabase get user integrations error: {e}")
@@ -693,27 +736,21 @@ class SupabaseService:
     async def update_user_integrations(self, user_id: str, integrations: Dict[str, Any], user_token: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Update user integration preferences in Supabase user_integrations table"""
         try:
-            logger.info(f"💾 Updating user integrations for user_id: {user_id}")
-            logger.info(f"📝 Integrations data: {integrations}")
-            
             client = self.client
             
             try:
                 existing_integrations = client.table("user_integrations").select("*").eq("user_id", user_id).execute()
-                logger.info(f"📊 Existing integrations check: {len(existing_integrations.data) if existing_integrations.data else 0} rows found")
             except Exception as query_error:
-                logger.error(f"❌ Database query error (table may not exist): {query_error}")
+                logger.error(f"Database query error (table may not exist): {query_error}")
                 existing_integrations = type('obj', (object,), {'data': []})()
             
             try:
                 if existing_integrations.data and len(existing_integrations.data) > 0:
-                    logger.info("🔄 Integrations record exists, updating...")
                     response = client.table("user_integrations").update({
                         **integrations,
                         "updated_at": "now()"
                     }).eq("user_id", user_id).execute()
                 else:
-                    logger.info("✨ Integrations record doesn't exist, creating new...")
                     response = client.table("user_integrations").insert({
                         "user_id": user_id,
                         **integrations,
@@ -721,7 +758,7 @@ class SupabaseService:
                         "updated_at": "now()"
                     }).execute()
             except Exception as timestamp_error:
-                logger.warning(f"⚠️ Timestamp field error, retrying without updated_at: {timestamp_error}")
+                logger.warning(f"Timestamp field error, retrying without updated_at: {timestamp_error}")
                 if existing_integrations.data and len(existing_integrations.data) > 0:
                     response = client.table("user_integrations").update({
                         **integrations
@@ -732,33 +769,28 @@ class SupabaseService:
                         **integrations
                     }).execute()
             
-            logger.info(f"✅ Supabase integrations operation completed: {len(response.data) if response.data else 0} rows affected")
-            
             if response.data and len(response.data) > 0:
                 integrations_data = response.data[0]
                 integrations_data.pop("id", None)
                 integrations_data.pop("user_id", None)
                 integrations_data.pop("created_at", None)
                 integrations_data.pop("updated_at", None)
-                logger.info(f"✅ Returning updated integrations: {len(integrations_data)} fields")
                 return integrations_data
-            logger.warning("⚠️ No data returned from Supabase, returning original integrations data")
+            logger.warning("No data returned from Supabase, returning original integrations data")
             return integrations
         except Exception as e:
-            logger.error(f"❌ Supabase update user integrations error: {e}")
+            logger.error(f"Supabase update user integrations error: {e}")
             return None
     
     async def get_user_privacy(self, user_id: str, user_token: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Retrieve user privacy preferences from Supabase user_privacy table"""
         try:
-            logger.info(f"🔍 Getting user privacy for user_id: {user_id}")
             client = self.client
             
             try:
                 privacy_response = client.table("user_privacy").select("*").eq("user_id", user_id).execute()
-                logger.info(f"📊 Privacy query executed, rows returned: {len(privacy_response.data) if privacy_response.data else 0}")
             except Exception as query_error:
-                logger.error(f"❌ Database query error (table may not exist): {query_error}")
+                logger.error(f"Database query error (table may not exist): {query_error}")
                 return {}
             
             privacy_data = {}
@@ -770,7 +802,6 @@ class SupabaseService:
                 privacy_data.pop("created_at", None)
                 privacy_data.pop("updated_at", None)
             
-            logger.info(f"✅ Returning privacy: {len(privacy_data)} fields")
             return privacy_data if privacy_data else {}
         except Exception as e:
             logger.error(f"❌ Supabase get user privacy error: {e}")
@@ -779,27 +810,21 @@ class SupabaseService:
     async def update_user_privacy(self, user_id: str, privacy: Dict[str, Any], user_token: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Update user privacy preferences in Supabase user_privacy table"""
         try:
-            logger.info(f"💾 Updating user privacy for user_id: {user_id}")
-            logger.info(f"📝 Privacy data: {privacy}")
-            
             client = self.client
             
             try:
                 existing_privacy = client.table("user_privacy").select("*").eq("user_id", user_id).execute()
-                logger.info(f"📊 Existing privacy check: {len(existing_privacy.data) if existing_privacy.data else 0} rows found")
             except Exception as query_error:
-                logger.error(f"❌ Database query error (table may not exist): {query_error}")
+                logger.error(f"Database query error (table may not exist): {query_error}")
                 existing_privacy = type('obj', (object,), {'data': []})()
             
             try:
                 if existing_privacy.data and len(existing_privacy.data) > 0:
-                    logger.info("🔄 Privacy record exists, updating...")
                     response = client.table("user_privacy").update({
                         **privacy,
                         "updated_at": "now()"
                     }).eq("user_id", user_id).execute()
                 else:
-                    logger.info("✨ Privacy record doesn't exist, creating new...")
                     response = client.table("user_privacy").insert({
                         "user_id": user_id,
                         **privacy,
@@ -807,7 +832,7 @@ class SupabaseService:
                         "updated_at": "now()"
                     }).execute()
             except Exception as timestamp_error:
-                logger.warning(f"⚠️ Timestamp field error, retrying without updated_at: {timestamp_error}")
+                logger.warning(f"Timestamp field error, retrying without updated_at: {timestamp_error}")
                 if existing_privacy.data and len(existing_privacy.data) > 0:
                     response = client.table("user_privacy").update({
                         **privacy
@@ -818,20 +843,17 @@ class SupabaseService:
                         **privacy
                     }).execute()
             
-            logger.info(f"✅ Supabase privacy operation completed: {len(response.data) if response.data else 0} rows affected")
-            
             if response.data and len(response.data) > 0:
                 privacy_data = response.data[0]
                 privacy_data.pop("id", None)
                 privacy_data.pop("user_id", None)
                 privacy_data.pop("created_at", None)
                 privacy_data.pop("updated_at", None)
-                logger.info(f"✅ Returning updated privacy: {len(privacy_data)} fields")
                 return privacy_data
-            logger.warning("⚠️ No data returned from Supabase, returning original privacy data")
+            logger.warning("No data returned from Supabase, returning original privacy data")
             return privacy
         except Exception as e:
-            logger.error(f"❌ Supabase update user privacy error: {e}")
+            logger.error(f"Supabase update user privacy error: {e}")
             return None
     
     async def reset_password(self, email: str, redirect_url: str = None) -> Dict[str, Any]:
@@ -854,23 +876,15 @@ class SupabaseService:
     async def update_password(self, user_id: str, new_password: str, user_token: str) -> Dict[str, Any]:
         """Update user password using Supabase Auth - try user session first, then admin API"""
         try:
-            logger.info(f"🔐 Updating password for user_id: {user_id}")
-            logger.info(f"📝 Using Supabase URL: {settings.SUPABASE_URL}")
-            logger.info(f"📝 Service role key present: {bool(settings.SUPABASE_SERVICE_ROLE_KEY)}")
-            logger.info(f"📝 User token present: {bool(user_token)}")
-            
             # Method 1: Try using user's session to update their own password (most secure)
             # Users can update their own passwords using their session token
             if user_token:
                 try:
-                    logger.info("📝 Attempting to update password using user's session (update_user)")
-                    
                     # Create a client with user's token
                     # Try to use REST API with user's access token directly
                     # This is the recommended approach - users can update their own passwords
                     # The /auth/v1/user endpoint allows users to update their own info
                     try:
-                        logger.info("📝 Attempting password update via user's own API endpoint (/auth/v1/user)")
                         url = f"{settings.SUPABASE_URL}/auth/v1/user"
                         headers = {
                             "apikey": settings.SUPABASE_ANON_KEY,
@@ -881,65 +895,41 @@ class SupabaseService:
                             "password": new_password
                         }
                         
-                        logger.info(f"📝 Making PUT request to: {url}")
-                        logger.info(f"📝 Headers: apikey present: {bool(headers['apikey'])}, Authorization present: {bool(headers['Authorization'])}")
-                        
                         async with httpx.AsyncClient() as client:
                             response = await client.put(url, json=payload, headers=headers, timeout=30.0)
                             
-                            logger.info(f"📝 User API endpoint response status: {response.status_code}")
-                            
                             if response.status_code >= 200 and response.status_code < 300:
-                                logger.info("✅ Password updated successfully using user's own API endpoint")
                                 return {"user_id": user_id, "success": True}
                             elif response.status_code >= 400:
                                 try:
                                     error_body = response.json()
-                                    logger.error(f"❌ User API endpoint error response (JSON): {error_body}")
                                     error_msg = error_body.get("message") or error_body.get("error_description") or error_body.get("error") or str(error_body)
-                                    logger.warning(f"⚠️ User API endpoint failed: {error_msg}")
-                                    
-                                    # Log more details
-                                    if "hint" in error_body:
-                                        logger.error(f"❌ Error hint: {error_body['hint']}")
-                                    if "details" in error_body:
-                                        logger.error(f"❌ Error details: {error_body['details']}")
-                                    
+                                    logger.error(f"User API endpoint failed: {error_msg}")
                                     raise Exception(f"User API endpoint failed: {error_msg}")
                                 except Exception as json_error:
                                     error_text = response.text
-                                    logger.error(f"❌ User API endpoint error response (text): {error_text}")
-                                    logger.warning(f"⚠️ User API endpoint failed (text): {error_text}, JSON parse error: {json_error}")
+                                    logger.error(f"User API endpoint failed: {error_text}")
                                     raise Exception(f"User API endpoint failed: {error_text}")
                             else:
                                 raise Exception(f"Unexpected response status: {response.status_code}")
                                 
                     except Exception as user_api_error:
-                        error_str = str(user_api_error)
-                        logger.warning(f"⚠️ User API endpoint method failed: {error_str}")
-                        logger.info("📝 Continuing to try admin API methods...")
                         # Continue to admin API methods - don't raise here
                         pass
                         
                 except Exception as user_method_error:
-                    logger.info(f"⚠️ User session method failed: {user_method_error}, trying admin API")
                     # Continue to admin API methods
+                    pass
             
             # Method 2: Try Python client admin method
             try:
-                logger.info("📝 Attempting to update password using Python client admin.update_user_by_id")
-                logger.info(f"📝 User ID: {user_id}")
-                logger.info(f"📝 Password length: {len(new_password)}")
-                
                 # Verify we can get the user first (to ensure permissions work)
                 try:
                     test_user = self.client.auth.admin.get_user_by_id(user_id)
-                    if test_user and hasattr(test_user, 'user') and test_user.user:
-                        logger.info(f"✅ Can access user via admin API - user email: {test_user.user.email}")
-                    else:
-                        logger.warning("⚠️ Could not retrieve user info via admin API")
+                    if not (test_user and hasattr(test_user, 'user') and test_user.user):
+                        logger.warning("Could not retrieve user info via admin API")
                 except Exception as test_error:
-                    logger.warning(f"⚠️ Could not verify user access via admin API: {test_error}")
+                    logger.warning(f"Could not verify user access via admin API: {test_error}")
                 
                 update_response = self.client.auth.admin.update_user_by_id(
                     user_id,
@@ -948,7 +938,6 @@ class SupabaseService:
                 
                 # Check if update was successful
                 if update_response and hasattr(update_response, 'user') and update_response.user:
-                    logger.info("✅ Password updated successfully using Python admin client")
                     return {"user_id": user_id, "success": True}
                 elif update_response:
                     # Some responses might not have a user object but still succeed
@@ -1058,7 +1047,6 @@ class SupabaseService:
     async def get_user_shared_access(self, user_id: str, user_token: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Retrieve user shared access data from Supabase user_shared_access table"""
         try:
-            logger.info(f"🔍 Getting user shared access for user_id: {user_id}")
             try:
                 shared_access_response = self.client.table("user_shared_access").select("*").eq("user_id", user_id).execute()
             except Exception as query_error:
@@ -1080,27 +1068,21 @@ class SupabaseService:
     async def update_user_shared_access(self, user_id: str, shared_access: Dict[str, Any], user_token: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Update user shared access data in Supabase user_shared_access table"""
         try:
-            logger.info(f"💾 Updating user shared access for user_id: {user_id}")
-            logger.info(f"📝 Shared access data: {shared_access}")
-            
             client = self.client
             
             try:
                 existing_shared_access = client.table("user_shared_access").select("*").eq("user_id", user_id).execute()
-                logger.info(f"📊 Existing shared access check: {len(existing_shared_access.data) if existing_shared_access.data else 0} rows found")
             except Exception as query_error:
-                logger.error(f"❌ Database query error (table may not exist): {query_error}")
+                logger.error(f"Database query error (table may not exist): {query_error}")
                 existing_shared_access = type('obj', (object,), {'data': []})()
             
             try:
                 if existing_shared_access.data and len(existing_shared_access.data) > 0:
-                    logger.info("🔄 Shared access record exists, updating...")
                     response = client.table("user_shared_access").update({
                         **shared_access,
                         "updated_at": "now()"
                     }).eq("user_id", user_id).execute()
                 else:
-                    logger.info("✨ Shared access record doesn't exist, creating new...")
                     response = client.table("user_shared_access").insert({
                         "user_id": user_id,
                         **shared_access,
@@ -1108,7 +1090,7 @@ class SupabaseService:
                         "updated_at": "now()"
                     }).execute()
             except Exception as timestamp_error:
-                logger.warning(f"⚠️ Timestamp field error, retrying without updated_at: {timestamp_error}")
+                logger.warning(f"Timestamp field error, retrying without updated_at: {timestamp_error}")
                 if existing_shared_access.data and len(existing_shared_access.data) > 0:
                     response = client.table("user_shared_access").update({
                         **shared_access
@@ -1119,30 +1101,26 @@ class SupabaseService:
                         **shared_access
                     }).execute()
             
-            logger.info(f"✅ Supabase shared access operation completed: {len(response.data) if response.data else 0} rows affected")
-            
             if response.data and len(response.data) > 0:
                 shared_access_data = response.data[0]
                 shared_access_data.pop("id", None)
                 shared_access_data.pop("user_id", None)
                 shared_access_data.pop("created_at", None)
                 shared_access_data.pop("updated_at", None)
-                logger.info(f"✅ Returning updated shared access: {len(shared_access_data)} fields")
                 return shared_access_data
-            logger.warning("⚠️ No data returned from Supabase, returning original shared access data")
+            logger.warning("No data returned from Supabase, returning original shared access data")
             return shared_access
         except Exception as e:
-            logger.error(f"❌ Supabase update user shared access error: {e}")
+            logger.error(f"Supabase update user shared access error: {e}")
             return None
     
     async def get_user_access_logs(self, user_id: str, user_token: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Retrieve user access logs from Supabase user_access_logs table"""
         try:
-            logger.info(f"🔍 Getting user access logs for user_id: {user_id}")
             try:
                 access_logs_response = self.client.table("user_access_logs").select("*").eq("user_id", user_id).order("created_at", desc=True).execute()
             except Exception as query_error:
-                logger.error(f"❌ Database query error (table may not exist): {query_error}")
+                logger.error(f"Database query error (table may not exist): {query_error}")
                 return {"logs": []}
 
             access_logs_data = {}
@@ -1161,15 +1139,12 @@ class SupabaseService:
                 access_logs_data["logs"] = logs_list
             return access_logs_data if access_logs_data else {"logs": []}
         except Exception as e:
-            logger.error(f"❌ Supabase get user access logs error: {e}")
+            logger.error(f"Supabase get user access logs error: {e}")
             return {"logs": []}
     
     async def update_user_access_logs(self, user_id: str, access_logs: Dict[str, Any], user_token: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Update user access logs in Supabase user_access_logs table"""
         try:
-            logger.info(f"💾 Updating user access logs for user_id: {user_id}")
-            logger.info(f"📝 Access logs data: {access_logs}")
-            
             client = self.client
             
             # Access logs are typically append-only, so we'll insert new entries
@@ -1189,23 +1164,20 @@ class SupabaseService:
                 
                 if logs_to_insert:
                     response = client.table("user_access_logs").insert(logs_to_insert).execute()
-                    logger.info(f"✅ Inserted {len(response.data) if response.data else 0} new access logs")
                     return {"logs": response.data if response.data else []}
             
-            logger.info(f"✅ No new logs to insert")
             return {"logs": []}
         except Exception as e:
-            logger.error(f"❌ Supabase update user access logs error: {e}")
+            logger.error(f"Supabase update user access logs error: {e}")
             return None
     
     async def get_user_data_sharing(self, user_id: str, user_token: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Retrieve user data sharing preferences from Supabase user_data_sharing table"""
         try:
-            logger.info(f"🔍 Getting user data sharing preferences for user_id: {user_id}")
             try:
                 data_sharing_response = self.client.table("user_data_sharing").select("*").eq("user_id", user_id).execute()
             except Exception as query_error:
-                logger.error(f"❌ Database query error (table may not exist): {query_error}")
+                logger.error(f"Database query error (table may not exist): {query_error}")
                 return {}
 
             data_sharing_info = {}
@@ -1224,31 +1196,25 @@ class SupabaseService:
     async def update_user_data_sharing(self, user_id: str, data_sharing: Dict[str, Any], user_token: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Update user data sharing preferences in Supabase user_data_sharing table"""
         try:
-            logger.info(f"💾 Updating user data sharing preferences for user_id: {user_id}")
-            logger.info(f"📝 Data sharing data: {data_sharing}")
-            
             client = self.client
             
             # First, check if data sharing record exists
             try:
                 existing_data_sharing = client.table("user_data_sharing").select("*").eq("user_id", user_id).execute()
-                logger.info(f"📊 Existing data sharing check: {len(existing_data_sharing.data) if existing_data_sharing.data else 0} rows found")
             except Exception as query_error:
-                logger.error(f"❌ Database query error (table may not exist): {query_error}")
+                logger.error(f"Database query error (table may not exist): {query_error}")
                 existing_data_sharing = type('obj', (object,), {'data': []})()
             
             # Try to update/insert with updated_at
             try:
                 if existing_data_sharing.data and len(existing_data_sharing.data) > 0:
                     # Data sharing record exists, update it
-                    logger.info("🔄 Data sharing record exists, updating...")
                     response = client.table("user_data_sharing").update({
                         **data_sharing,
                         "updated_at": "now()"
                     }).eq("user_id", user_id).execute()
                 else:
                     # Data sharing record doesn't exist, create it
-                    logger.info("✨ Data sharing record doesn't exist, creating new...")
                     response = client.table("user_data_sharing").insert({
                         "user_id": user_id,
                         **data_sharing,
@@ -1257,7 +1223,7 @@ class SupabaseService:
                     }).execute()
             except Exception as timestamp_error:
                 # Column might not exist yet - try without timestamp fields
-                logger.warning(f"⚠️ Timestamp field error, retrying without updated_at: {timestamp_error}")
+                logger.warning(f"Timestamp field error, retrying without updated_at: {timestamp_error}")
                 if existing_data_sharing.data and len(existing_data_sharing.data) > 0:
                     response = client.table("user_data_sharing").update({
                         **data_sharing
@@ -1267,8 +1233,6 @@ class SupabaseService:
                         "user_id": user_id,
                         **data_sharing
                     }).execute()
-            
-            logger.info(f"✅ Supabase data sharing operation completed: {len(response.data) if response.data else 0} rows affected")
             
             # Return the updated data sharing info
             if response.data and len(response.data) > 0:
@@ -1278,12 +1242,11 @@ class SupabaseService:
                 data_sharing_info.pop("user_id", None)
                 data_sharing_info.pop("created_at", None)
                 data_sharing_info.pop("updated_at", None)
-                logger.info(f"✅ Returning updated data sharing preferences: {len(data_sharing_info)} fields")
                 return data_sharing_info
-            logger.warning("⚠️ No data returned from Supabase, returning original data sharing data")
+            logger.warning("No data returned from Supabase, returning original data sharing data")
             return data_sharing
         except Exception as e:
-            logger.error(f"❌ Supabase update user data sharing error: {e}")
+            logger.error(f"Supabase update user data sharing error: {e}")
             return None
     
     async def enroll_mfa_totp(self, user_id: str, friendly_name: str = "My Authenticator App") -> Dict[str, Any]:

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, Form, File, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, Form, File, BackgroundTasks, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
 from typing import List, Optional, Dict, Any
@@ -1451,7 +1451,8 @@ async def get_sections_with_metrics(
     health_record_type_id: Optional[int] = Query(None, description="Filter by health record type ID"),
     include_inactive: bool = Query(False, description="Include inactive sections"),
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    request: Request = None
 ):
     """Get all health record sections with their associated metrics"""
     try:
@@ -1459,9 +1460,9 @@ async def get_sections_with_metrics(
             db, current_user.id, include_inactive, health_record_type_id
         )
         
-        # Apply translations (language will be retrieved from user profile)
+        # Apply translations (language will be retrieved from Accept-Language header or user profile)
         translated_sections = await apply_translations_to_sections_with_metrics(
-            db, sections, current_user.id
+            db, sections, current_user.id, None, request
         )
         
         return translated_sections
@@ -1702,7 +1703,8 @@ async def update_health_record_section(
 async def get_analysis_dashboard(
     patient_id: Optional[int] = Query(None, description="Patient ID to access (requires permission)"),
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    request: Request = None
 ):
     """Get analysis dashboard data with sections, metrics, and health records"""
     try:
@@ -1742,9 +1744,9 @@ async def get_analysis_dashboard(
             db, target_user_id, include_inactive=False, health_record_type_id=1
         )
         
-        # Apply translations (language will be retrieved from user profile)
+        # Apply translations (language will be retrieved from Accept-Language header or user profile)
         translated_sections = await apply_translations_to_sections_with_metrics(
-            db, sections_with_metrics, current_user.id
+            db, sections_with_metrics, current_user.id, None, request
         )
         
         # Get summary statistics
@@ -1782,7 +1784,8 @@ async def get_sections_combined(
     include_inactive: bool = Query(False, description="Include inactive sections"),
     patient_id: Optional[int] = Query(None, description="Patient ID to access (requires permission)"),
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    request: Request = None
 ):
     """Get both user sections and admin templates in one call"""
     try:
@@ -1818,9 +1821,9 @@ async def get_sections_combined(
             db, health_record_type_id
         )
         
-        # Apply translations (language will be retrieved from user profile)
+        # Apply translations (language will be retrieved from Accept-Language header or user profile)
         translated_user_sections = await apply_translations_to_sections_with_metrics(
-            db, user_sections, current_user.id
+            db, user_sections, current_user.id, None, request
         )
         
         logger.info(f"User sections count: {len(translated_user_sections)}")

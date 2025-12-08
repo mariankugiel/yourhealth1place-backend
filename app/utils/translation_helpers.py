@@ -4,7 +4,7 @@ Helper functions for applying translations to entities
 from typing import Dict, Any, List, Optional
 from sqlalchemy.orm import Session
 from app.services.translation_service import translation_service
-from app.utils.user_language import get_user_language
+from app.utils.user_language import get_user_language_from_cache
 import logging
 
 logger = logging.getLogger(__name__)
@@ -14,7 +14,8 @@ async def apply_translations_to_section(
     db: Session,
     section: Dict[str, Any],
     user_id: int,
-    target_language: Optional[str] = None
+    target_language: Optional[str] = None,
+    request: Optional[Any] = None
 ) -> Dict[str, Any]:
     """
     Apply translations to a section dictionary
@@ -23,15 +24,16 @@ async def apply_translations_to_section(
         db: Database session
         section: Section dictionary with id, display_name, description, etc.
         user_id: User ID to get language preference
-        target_language: Optional target language (if None, gets from user profile)
+        target_language: Optional target language (if None, gets from cached user profile)
+        request: Optional FastAPI Request object (deprecated, kept for backward compatibility)
     
     Returns:
         Section dictionary with translated fields
     """
     try:
-        # Get user's language preference
+        # Get user's language preference from cache
         if target_language is None:
-            target_language = await get_user_language(user_id, db)
+            target_language = await get_user_language_from_cache(user_id, db)
         
         # If English, return as-is (no translation needed)
         if target_language == 'en':
@@ -39,6 +41,13 @@ async def apply_translations_to_section(
         
         section_id = section.get('id')
         if not section_id:
+            return section
+        
+        # Get source_language from section (defaults to 'en' for backward compatibility)
+        source_language = section.get('source_language', 'en')
+        
+        # Only translate if source and target languages are different
+        if source_language == target_language:
             return section
         
         # Translate display_name
@@ -51,7 +60,7 @@ async def apply_translations_to_section(
                 field_name='display_name',
                 original_text=display_name,
                 target_language=target_language,
-                source_language='en'
+                source_language=source_language
             )
         
         # Translate description
@@ -64,7 +73,7 @@ async def apply_translations_to_section(
                 field_name='description',
                 original_text=description,
                 target_language=target_language,
-                source_language='en'
+                source_language=source_language
             )
         
         return section
@@ -78,7 +87,8 @@ async def apply_translations_to_metric(
     db: Session,
     metric: Dict[str, Any],
     user_id: int,
-    target_language: Optional[str] = None
+    target_language: Optional[str] = None,
+    request: Optional[Any] = None
 ) -> Dict[str, Any]:
     """
     Apply translations to a metric dictionary
@@ -87,15 +97,16 @@ async def apply_translations_to_metric(
         db: Database session
         metric: Metric dictionary with id, display_name, description, etc.
         user_id: User ID to get language preference
-        target_language: Optional target language (if None, gets from user profile)
+        target_language: Optional target language (if None, gets from cached user profile)
+        request: Optional FastAPI Request object (deprecated, kept for backward compatibility)
     
     Returns:
         Metric dictionary with translated fields
     """
     try:
-        # Get user's language preference
+        # Get user's language preference from cache
         if target_language is None:
-            target_language = await get_user_language(user_id, db)
+            target_language = await get_user_language_from_cache(user_id, db)
         
         # If English, return as-is
         if target_language == 'en':
@@ -103,6 +114,13 @@ async def apply_translations_to_metric(
         
         metric_id = metric.get('id')
         if not metric_id:
+            return metric
+        
+        # Get source_language from metric (defaults to 'en' for backward compatibility)
+        source_language = metric.get('source_language', 'en')
+        
+        # Only translate if source and target languages are different
+        if source_language == target_language:
             return metric
         
         # Translate display_name
@@ -115,7 +133,7 @@ async def apply_translations_to_metric(
                 field_name='display_name',
                 original_text=display_name,
                 target_language=target_language,
-                source_language='en'
+                source_language=source_language
             )
         
         # Translate description
@@ -128,7 +146,7 @@ async def apply_translations_to_metric(
                 field_name='description',
                 original_text=description,
                 target_language=target_language,
-                source_language='en'
+                source_language=source_language
             )
         
         return metric
@@ -142,7 +160,8 @@ async def apply_translations_to_sections_with_metrics(
     db: Session,
     sections: List[Dict[str, Any]],
     user_id: int,
-    target_language: Optional[str] = None
+    target_language: Optional[str] = None,
+    request: Optional[Any] = None
 ) -> List[Dict[str, Any]]:
     """
     Apply translations to a list of sections with their metrics
@@ -151,21 +170,22 @@ async def apply_translations_to_sections_with_metrics(
         db: Database session
         sections: List of section dictionaries with nested metrics
         user_id: User ID to get language preference
-        target_language: Optional target language
+        target_language: Optional target language (if None, gets from cached user profile)
+        request: Optional FastAPI Request object (deprecated, kept for backward compatibility)
     
     Returns:
         List of sections with translated fields
     """
     try:
-        # Get user's language preference
+        # Get user's language preference from cache
         if target_language is None:
-            target_language = await get_user_language(user_id, db)
+            target_language = await get_user_language_from_cache(user_id, db)
         
         translated_sections = []
         for section in sections:
             # Translate section fields
             translated_section = await apply_translations_to_section(
-                db, section, user_id, target_language
+                db, section, user_id, target_language, request
             )
             
             # Translate metrics within section
@@ -173,7 +193,7 @@ async def apply_translations_to_sections_with_metrics(
             translated_metrics = []
             for metric in metrics:
                 translated_metric = await apply_translations_to_metric(
-                    db, metric, user_id, target_language
+                    db, metric, user_id, target_language, request
                 )
                 translated_metrics.append(translated_metric)
             
@@ -207,13 +227,18 @@ async def apply_translations_to_medical_condition(
     """
     try:
         if target_language is None:
-            target_language = await get_user_language(user_id, db)
+            target_language = await get_user_language_from_cache(user_id, db)
+        
+        logger.info(f"🌐 [Medical Condition Translation] User {user_id}, Target: {target_language}, Condition ID: {condition.get('id')}")
         
         # Get source_language from condition dict (defaults to 'en' for backward compatibility)
         source_language = condition.get('source_language', 'en')
         
+        logger.info(f"🌐 [Medical Condition Translation] Source: {source_language}, Target: {target_language}")
+        
         # Only translate if source and target languages are different
         if source_language == target_language:
+            logger.debug(f"🌐 [Medical Condition Translation] Source and target match ({source_language}), skipping translation")
             return condition
         
         condition_id = condition.get('id')
@@ -292,7 +317,7 @@ async def apply_translations_to_family_history(
     """
     try:
         if target_language is None:
-            target_language = await get_user_language(user_id, db)
+            target_language = await get_user_language_from_cache(user_id, db)
         
         # Get source_language from history dict (defaults to 'en' for backward compatibility)
         source_language = history.get('source_language', 'en')
@@ -424,7 +449,7 @@ async def apply_translations_to_imaging_document(
     """
     try:
         if target_language is None:
-            target_language = await get_user_language(user_id, db)
+            target_language = await get_user_language_from_cache(user_id, db)
         
         if target_language == 'en':
             return image
@@ -513,7 +538,7 @@ async def apply_translations_to_section_template(
     try:
         # Get user's language preference
         if target_language is None:
-            target_language = await get_user_language(user_id, db)
+            target_language = await get_user_language_from_cache(user_id, db)
         
         # Get template's source language
         source_language = section_template.get('source_language', 'en')
@@ -580,7 +605,7 @@ async def apply_translations_to_metric_template(
     try:
         # Get user's language preference
         if target_language is None:
-            target_language = await get_user_language(user_id, db)
+            target_language = await get_user_language_from_cache(user_id, db)
         
         # Get template's source language
         source_language = metric_template.get('source_language', 'en')
@@ -659,7 +684,7 @@ async def apply_translations_to_surgery_hospitalization(
     """
     try:
         if target_language is None:
-            target_language = await get_user_language(user_id, db)
+            target_language = await get_user_language_from_cache(user_id, db)
         
         # Get source_language from surgery dict (defaults to 'en' for backward compatibility)
         source_language = surgery.get('source_language', 'en')

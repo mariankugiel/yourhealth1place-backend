@@ -74,7 +74,7 @@ class TranslationService:
         target_name = language_names.get(target_language, 'English')
         
         if not self.openai_enabled:
-            logger.warning("OpenAI not available, returning original text")
+            logger.warning(f"⚠️ [Translation] OpenAI not available, cannot translate from {source_language} to {target_language}. Returning original text.")
             return text
         
         try:
@@ -95,11 +95,17 @@ class TranslationService:
             )
             
             translated_text = response.choices[0].message.content.strip()
-            logger.info(f"Successfully translated text from {source_language} to {target_language}")
+            
+            # Verify we got a translation (not empty or same as original)
+            if not translated_text or translated_text.strip() == "":
+                logger.warning(f"⚠️ [Translation] OpenAI returned empty translation for {source_language}→{target_language}. Using original text.")
+                return text
+            
+            logger.info(f"✅ [Translation] Successfully translated text from {source_language} to {target_language} (length: {len(text)}→{len(translated_text)})")
             return translated_text
             
         except Exception as e:
-            logger.error(f"Failed to translate text: {e}")
+            logger.error(f"❌ [Translation] Failed to translate text from {source_language} to {target_language}: {e}", exc_info=True)
             return text  # Return original text on error
     
     def translate_json_array(
@@ -198,6 +204,7 @@ class TranslationService:
                 return translation.translated_text
         
         # Translation not found or version mismatch - translate on-demand
+        logger.info(f"🌐 [Translation] Translating {entity_type}:{entity_id}.{field_name} from {source_language} to {target_language}")
         try:
             translated_text = self.translate_text(
                 original_text,
@@ -205,22 +212,31 @@ class TranslationService:
                 source_language
             )
             
+            # Verify translation actually changed (not just returned original)
+            if translated_text == original_text and source_language != target_language:
+                logger.warning(f"⚠️ [Translation] Translation service returned original text for {entity_type}:{entity_id}.{field_name} ({source_language}→{target_language}). This may indicate a translation failure.")
+            
             # Cache translation in database with content_version
-            translation_crud.create_translation(
-                db=db,
-                entity_type=entity_type,
-                entity_id=entity_id,
-                field_name=field_name,
-                language=target_language,
-                translated_text=translated_text,
-                source_language=source_language,
-                content_version=current_entry_version
-            )
+            try:
+                translation_crud.create_translation(
+                    db=db,
+                    entity_type=entity_type,
+                    entity_id=entity_id,
+                    field_name=field_name,
+                    language=target_language,
+                    translated_text=translated_text,
+                    source_language=source_language,
+                    content_version=current_entry_version
+                )
+                logger.info(f"✅ [Translation] Cached translation for {entity_type}:{entity_id}.{field_name} ({source_language}→{target_language})")
+            except Exception as cache_error:
+                logger.error(f"❌ [Translation] Failed to cache translation: {cache_error}")
+                # Continue anyway - return the translated text even if caching failed
             
             return translated_text
             
         except Exception as e:
-            logger.error(f"Failed to translate and cache content: {e}")
+            logger.error(f"❌ [Translation] Failed to translate {entity_type}:{entity_id}.{field_name} from {source_language} to {target_language}: {e}", exc_info=True)
             return original_text  # Return original on error
     
     def translate_entity_fields(

@@ -14,8 +14,8 @@ class SurgeryHospitalizationCRUD:
         """Create a new surgery or hospitalization record"""
         try:
             # Get user's current language to save as source_language
-            from app.utils.user_language import get_user_language
-            source_lang = await get_user_language(user_id, db)
+            from app.utils.user_language import get_user_language_from_cache
+            source_lang = await get_user_language_from_cache(user_id, db)
             
             db_surgery = SurgeryHospitalization(
                 user_id=user_id,
@@ -87,8 +87,8 @@ class SurgeryHospitalizationCRUD:
                 return None
             
             # Get user's current language
-            from app.utils.user_language import get_user_language
-            current_language = await get_user_language(user_id, db)
+            from app.utils.user_language import get_user_language_from_cache
+            current_language = await get_user_language_from_cache(user_id, db)
             source_language = getattr(db_surgery, 'source_language', 'en')
             
             update_data = surgery_update.dict(exclude_unset=True)
