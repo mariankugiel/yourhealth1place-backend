@@ -101,6 +101,10 @@ from .health_metrics import (
     MetricTrend
 )
 
+# Thryve Integration System
+from .thryve_data_type import ThryveDataType, ThryveDailyEpoch
+from .thryve_data_source import ThryveDataSource
+
 # Surgery & Hospitalization System
 from .surgery_hospitalization import (
     ProcedureType,
@@ -241,6 +245,11 @@ __all__ = [
     "HealthRecordMetricTemplate",
     "MetricStatus",
     "MetricTrend",
+    
+    # Thryve Integration System
+    "ThryveDataType",
+    "ThryveDailyEpoch",
+    "ThryveDataSource",
     
     # AI Analysis System
     "AIAnalysisHistory",

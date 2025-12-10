@@ -79,4 +79,13 @@ class Settings(BaseSettings):
     DAILY_API_URL: str = "https://api.daily.co/v1"
     DAILY_DOMAIN: str = ""  # Optional, for custom domain
 
+    # Thryve Integration Configuration
+    THRYVE_WEBHOOK_ENABLED: bool = True
+    THRYVE_API_BASE_URL: str = "https://api.und-gesund.de"  # For access token API
+    THRYVE_API_WIDGET_URL: str = "https://api.thryve.de"  # For widget API
+    THRYVE_SERVICE_BASE_URL: str = "https://service2.und-gesund.de"  # For connection URLs
+    THRYVE_WEB_AUTH_USERNAME: str = ""  # Basic auth username
+    THRYVE_WEB_AUTH_PASSWORD: str = ""  # Basic auth password
+    THRYVE_APP_AUTHORIZATION: str = ""  # AppAuthorization header value
+
 settings = Settings() 

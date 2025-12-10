@@ -6,6 +6,7 @@ from app.api.v1.endpoints import (
     ai_analysis, medication_reminders, notifications, websocket_status,
     file_upload
 )
+from app.api.routers import thryve_webhook, thryve_integration
 from app.websocket.websocket_endpoints import router as websocket_router
 
 api_router = APIRouter()
@@ -55,3 +56,7 @@ api_router.include_router(websocket_router, tags=["websocket"])
 api_router.include_router(websocket_status.router, prefix="/websocket", tags=["websocket-status"])
 
 # Surgery & Hospitalization endpoints are now integrated into health_records router
+
+# Thryve Integration endpoints
+api_router.include_router(thryve_webhook.router, prefix="/webhooks", tags=["thryve-webhook"])
+api_router.include_router(thryve_integration.router, prefix="/integrations", tags=["thryve-integration"])

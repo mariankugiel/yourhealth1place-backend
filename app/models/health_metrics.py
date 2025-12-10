@@ -76,6 +76,7 @@ class HealthRecordMetricTemplate(Base):
     original_reference = Column(Text)  # Store original reference string like "Men: <25%, Female: <35%"
     reference_data = Column(JSON)  # Store parsed reference data for all metrics (includes gender-specific when applicable)
     data_type = Column(String(50), default="number")  # "number", "json", "text", "boolean"
+    thryve_data_type_id = Column(Integer, ForeignKey("thryve_data_types.id"), nullable=True)  # Link to Thryve data type
     is_active = Column(Boolean, default=True)
     is_default = Column(Boolean, default=True)  # True for admin pre-defined, False for user custom
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)  # Admin who created this template
@@ -87,3 +88,4 @@ class HealthRecordMetricTemplate(Base):
     section_template = relationship("HealthRecordSectionTemplate", back_populates="metric_templates")
     creator = relationship("User", foreign_keys=[created_by])
     updater = relationship("User", foreign_keys=[updated_by])
+    thryve_data_type = relationship("ThryveDataType", back_populates="admin_metrics")

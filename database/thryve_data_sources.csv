@@ -1,0 +1,24 @@
+id,name,data_source_type,retrieval_method,historic_data,shared_oauth_client
+1,Fitbit,Web,Ping,yes,yes
+2,Garmin,Web,Ping,yes,yes
+3,Polar,Web,Ping,no,yes
+5,Apple Health,Native,SDK,yes,n.a.
+6,Samsung Health,Native,SDK,yes,n.a.
+8,Withings,Web,Ping,yes,yes
+11,Strava,Web,Ping,yes,yes
+12,GoogleFitREST (EOL),Web,Bulk,yes,no
+16,Omron Connect,Web,Ping,yes,yes
+17,Suunto,Web,Bulk,yes,yes
+18,Oura,Web,Ping,yes,yes
+21,iHealth,Web,Ping,yes,no
+27,Beurer,Web,Bulk,yes,yes
+38,HuaweiHealth,Web,Bulk,yes,yes
+40,GoogleFitNative (EOL),Native,SDK,yes,no
+41,Dexcom,Web,Bulk,yes,no
+42,Whoop,Web,Ping,yes,no
+43,Decathlon,Web,Ping,yes,no
+44,Health Connect,Native,SDK,yes,n.a.
+45,Komoot,Web,Bulk,yes,no
+46,FreeStyleLibre,Web,Bulk,yes,no
+47,ShenAI,Native,SDK,n.a.,no
+
