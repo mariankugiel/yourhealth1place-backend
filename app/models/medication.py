@@ -43,6 +43,10 @@ class Medication(Base):
     end_date = Column(Date, nullable=True)
     reason_ended = Column(Text, nullable=True)
     
+    # Translation support
+    source_language = Column(String(10), nullable=False, default='en')  # Language of original content ('en', 'es', 'pt')
+    version = Column(Integer, nullable=False, default=1)  # Content version for translation invalidation
+    
     # Audit fields
     prescribed_by = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

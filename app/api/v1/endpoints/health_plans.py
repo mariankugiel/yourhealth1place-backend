@@ -10,6 +10,8 @@ from app.api.v1.endpoints.health_tasks import router as health_tasks_router
 from app.models.health_plans import Goal, HealthTask, TaskCompletion
 from app.models.health_record import HealthRecord
 from app.models.user import User
+from app.utils.translation_helpers import apply_translations_to_goal
+from app.utils.user_language import get_user_language_from_cache
 
 router = APIRouter()
 
@@ -137,7 +139,7 @@ async def get_health_goals(
                 if metric:
                     target_unit = metric.default_unit
             
-            goal_list.append({
+            goal_dict = {
                 "id": goal.id,
                 "name": goal.name,
                 "target": {
@@ -151,8 +153,16 @@ async def get_health_goals(
                 "start_date": goal.start_date.isoformat() if goal.start_date else None,
                 "end_date": goal.end_date.isoformat() if goal.end_date else None,
                 "created_at": goal.created_at.isoformat(),
-                "metric_id": goal.connected_metric_id
-            })
+                "metric_id": goal.connected_metric_id,
+                "source_language": getattr(goal, 'source_language', 'en'),
+                "version": getattr(goal, 'version', 1)
+            }
+            
+            # Apply translations
+            translated_goal = await apply_translations_to_goal(
+                db, goal_dict, current_user.id
+            )
+            goal_list.append(translated_goal)
         
         # Commit progress updates
         db.commit()
@@ -195,6 +205,9 @@ async def create_health_goal(
             if latest_record:
                 baseline_value = Decimal(str(latest_record.value))
         
+        # Get user's current language to save as source_language
+        source_lang = await get_user_language_from_cache(current_user.id, db)
+        
         # Create new goal
         new_goal = Goal(
             name=goal_data.get("name"),
@@ -204,6 +217,8 @@ async def create_health_goal(
             baseline_value=baseline_value,
             start_date=goal_data.get("start_date"),
             end_date=goal_data.get("end_date"),
+            source_language=source_lang,
+            version=1,
             created_by=current_user.id,
             updated_by=current_user.id
         )
@@ -220,7 +235,7 @@ async def create_health_goal(
             if metric:
                 target_unit = metric.default_unit
         
-        return {
+        goal_dict = {
             "id": new_goal.id,
             "name": new_goal.name,
             "target": {
@@ -233,8 +248,16 @@ async def create_health_goal(
             "start_date": new_goal.start_date.isoformat() if new_goal.start_date else None,
             "end_date": new_goal.end_date.isoformat() if new_goal.end_date else None,
             "created_at": new_goal.created_at.isoformat(),
-            "metric_id": new_goal.connected_metric_id
+            "metric_id": new_goal.connected_metric_id,
+            "source_language": getattr(new_goal, 'source_language', 'en'),
+            "version": getattr(new_goal, 'version', 1)
         }
+        
+        # Apply translations
+        translated_goal = await apply_translations_to_goal(
+            db, goal_dict, current_user.id
+        )
+        return translated_goal
     except Exception as e:
         db.rollback()
         raise HTTPException(
@@ -272,6 +295,9 @@ async def update_health_goal(
         # Update goal fields
         if "name" in goal_data:
             goal.name = goal_data["name"]
+            # Increment version when translatable field is updated
+            current_version = getattr(goal, 'version', 1)
+            goal.version = current_version + 1
         if "metric_id" in goal_data:
             goal.connected_metric_id = goal_data["metric_id"]
         if "target" in goal_data:
@@ -298,7 +324,7 @@ async def update_health_goal(
             if metric:
                 target_unit = metric.default_unit
         
-        return {
+        goal_dict = {
             "id": goal.id,
             "name": goal.name,
             "target": {
@@ -311,8 +337,16 @@ async def update_health_goal(
             "start_date": goal.start_date.isoformat() if goal.start_date else None,
             "end_date": goal.end_date.isoformat() if goal.end_date else None,
             "created_at": goal.created_at.isoformat(),
-            "metric_id": goal.connected_metric_id
+            "metric_id": goal.connected_metric_id,
+            "source_language": getattr(goal, 'source_language', 'en'),
+            "version": getattr(goal, 'version', 1)
         }
+        
+        # Apply translations
+        translated_goal = await apply_translations_to_goal(
+            db, goal_dict, current_user.id
+        )
+        return translated_goal
     except HTTPException:
         raise
     except Exception as e:

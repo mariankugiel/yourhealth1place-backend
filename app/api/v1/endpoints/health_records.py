@@ -45,7 +45,10 @@ from app.utils.translation_helpers import (
     apply_translations_to_metric_template,
     apply_translations_to_surgery_hospitalization,
     apply_translations_to_section,
-    apply_translations_to_metric
+    apply_translations_to_metric,
+    apply_translations_to_goal,
+    apply_translations_to_task,
+    apply_translations_to_medication
 )
 
 

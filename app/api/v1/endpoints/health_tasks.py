@@ -9,6 +9,8 @@ from app.core.database import get_db
 from app.api.v1.endpoints.auth import get_current_user
 from app.models.user import User
 from app.models.health_plans import HealthTask, TaskCompletion
+from app.utils.translation_helpers import apply_translations_to_task
+from app.utils.user_language import get_user_language_from_cache
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +52,7 @@ async def get_health_tasks(
                         "default_unit": metric.default_unit
                     }
             
-            task_data = {
+            task_dict = {
                 "id": task.id,
                 "name": task.name,
                 "description": task.description,
@@ -66,9 +68,16 @@ async def get_health_tasks(
                 "created_at": task.created_at.isoformat() if task.created_at else None,
                 "updated_at": task.updated_at.isoformat() if task.updated_at else None,
                 "created_by": task.created_by,
-                "updated_by": task.updated_by
+                "updated_by": task.updated_by,
+                "source_language": getattr(task, 'source_language', 'en'),
+                "version": getattr(task, 'version', 1)
             }
-            task_list.append(task_data)
+            
+            # Apply translations
+            translated_task = await apply_translations_to_task(
+                db, task_dict, current_user.id
+            )
+            task_list.append(translated_task)
         
         return task_list
     except Exception as e:
@@ -122,6 +131,9 @@ async def create_health_task(
                 detail="Frequency must be 'daily', 'weekly', or 'monthly'"
             )
         
+        # Get user's current language to save as source_language
+        source_lang = await get_user_language_from_cache(current_user.id, db)
+        
         # Create new task
         new_task = HealthTask(
             name=name,
@@ -131,6 +143,8 @@ async def create_health_task(
             time_of_day=time_of_day,
             goal_id=goal_id,
             metric_id=metric_id,
+            source_language=source_lang,
+            version=1,
             created_by=current_user.id
         )
         
@@ -146,7 +160,7 @@ async def create_health_task(
         db.commit()
         db.refresh(new_task)
         
-        return {
+        task_dict = {
             "id": new_task.id,
             "name": new_task.name,
             "description": new_task.description,
@@ -158,8 +172,16 @@ async def create_health_task(
             "target_operator": getattr(new_task, 'target_operator', None),
             "target_value": getattr(new_task, 'target_value', None),
             "target_unit": getattr(new_task, 'target_unit', None),
-            "created_at": new_task.created_at.isoformat() if new_task.created_at else None
+            "created_at": new_task.created_at.isoformat() if new_task.created_at else None,
+            "source_language": getattr(new_task, 'source_language', 'en'),
+            "version": getattr(new_task, 'version', 1)
         }
+        
+        # Apply translations
+        translated_task = await apply_translations_to_task(
+            db, task_dict, current_user.id
+        )
+        return translated_task
         
     except Exception as e:
         db.rollback()
@@ -197,10 +219,13 @@ async def update_health_task(
             )
         
         # Update task fields
+        version_incremented = False
         if "name" in task_data:
             task.name = task_data["name"]
+            version_incremented = True
         if "description" in task_data:
             task.description = task_data["description"]
+            version_incremented = True
         if "frequency" in task_data:
             task.frequency = task_data["frequency"]
         if "target_days" in task_data:
@@ -218,12 +243,17 @@ async def update_health_task(
         if "target_unit" in task_data:
             setattr(task, 'target_unit', task_data["target_unit"])
         
+        # Increment version when translatable fields are updated
+        if version_incremented:
+            current_version = getattr(task, 'version', 1)
+            task.version = current_version + 1
+        
         task.updated_by = current_user.id
         
         db.commit()
         db.refresh(task)
         
-        return {
+        task_dict = {
             "id": task.id,
             "name": task.name,
             "description": task.description,
@@ -235,8 +265,16 @@ async def update_health_task(
             "target_operator": getattr(task, 'target_operator', None),
             "target_value": getattr(task, 'target_value', None),
             "target_unit": getattr(task, 'target_unit', None),
-            "updated_at": task.updated_at.isoformat() if task.updated_at else None
+            "updated_at": task.updated_at.isoformat() if task.updated_at else None,
+            "source_language": getattr(task, 'source_language', 'en'),
+            "version": getattr(task, 'version', 1)
         }
+        
+        # Apply translations
+        translated_task = await apply_translations_to_task(
+            db, task_dict, current_user.id
+        )
+        return translated_task
         
     except Exception as e:
         db.rollback()

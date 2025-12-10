@@ -774,5 +774,233 @@ async def apply_translations_to_surgery_hospitalization(
         
     except Exception as e:
         logger.error(f"Failed to apply translations to surgery/hospitalization: {e}")
-        return surgery  # Return original on error
+        return surgery
+
+
+async def apply_translations_to_goal(
+    db: Session,
+    goal: Dict[str, Any],
+    user_id: int,
+    target_language: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Apply translations to a health goal dictionary
+    
+    Args:
+        db: Database session
+        goal: Goal dictionary with id, name, source_language
+        user_id: User ID to get language preference
+        target_language: Optional target language
+    
+    Returns:
+        Goal dictionary with translated fields
+    """
+    try:
+        if target_language is None:
+            target_language = await get_user_language_from_cache(user_id, db)
+        
+        logger.info(f"🌐 [Goal Translation] User {user_id}, Target: {target_language}, Goal ID: {goal.get('id')}")
+        
+        # Get source_language from goal dict (defaults to 'en' for backward compatibility)
+        source_language = goal.get('source_language', 'en')
+        
+        logger.info(f"🌐 [Goal Translation] Source: {source_language}, Target: {target_language}")
+        
+        # Only translate if source and target languages are different
+        if source_language == target_language:
+            logger.debug(f"🌐 [Goal Translation] Source and target match ({source_language}), skipping translation")
+            return goal
+        
+        goal_id = goal.get('id')
+        if not goal_id:
+            return goal
+        
+        # Get current version from goal dict
+        current_version = goal.get('version', 1)
+        
+        # Translate name
+        name = goal.get('name', '')
+        if name:
+            goal['name'] = translation_service.get_translated_content(
+                db=db,
+                entity_type='health_plan_goals',
+                entity_id=goal_id,
+                field_name='name',
+                original_text=name,
+                target_language=target_language,
+                source_language=source_language,
+                current_entry_version=current_version
+            )
+        
+        return goal
+        
+    except Exception as e:
+        logger.error(f"Failed to apply translations to goal: {e}")
+        return goal
+
+
+async def apply_translations_to_task(
+    db: Session,
+    task: Dict[str, Any],
+    user_id: int,
+    target_language: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Apply translations to a health task dictionary
+    
+    Args:
+        db: Database session
+        task: Task dictionary with id, name, description, source_language
+        user_id: User ID to get language preference
+        target_language: Optional target language
+    
+    Returns:
+        Task dictionary with translated fields
+    """
+    try:
+        if target_language is None:
+            target_language = await get_user_language_from_cache(user_id, db)
+        
+        logger.info(f"🌐 [Task Translation] User {user_id}, Target: {target_language}, Task ID: {task.get('id')}")
+        
+        # Get source_language from task dict (defaults to 'en' for backward compatibility)
+        source_language = task.get('source_language', 'en')
+        
+        logger.info(f"🌐 [Task Translation] Source: {source_language}, Target: {target_language}")
+        
+        # Only translate if source and target languages are different
+        if source_language == target_language:
+            logger.debug(f"🌐 [Task Translation] Source and target match ({source_language}), skipping translation")
+            return task
+        
+        task_id = task.get('id')
+        if not task_id:
+            return task
+        
+        # Get current version from task dict
+        current_version = task.get('version', 1)
+        
+        # Translate name
+        name = task.get('name', '')
+        if name:
+            task['name'] = translation_service.get_translated_content(
+                db=db,
+                entity_type='health_plan_tasks',
+                entity_id=task_id,
+                field_name='name',
+                original_text=name,
+                target_language=target_language,
+                source_language=source_language,
+                current_entry_version=current_version
+            )
+        
+        # Translate description
+        description = task.get('description')
+        if description:
+            task['description'] = translation_service.get_translated_content(
+                db=db,
+                entity_type='health_plan_tasks',
+                entity_id=task_id,
+                field_name='description',
+                original_text=description,
+                target_language=target_language,
+                source_language=source_language,
+                current_entry_version=current_version
+            )
+        
+        return task
+        
+    except Exception as e:
+        logger.error(f"Failed to apply translations to task: {e}")
+        return task
+
+
+async def apply_translations_to_medication(
+    db: Session,
+    medication: Dict[str, Any],
+    user_id: int,
+    target_language: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Apply translations to a medication dictionary
+    
+    Args:
+        db: Database session
+        medication: Medication dictionary with id, medication_name, purpose, instructions, source_language
+        user_id: User ID to get language preference
+        target_language: Optional target language
+    
+    Returns:
+        Medication dictionary with translated fields
+    """
+    try:
+        if target_language is None:
+            target_language = await get_user_language_from_cache(user_id, db)
+        
+        logger.info(f"🌐 [Medication Translation] User {user_id}, Target: {target_language}, Medication ID: {medication.get('id')}")
+        
+        # Get source_language from medication dict (defaults to 'en' for backward compatibility)
+        source_language = medication.get('source_language', 'en')
+        
+        logger.info(f"🌐 [Medication Translation] Source: {source_language}, Target: {target_language}")
+        
+        # Only translate if source and target languages are different
+        if source_language == target_language:
+            logger.debug(f"🌐 [Medication Translation] Source and target match ({source_language}), skipping translation")
+            return medication
+        
+        medication_id = medication.get('id')
+        if not medication_id:
+            return medication
+        
+        # Get current version from medication dict
+        current_version = medication.get('version', 1)
+        
+        # Translate medication_name
+        medication_name = medication.get('medication_name', '')
+        if medication_name:
+            medication['medication_name'] = translation_service.get_translated_content(
+                db=db,
+                entity_type='medications',
+                entity_id=medication_id,
+                field_name='medication_name',
+                original_text=medication_name,
+                target_language=target_language,
+                source_language=source_language,
+                current_entry_version=current_version
+            )
+        
+        # Translate purpose
+        purpose = medication.get('purpose')
+        if purpose:
+            medication['purpose'] = translation_service.get_translated_content(
+                db=db,
+                entity_type='medications',
+                entity_id=medication_id,
+                field_name='purpose',
+                original_text=purpose,
+                target_language=target_language,
+                source_language=source_language,
+                current_entry_version=current_version
+            )
+        
+        # Translate instructions
+        instructions = medication.get('instructions')
+        if instructions:
+            medication['instructions'] = translation_service.get_translated_content(
+                db=db,
+                entity_type='medications',
+                entity_id=medication_id,
+                field_name='instructions',
+                original_text=instructions,
+                target_language=target_language,
+                source_language=source_language,
+                current_entry_version=current_version
+            )
+        
+        return medication
+        
+    except Exception as e:
+        logger.error(f"Failed to apply translations to medication: {e}")
+        return medication  # Return original on error
 

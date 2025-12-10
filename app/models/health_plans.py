@@ -18,6 +18,8 @@ class Goal(Base):
     progress_percentage = Column(Integer, default=0)  # Calculated progress percentage
     start_date = Column(Date, nullable=False)  # When the goal should start
     end_date = Column(Date, nullable=False)  # When the goal should end
+    source_language = Column(String(10), nullable=False, default='en')  # Language of original content ('en', 'es', 'pt')
+    version = Column(Integer, nullable=False, default=1)  # Content version for translation invalidation
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
@@ -48,6 +50,10 @@ class HealthTask(Base):
     # Relationships to other entities
     goal_id = Column(Integer, ForeignKey("health_plan_goals.id"))  # Optional link to health goal
     metric_id = Column(Integer, ForeignKey("health_record_metrics.id"))  # Optional link to metric
+    
+    # Translation support
+    source_language = Column(String(10), nullable=False, default='en')  # Language of original content ('en', 'es', 'pt')
+    version = Column(Integer, nullable=False, default=1)  # Content version for translation invalidation
     
     # Metadata
     created_at = Column(DateTime(timezone=True), server_default=func.now())
