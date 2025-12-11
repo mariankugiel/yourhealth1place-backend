@@ -68,7 +68,7 @@ def seed_thryve_data_types(db: Session) -> tuple[int, int]:
     Seed Thryve data types from CSV file
     Returns: (created_count, updated_count)
     """
-    csv_path = Path(__file__).parent / "Thryve_data_types.csv"
+    csv_path = Path(__file__).parent / "thryve_data_types.csv"
     
     if not csv_path.exists():
         logger.error(f"CSV file not found: {csv_path}")
