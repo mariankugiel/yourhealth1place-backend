@@ -73,10 +73,11 @@ app = FastAPI(
 # Add request logging middleware (before CORS)
 app.add_middleware(RequestLoggingMiddleware)
 
-# Set up CORS - Allow all origins in development
+# Set up CORS - Use configured origins from settings
+# Note: When allow_credentials=True, you cannot use "*" - must specify exact origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "*"],  # Allow frontend origins
+    allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],

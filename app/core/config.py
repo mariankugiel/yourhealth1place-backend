@@ -1,5 +1,6 @@
-from typing import List
+from typing import List, Union
 from pydantic_settings import BaseSettings
+from pydantic import field_validator
 import os
 
 class Settings(BaseSettings):
@@ -55,6 +56,21 @@ class Settings(BaseSettings):
     DEBUG: bool = True
     ENVIRONMENT: str = "development"
     FRONTEND_URL: str = "http://localhost:3000"
+    
+    # CORS Configuration
+    # Comma-separated list of allowed origins (e.g., "http://localhost:3000,https://patient-web-app-mocha.vercel.app")
+    # When allow_credentials=True, you cannot use "*" - must specify exact origins
+    # Can be set as comma-separated string in env var or as list in code
+    CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://127.0.0.1:3000", "https://patient-web-app-mocha.vercel.app"]
+    
+    @field_validator('CORS_ORIGINS', mode='before')
+    @classmethod
+    def parse_cors_origins(cls, v):
+        """Parse CORS_ORIGINS from comma-separated string or list"""
+        if isinstance(v, str):
+            # Split by comma and strip whitespace
+            return [origin.strip() for origin in v.split(',') if origin.strip()]
+        return v
     
     # API
     API_V1_STR: str = "/api/v1"
