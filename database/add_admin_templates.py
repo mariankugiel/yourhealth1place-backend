@@ -333,7 +333,7 @@ class AdminTemplateImporter:
         section_template = self.section_crud.create(self.db, section_template_data)
         
         # Store translations (ES, PT) in the translations table, NOT in the template table
-            from app.crud.translation import translation_crud
+        from app.crud.translation import translation_crud
         
         if section_data.get("display_name_pt"):
             translation_crud.create_translation(
@@ -483,7 +483,7 @@ class AdminTemplateImporter:
             # Create metric templates
             for metric_data in section_data["metrics"]:
                 try:
-                self.create_metric_template(section_template, metric_data)
+                   self.create_metric_template(section_template, metric_data)
                 except IntegrityError as e:
                     logger.warning(f"⚠️  Skipped duplicate metric: {metric_data['name']} - {str(e)[:100]}")
                     continue
@@ -546,7 +546,7 @@ def main():
         # Commit all changes
         try:
             db.commit()
-        logger.info("Admin template import completed successfully!")
+            logger.info("Admin template import completed successfully!")
         except IntegrityError as e:
             db.rollback()
             logger.error(f"❌ Error committing changes: {e}")
