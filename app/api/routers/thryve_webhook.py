@@ -53,29 +53,29 @@ async def thryve_data_push_webhook(
         event_type = payload.get("type", "")
         end_user_id = payload.get("endUserId", "")
         
-        # Process based on event type
-        processed_count = 0
-        if event_type == "event.data.epoch.create":
-            for data_item in payload.get("data", []):
-                result = webhook_service.process_epoch_create(data_item, end_user_id)
-                processed_count += len(data_item.get("epochData", []))
-        elif event_type == "event.data.daily.update":
-            for data_item in payload.get("data", []):
-                result = webhook_service.process_daily_update(data_item, end_user_id)
-                processed_count += len(data_item.get("dailyData", []))
-        elif event_type == "event.data.daily.create":
-            for data_item in payload.get("data", []):
-                result = webhook_service.process_daily_create(data_item, end_user_id)
-                processed_count += len(data_item.get("dailyData", []))
-        else:
+        # Validate event type
+        valid_event_types = [
+            "event.data.epoch.create",
+            "event.data.daily.update",
+            "event.data.daily.create"
+        ]
+        if event_type not in valid_event_types:
             logger.warning(f"Unknown event type: {event_type}")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Unknown event type: {event_type}"
             )
         
-        # Store health data
-        webhook_service.store_health_data(payload, mapped_payload)
+        # Calculate total data points count
+        processed_count = 0
+        for data_item in payload.get("data", []):
+            if "epochData" in data_item:
+                processed_count += len(data_item.get("epochData", []))
+            if "dailyData" in data_item:
+                processed_count += len(data_item.get("dailyData", []))
+        
+        # Store health data (this handles all processing and record creation)
+        await webhook_service.store_health_data(payload, mapped_payload)
         
         logger.info(f"Successfully processed {event_type} for end_user_id: {end_user_id}, count: {processed_count}")
         

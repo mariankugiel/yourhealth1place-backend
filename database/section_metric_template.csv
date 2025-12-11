@@ -1,0 +1,189 @@
+Metric (EN),Section (EN),Tab,Unit (metric system EN),Reference (metric system),Metric (PT),Section (PT),Unit (metric system PT),Metric (ES),Section (ES),Unit (metric system ES),Thryve name,Thryve dataTypeId
+Blood pressure systolic,Cardiovascular,Vitals,mmHg,90-120,Pressão arterial sistólica,Cardiovascular,mmHg,Presión arterial sistólica,Cardiovascular,mmHg,BloodPressureDiastolic,3300
+Blood pressure diastolic,Cardiovascular,Vitals,mmHg,60-80,Pressão arterial diastólica,Cardiovascular,mmHg,Presión arterial diastólica,Cardiovascular,mmHg,BloodPressureSystolic,3301
+Heart rate ,Cardiovascular,Vitals,beats/min,60-100,Frequência cardíaca,Cardiovascular,pulsações/min,Frecuencia cardíaca ,Cardiovascular,pulso/min,HeartRate,3000
+Light heart rate duration,Cardiovascular,Vitals,Minutes,,Duração frequência cardíaca ligeira,Cardiovascular,minutos,Duración de la frecuencia cardíaca ligera,Cardiovascular,minutos,HeartRateZoneLightDuration,3090
+Moderate heart rate duration,Cardiovascular,Vitals,Minutes,,Duração frequência cardíaca moderada,Cardiovascular,minutos,Duración de la frecuencia cardíaca moderada,Cardiovascular,minutos,HeartRateZoneModerateDuration,3091
+Intense heart rate duration,Cardiovascular,Vitals,Minutes,,Duração frequência cardíaca intensa,Cardiovascular,minutos,Duración de la frecuencia cardíaca intensa,Cardiovascular,minutos,HeartRateZoneIntenseDuration,3092
+Heart rate (sleeping),Cardiovascular,Vitals,beats/min,40-60,Frequência cardíaca (a dormir),Cardiovascular,pulsações/min,Frecuencia cardíaca (durante el sueño),Cardiovascular,pulso/min,HeartRateResting,3001
+Heart rate lowest (sleeping),Cardiovascular,Vitals,beats/min,,Frequência cardíaca mínima (a dormir),Cardiovascular,pulsações/min,Frecuencia cardíaca mínima (durante el sueño),Cardiovascular,pulso/min,HeartRateSleepLowest,3020
+RR intervals,Cardiovascular,Vitals,miliseconds,,Intervalos RR,Cardiovascular,milisegundos,Intervalos RR,Cardiovascular,milisegundos,InterbeatIntervals,3029
+Atrial Fibrillation Detection,Cardiovascular,Vitals,Boolean,,Detecção de Fibrilação Atrial,Cardiovascular,boolean,Detección de fibrilación auricular,Cardiovascular,boolean,AtrialFibrillationDetection,3120
+Arrhythmia Detection,Cardiovascular,Vitals,Boolean,,Detecção de Arritmia,Cardiovascular,boolean,Detección de arritmias,Cardiovascular,boolean,ArrhythmiaDetection,3121
+Respiratory rate ,Respiratory,Vitals,breaths/min,12-20,Frequência respiratória ,Respiratório,resp/min,Frecuencia respiratoria ,Respiratorio,resp/min,RespirationRate,4000
+Respiratory rate (resting),Respiratory,Vitals,breaths/min,12-20,Frequência respiratória (repouso),Respiratório,resp/min,Frecuencia respiratoria (en reposo),Respiratorio,resp/min,RespirationRateResting,4001
+Respiratory rate (sleeping),Respiratory,Vitals,breaths/min,12-20,Frequência respiratória (a dormir),Respiratório,resp/min,Frecuencia respiratoria (en sueño),Respiratorio,resp/min,RespirationRateSleep,4002
+Breathing Disturbunces,Respiratory,Vitals,,,Distúrbios respiratórios,Respiratório,,Trastornos respiratorios,Respiratorio,,Breathing,4100
+SPO2,Respiratory,Vitals,%,>95%,SPO2,Respiratório,%,SPO2,Respiratorio,%,SPO2,3009
+V02max,Respiratory,Vitals,ml/kg/min,,V02max,Respiratório,ml/kg/min,VO2máx,Respiratoria,ml/kg/min,VO2max,3030
+Temperature,Temperature,Vitals,ºC,36.1 - 37.2,Temperatura,Temperatura,ºC,Temperatura,Temperatura,ºC,BodyTemperature,5040
+Sleep time,Sleep,Lifestyle,Hours,7-9,Tempo de sono,Sono,horas,Tiempo de sueño,Sueño,horas,SleepDuration,2000
+Deep sleep time,Sleep,Lifestyle,Hours,,Tempo de sono profundo,Sono,horas,Tiempo de sueño profundo,Sueño,horas,SleepDeepDuration,2003
+Light sleep time,Sleep,Lifestyle,Hours,,Tempo de sono leve,Sono,horas,Tiempo de sueño ligero,Sueño,horas,SleepLightDuration,2005
+REM sleep time,Sleep,Lifestyle,Hours,,Tempo de sono REM,Sono,horas,Tiempo de sueño REM,Sueño,horas,SleepREMDuration,2002
+Snoring events,Sleep,Lifestyle,Hours,,Eventos de ressonar,Sono,horas,Eventos de ronquidos,Sueño,horas,SnoringBinary,4101
+Sleep interruptions,Sleep,Lifestyle,Number,,Interrupções no sono,Sono,número,Interrupciones del sueño,Sueño,número,SleepInterruptions,2102
+Sleep intensity,Sleep,Lifestyle,,,Intensidade do sono,Sono,,Intensidade del sueño,Sueño,,SleepIntensity,2210
+Time awake,Sleep,Lifestyle,Hours,,Tempo acordado,Sono,horas,Tiempo despierto,Sueño,horas,SleepAwakeDuration,2006
+Time in bed,Sleep,Lifestyle,Hours,,Tempo na cama,Sono,horas,Tiempo en la cama,Sueño,horas,SleepInBedDuration,2001
+Time to fall asleep,Sleep,Lifestyle,Minutes,,Tempo para adormecer,Sono,minutos,Tiempo para conciliar el sueño,Sueño,minutos,SleepLatency,2007
+Sleep start time,Sleep,Lifestyle,Time (hh:mm),,Hora início do sono,Sono,tempo (hh:mm),Hora início sueño,,tiempo (hh:mm),SleepStartTime,2100
+Sleep end time,Sleep,Lifestyle,Time (hh:mm),,Hora de fim do sono,Sono,tempo (hh:mm),Hora fin sueño,,tiempo (hh:mm),SleepEndTime,2101
+Sleep quality,Sleep,Lifestyle,,,Qualidade do sono,Sono,,Calidad del sueño,Sueño,,SleepQuality,2201
+Sleep Regularity,Sleep,Lifestyle,,,Regularidade do sono,Sono,,Regularidad del sueño,Sueño,,SleepRegularity,2220
+Calories burn,Activity,Lifestyle,kcal,,Calorias queimadas,Atividade,kcal,Calorías quemadas,Actividad,kcal,BurnedCalories,1010
+Calories burn in workout,Activity,Lifestyle,kcal,,Calorias queimadas em treino,Atividade,kcal,Calorías quemadas en entrenamiento,Actividad,kcal,ActiveBurnedCalories,1011
+Steps,Activity,Lifestyle,number,,Passos,Atividade,número,Pasos,Actividad,número,Steps,1000
+Walked distance,Activity,Lifestyle,meters,,Distância percorrida a pé,Atividade,metros,Distancia recorrida a pie,Actividad,metros,CoveredDistance,1001
+Walked duration,Activity,Lifestyle,minutes,,Duração da caminhada,Atividade,minutos,Duración de la caminata,Actividad,minutos,WalkDuration,1115
+Activity,Activity,Lifestyle,Boolean,>1,Atividade,Atividade,número/semana,Actividad,Actividad,número/semana,ActiveBinary,1110
+Activity time,Activity,Lifestyle,minutes,,Tempo de atividade,Atividade,minutos,Tiempo de actividad,Actividad,minutos,ActivityDuration,1114
+Floors climbed,Activity,Lifestyle,number,,Andares subidos,Atividade,número,Pisoes subidos,Actividad,número,FloorsClimbed,1002
+Elevation gain,Activity,Lifestyle,meters,,Ganho de elevação,Atividade,metros,Gano de elevación,Actividad,metros,ElevationGain,1003
+Low intensity exercise,Activity,Lifestyle,minutes,,Exercício de baixa intensidade,Atividade,minutos,Ejercicio de baja intensidad,Actividad,minutos,ActivityLowDuration,1101
+Moderate intensity exercise,Activity,Lifestyle,minutes,,Exercício de intensidade moderada,Atividade,minutos,Ejercicio de intensidad moderada,Actividad,minutos,ActivityMidDuration,1102
+Vigorous intensity exercise,Activity,Lifestyle,minutes,,Exercício de alta intensidade,Atividade,minutos,Ejercicio de alta intensidad,Actividad,minutos,ActivityHighDuration,1103
+Sedentary Activity,Activity,Lifestyle,minutes,,Atividade sedentária,Atividade,minutos,Actividad sedentaria,Actividad,minutos,ActivitySedentaryDuration,1104
+Swimming number of strokes,Activity,Lifestyle,number,,Número de braçadas na natação,Atividade,número,Número de brazadas en natación,Actividad,número,SwmmingStrokeCount,1283
+Active walking distance (activity),Activity,Lifestyle,meters,,Distância percorrida a pé (atividade),Atividade,metros,Distancia de caminata activa (actividad),Actividad,metros,CoveredDistanceWalk,1715
+Active walking duration (activity),Activity,Lifestyle,minutes,,Duração da marcha ativa (atividade),Atividade,minutos,Duración de caminata activa (actividad),Actividad,minutos,ActiveWalkDuration,1825
+Activity (binary),Activity,Lifestyle,Boolean,,Atividade (binária),Atividade,boolean,Actividad (binario),Actividad,boolean,ActiveBinary,1114
+Walking activity (binary),Activity,Lifestyle,Boolean,,Atividade de caminhada (binária),Atividade,boolean,Actividad de caminata (binario),Actividad,boolean,WalkBinary,1115
+Run activity (binary),Activity,Lifestyle,Boolean,,Atividade de corrida (binária),Atividade,boolean,Actividad de carrera (binario),Actividad,boolean,RunBinary,1116
+Cycling activity (binary),Activity,Lifestyle,Boolean,,Atividade de ciclismo (binária),Atividade,boolean,Actividad de ciclismo (binario),Actividad,boolean,BikeBinary,1117
+Run distance,Activity,Lifestyle,meters,,Distância percorrida a pé,Atividade,metros,Distancia de carrera,Actividad,metros,CoveredDistanceRun,1716
+Run duration,Activity,Lifestyle,minutes,,Duração da corrida,Atividade,minutos,Duración de carrera,Actividad,minutos,RunDuration,1116
+Cycling duration,Activity,Lifestyle,minutes,,Duração do ciclismo,Atividade,minutos,Duración de ciclismo,Actividad,minutos,BikeDuration,1117
+Cycling  distance ,Activity,Lifestyle,meters,,Distância percorrida de bicicleta,Atividade,metros,Distancia en bicicleta,Actividad,metros,CoveredDistanceBike,1717
+Activity Type (custom),Activity,Lifestyle,,,Tipo de atividade (personalizado),Atividade,,Tipo de actividad (personalizada),,,ActivityType,1200
+Activity Type (custom 2),Activity,Lifestyle,,,Tipo de atividade (personalizado 2),Atividade,,Tipo de actividad (personalizada 2),,,ActivityTypeDetail1,1201
+Activity Type (custom 3),Activity,Lifestyle,,,Tipo de atividade (personalizado 3),Atividade,,Tipo de actividad (personalizada 3),,,ActivityTypeDetail2,1202
+RMSSD detected (nervous system activity),Stress,Lifestyle,,,Detetado RMSSD (atividade do sistema nervoso),Stress,,RMSSD detectada (actividad del sistema nervioso),,,Rmssd,3100
+RMSSD sleep detected (nervous system activity),Stress,Lifestyle,,,RMSSD do sono detetado (atividade do sistema nervoso),Stress,,RMSSD de sueño detectado (actividad del sistema nervioso),,,RmssdSleep,3106
+RMSSD Highest sleep detected (nervous system activity),Stress,Lifestyle,,,RMSSD máximo do sono detetado (atividade do sistema nervoso),Stress,,RMSSD de sueño más alto detectado (actividad del sistema nervioso),,,RmssdSleepHighest,3107
+HRV High Frequency Power,Stress,Lifestyle,miliseconds,,Potência de alta frequência da VFC,Stress,milissegundos,VFC de potencia de alta frecuencia,,milissegundos,HRVHighFrequencyPower,3114
+HRV Low Frequency Power,Stress,Lifestyle,miliseconds,,Potência de baixa frequência da VFC,Stress,milissegundos,VFC de potencia de baja frecuencia,,milissegundos,HRVLowFrequencyPower,3115
+SDRR,Stress,Lifestyle,miliseconds,,SDRR,Stress,milissegundos,SDRR,,milissegundos,SDRR,3113
+SDNN (variability of cardiac frequency),Stress,Lifestyle,miliseconds,,SDNN (variabilidade da frequência cardíaca),Stress,milissegundos,SDNN (variabilidad de la frecuencia cardíaca),,milissegundos,SDNN,3112
+Alcohol Consumption,Self-Reported Wellness,Lifestyle,,,Consumo de álcool,,,Consumo de alcohol,,,AlcoholConsumption,5010
+Weight,Body composition,Body,kg,,Peso,Composição Corporal,kg,Peso,Composición corporal,kg,Weight,5020
+Height,Body composition,Body,cm,,Altura,Composição Corporal,cm,Altura,Composición corporal,cm,Height,5030
+Fat mass %,Body composition,Body,%,,% Massa gorda,Composição Corporal,%,% de grasa corporal,Composición corporal,%,FatRatio,5025
+Fat mass (kg),Body composition,Body,kg,,Mass gorda (kg),Composição Corporal,kg,Grasa corporal (kg),Composición corporal,kg,FatMass,5024
+Muscle mass (kg),Body composition,Body,kg,,Massa muscular (kg),Composição Corporal,kg,Masa muscular (kg),Composición corporal,kg,MuscleMass,5021
+Bone mass (kg),Body composition,Body,kg,,Massa óssea (kg),Composição Corporal,kg,Masa ósea (kg),Composición corporal,kg,BoneMass,5022
+Water Mass,Body composition,Body,kg,,Composição em água,Composição Corporal,kg,Composición de agua ,Composición corporal,kg,WaterMass,5029
+Body Mass Index (BMI),Body composition,Body,ratio,18.5-24.5,Índice de Massa Corporal (IMC),Composição Corporal,ratio,Índice de masa corporal (IMC),Composición corporal,ratio,BMI,5026
+Waist circumference ,Body composition,Body,cm,,Circunferência da cintura,Composição Corporal,cm,Circunferencia de la cintura,Composición corporal,cm,WaistCircumference,5027
+Waist-to-height ratio (WHtR),Body composition,Body,ratio,<0.5,Relação cintura-altura (RCE),Composição Corporal,ratio,Relación cintura-estatura (RCT),Composición corporal,ratio,,
+Blood glucose,Body composition,Body,mg/dL,,Glicemia,Composição Corporal,mg/dL,Glucemia,Composición corporal,mg/dL,BloodGlucose,3302
+Estimated blood glucose,Body composition,Body,mg/dL,,Glicemia estimada,Composição Corporal,mg/dL,Glucemia estimada,Composición corporal,mg/dL,EstimatedBloodGlucose,3305
+HbA1c,Body composition,Body,%,,HbA1c,Composição Corporal,%,HbA1c,Composición corporal,%,HbA1c,3303
+Sugar intake,Nutrition,Lifestyle,grams,,Ingestão de açúcar,Composição Corporal,gramas,Ingesta de azúcares,Composición corporal,gramos,ConsumedSugar,8004
+Fiber intake,Nutrition,Lifestyle,grams,,Ingestão de fibras,Composição Corporal,gramas,Ingesta de fibra,Composición corporal,gramos,ConsumedFiber,8009
+Calores intake,Nutrition,Lifestyle,grams,,Ingestão de calorias,Composição Corporal,gramas,Ingesta de calorías,Composición corporal,gramos,ConsumedCalories,8000
+Sodium intake,Nutrition,Lifestyle,grams,,Ingestão de sódio,Composição Corporal,gramas,Ingesta de sodio,Composición corporal,gramos,ConsumedSodium,8013
+Protein intake,Nutrition,Lifestyle,grams,,Ingestão de proteínas,Composição Corporal,gramas,Ingesta de proteínas,Composición corporal,gramos,ConsumedProtein,8005
+Hydration,Nutrition,Lifestyle,milimiter,,Hidratação,Composição Corporal,milímetro,Hidratación,Composición corporal,milímetro,Hydration,5043
+Consumed Fat,Nutrition,Lifestyle,grams,,Gorduras Consumidas,Composição Corporal,gramas,Grasas consumidas,Composición corporal,gramos,ConsumedFat,8001
+Consumed Saturated Fat,Nutrition,Lifestyle,grams,,Gorduras Saturadas Consumidas,Composição Corporal,gramas,Grasas saturadas consumidas,Composición corporal,gramos,ConsumedSaturatedFat,8002
+Consumed Carbo Hydrates,Nutrition,Lifestyle,grams,,Hidratos de Carbono Consumidos,Composição Corporal,gramas,Carbohidratos consumidos,Composición corporal,gramos,ConsumedCarboHydrates,8003
+Consumed Starch,Nutrition,Lifestyle,grams,,Amido Consumido,Composição Corporal,gramas,Almidón consumido,Composición corporal,gramos,ConsumedStarch,8008
+Consumed Sugar Alcohols,Nutrition,Lifestyle,grams,,Consumo de açúcar por álcool,Composição Corporal,gramas,Azúcar consumidos por alcohol,Composición corporal,gramos,ConsumedSugarAlcohols,8007
+Consumed Calcium,Nutrition,Lifestyle,mg,,Cálcio Consumido,Composição Corporal,mg,Calcio consumido,Composición corporal,mg,ConsumedCalcium,8010
+Consumed Iron,Nutrition,Lifestyle,mg,,Ferro Consumido,Composição Corporal,mg,Hierro consumido,Composición corporal,mg,ConsumedIron,8011
+Consumed Potassium,Nutrition,Lifestyle,mg,,Potássio Consumido,Composição Corporal,mg,Potasio consumido,Composición corporal,mg,ConsumedPotassium,8012
+Consumed Phosphorus,Nutrition,Lifestyle,mg,,Fósforo Consumido,Composição Corporal,mg,Fósforo consumido,Composición corporal,mg,ConsumedPhosphorus,8014
+Consumed Cholesterol,Nutrition,Lifestyle,mg,,Colesterol Consumido,Composição Corporal,mg,Colesterol consumido,Composición corporal,mg,ConsumedCholesterol,8016
+Consumed Iodine,Nutrition,Lifestyle,mg,,Iodo Consumido,Composição Corporal,mg,Yodo consumido,Composición corporal,mg,ConsumedIodine,8019
+Consumed Magnesium,Nutrition,Lifestyle,mg,,Magnésio Consumido,Composição Corporal,mg,Magnesio consumido,Composición corporal,mg,ConsumedMagnesium,8021
+Consumed Zinc,Nutrition,Lifestyle,mg,,Zinco Consumido,Composição Corporal,mg,Zinc consumido,Composición corporal,mg,ConsumedZinc,8022
+Consumed Vitamin A,Nutrition,Lifestyle,mg,,Vitamina A Consumida,Composição Corporal,mg,Vitamina A consumida,Composición corporal,mg,ConsumedVitaminA,8023
+Consumed Vitamin B1,Nutrition,Lifestyle,mg,,Vitamina B1 Consumida,Composição Corporal,mg,Vitamina B1 consumida,Composición corporal,mg,ConsumedVitaminB1,8024
+Consumed Vitamin B2,Nutrition,Lifestyle,mg,,Vitamina B2 Consumida,Composição Corporal,mg,Vitamina B2 consumida,Composición corporal,mg,ConsumedVitaminB2,8025
+Consumed Vitamin B3,Nutrition,Lifestyle,mg,,Vitamina B3 Consumida,Composição Corporal,mg,Vitamina B3 consumida,Composición corporal,mg,ConsumedVitaminB3,8026
+Consumed Vitamin B5,Nutrition,Lifestyle,mg,,Vitamina B5 Consumida,Composição Corporal,mg,Vitamina B5 consumida,Composición corporal,mg,ConsumedVitaminB5,8028
+Consumed Vitamin B6,Nutrition,Lifestyle,mg,,Vitamina B6 Consumida,Composição Corporal,mg,Vitamina B6 consumida,Composición corporal,mg,ConsumedVitaminB6,8029
+Consumed Vitamin B12,Nutrition,Lifestyle,mg,,Vitamina B12 Consumida,Composição Corporal,mg,Vitamina B12 consumida,Composición corporal,mg,ConsumedVitaminB12,8031
+Consumed Vitamin C,Nutrition,Lifestyle,mg,,Vitamina C Consumida,Composição Corporal,mg,Vitamina C consumida,Composición corporal,mg,ConsumedVitaminC,8032
+Consumed Vitamin D,Nutrition,Lifestyle,mg,,Vitamina D Consumida,Composição Corporal,mg,Vitamina D consumida,Composición corporal,mg,ConsumedVitaminD,8033
+Consumed Vitamin E,Nutrition,Lifestyle,mg,,Vitamina E Consumida,Composição Corporal,mg,Vitamina E consumida,Composición corporal,mg,ConsumedVitaminE,8034
+Consumed Vitamin K,Nutrition,Lifestyle,mg,,Vitamina K Consumida,Composição Corporal,gramas,Vitamina K consumida,Composición corporal,mg,ConsumedVitaminK,8035
+Consumed Salt,Nutrition,Lifestyle,grams,,Sal Consumido,Composição Corporal,,Sal consumida,Composición corporal,gramos,ConsumedSalt,8006
+Menstruation start,Menstruation,Body,date,,Início da menstruação,Menstruação,data,Inicio de la menstruación,Menstruación,data,CycleStartDate,5130
+Menstruation end,Menstruation,Body,date,,Fim da menstruação,Menstruação,data,Fin de la menstruación,Menstruación,data,CycleEndDate,5131
+Cycle lenght,Menstruation,Body,days,21-38,Duração do ciclo,Menstruação,dias,Duración del ciclo menstrual,Menstruación,días,CycleLength,5110
+Mestrual Bleeding,Menstruation,Body,,,Sangramento menstrual,Menstruação,,Sangrado menstrual,Menstruación,,MenstrualBleeding,5111
+Vaginal discharge,Menstruation,Body,,,Corrimento vaginal,Menstruação,,Flujo vaginal,Menstruación,,VaginalDischarge,5112
+Audio Exposure Event,Hearing,Body,,,Evento de Exposição ao Áudio,Audição,,Evento de exposición al audio,,,AudioExposureEvent,7100
+Ambient Audio Exposure,Hearing,Body,decibels,,Exposição ao Áudio Ambiente,Audição,décibeis,Exposición al audio ambiental,,decibeles,AmbientAudioExposure,7101
+Headphone Audio Exposure,Hearing,Body,grams,,Exposição ao Áudio com Auscultadores,Audição,gramas,Exposición al audio de los auriculares,,gramos,HeadphoneAudioExposure,7102
+Erythrocytes,Hematology,Lab analysis,x10¹²/L,3.90-5.10,Eritrócitos,Hematologia,x10¹²/L,Glóbulos rojos,Hematología,x10¹²/L,,
+Haemoglobin,Hematology,Lab analysis,g/dL,12.0-15.2,Hemoglobina,Hematologia,g/dL,Hemoglobina,Hematología,g/dL,,
+HbA1c (IFCC/NGSP aligned),Hematology,Lab analysis,%,<5.7%,Hemoglobina glicada (HbA1c),Hematologia,%,Hemoglobina glucosilada (HbA1c),Hematología,%,,
+Hematocrit Cells,Hematology,Lab analysis,%,37.0-46.0,Hematocrócitos,Hematologia,%,Hematocrito,Hematología,%,,
+Mean Glob. Vol. (MGV),Hematology,Lab analysis,fL,85-98,Vol. Glob. Médio (VGM),Hematologia,fL,Volumen globular medio (VGM),Hematología,fL,,
+Mean Glob. Hgb. (MgH),Hematology,Lab analysis,pg,28-32,Hgb. Glob. Média (HGM),Hematologia,pg,Hb globular media (HGM),Hematología,pg,,
+Glob. Hgb. Conc. Mean (CHGM),Hematology,Lab analysis,g/dL,32-36,Conc. Hgb. Glob. Média (CHGM),Hematologia,g/dL,Concentración de hemoglobina globular Media (CHGM),Hematología,g/dL,,
+RDW (red blood cell distribution index),Hematology,Lab analysis,%,12.0-14.7,RDW (índice distrib. eritrocit.),Hematologia,%,RDW (índice de distribución de glóbulos rojos),Hematología,%,,
+Leukocytes,Hematology,Lab analysis,x109 / L,3.90-11.0,Leucócitos,Hematologia,x109 / L,Leucocitos,Hematología,x109 / L,,
+Neutrophils,Hematology,Lab analysis,x109 / L,1.80-7.40,Neutrófilos,Hematologia,x109 / L,Neutrófilos,Hematología,x109 / L,,
+Eosinophils,Hematology,Lab analysis,x109 / L,0.02-0.67,Eosinófilos,Hematologia,x109 / L,Eosinófilos,Hematología,x109 / L,,
+Basophils,Hematology,Lab analysis,x109 / L,<0.13,Basófilos,Hematologia,x109 / L,Basófilos,Hematología,x109 / L,,
+Lymphocytes,Hematology,Lab analysis,x109 / L,1.10-3.50,Linfócitos,Hematologia,x109 / L,Linfocitos,Hematología,x109 / L,,
+Monocytes,Hematology,Lab analysis,x109 / L,0.21-0.92,Monócitos,Hematologia,x109 / L,Monocitos,Hematología,x109 / L,,
+Platelets,Hematology,Lab analysis,x109 / L,170-430,Plaquetas,Hematologia,x109 / L,Plaquetas,Hematología,x109 / L,,
+MPV (mean plaq. vol.),Hematology,Lab analysis,fL,8.5-12.0,VPM (vol. plaq. médio),Hematologia,fL,MPV (vol. plaquetario medio),Hematología,fL,,
+Sedimentation Velocity (SV),Hematology,Lab analysis,mm/h,<15,Velocidade de Sedimentação (VS),Hematologia,mm/h,Velocidad de sedimentación (VS),Hematología,mm/h,,
+Platelet tocrit,Hematology,Lab analysis,%,0.20-0.36,Plaquetócrito,Bioquímica,%,Tocrito plaquetario,Bioquímica,%,,
+PDW (plaq. distribution index),Hematology,Lab analysis,%,9.0-17.0,PDW (índice distrib. plaq.),Bioquímica,%,PDW (índice de distribución plaquetaria),Bioquímica,%,,
+Fasting plasma glucose (FPG),Biochemistry,Lab analysis,mg/dL,74-106,Glucose,Bioquímica,mg/dL,Glucosa,Bioquímica,mg/dL,,
+Bureau (Bile urea),Biochemistry,Lab analysis,mg/dL,19-49,Ureia,Bioquímica,mg/dL,Bureau (Urea biliar),Bioquímica,mg/dL,,
+Creatinine,Biochemistry,Lab analysis,mg/dL,0.55-1.02,Creatinina,Bioquímica,mg/dL,Creatinina,Bioquímica,mg/dL,,
+Uric acid,Biochemistry,Lab analysis,mg/dL,,Ácido Úrico,Bioquímica,mg/dL,Ácido úrico,Bioquímica,mg/dL,,
+Triglycerides,Biochemistry,Lab analysis,mg/dL,<150,Triglicéridos,Bioquímica,mg/dL,Triglicéridos,Bioquímica,mg/dL,,
+Total cholesterol,Biochemistry,Lab analysis,mg/dL,<190,Colesterol total,Bioquímica,mg/dL,Colesterol total,Bioquímica,mg/dL,,
+HDL cholesterol,Biochemistry,Lab analysis,mg/dL,>45,Colesterol da fracção HDL,Bioquímica,mg/dL,Colesterol HDL,Bioquímica,mg/dL,,
+LDL cholesterol,Biochemistry,Lab analysis,mg/dL,<116,Colesterol da fracção LDL,Bioquímica,mg/dL,Colesterol LDL,Bioquímica,mg/dL,,
+Non-HDL cholesterol,Biochemistry,Lab analysis,mg/dL,<130,Colesterol não-HDL,Bioquímica,mg/dL,Colesterol no HDL,Bioquímica,mg/dL,,
+Cholesterol ratio (Total cholesterol/HDL),Biochemistry,Lab analysis,ratio,<5,Rácio colesterol (Colesterol total/HDL),Bioquímica,rácio,Relación de colesterol (Colesterol total/HDL),Bioquímica,ratio,,
+Homocysteine,Biochemistry,Lab analysis,μmol/L,5.0-15.0,Homocisteína,Bioquímica,μmol/L,Homocisteína,Bioquímica,μmol/L,,
+Aspartate aminotransferase (AST/GOT),Biochemistry,Lab analysis,UI/L,<34,Aspartato-aminotransferase (AST/GOT),Bioquímica,UI/L,Aspartato aminotransferasa (AST/GOT),Bioquímica,UI/L,,
+Alanine aminotransferase (ALT/GPT),Biochemistry,Lab analysis,UI/L,<49,Alanina-aminotransferase (ALT/GPT),Bioquímica,UI/L,Alanina aminotransferasa (ALT/GPT),Bioquímica,UI/L,,
+Creatine kinase (CK/CPK),Biochemistry,Lab analysis,UI/L,26-192,Creatina Quinase (CK/CPK),Bioquímica,UI/L,Creatina quinasa (CK/CPK),Bioquímica,UI/L,,
+Sodium (Na),Biochemistry,Lab analysis,mmol/L,136-145,Sódio (Na),Bioquímica,mmol/L,Sodio (Na),Bioquímica,mmol/L,,
+Potassium (K),Biochemistry,Lab analysis,mmol/L,3.5-5.1,Potássio (K),Bioquímica,mmol/L,Potasio (K),Bioquímica,mmol/L,,
+Chlorine (Cl),Biochemistry,Lab analysis,mmol/L,98-107,Cloro (Cl),Bioquímica,mmol/L,Cloro (Cl),Bioquímica,mmol/L,,
+Ionized calcium (Ca++),Biochemistry,Lab analysis,mmol/L,1.12-1.32,Cálcio ionizado (Ca++),Bioquímica,mmol/L,Calcio ionizado (Ca++),Bioquímica,mmol/L,,
+Vitamin D (25-hydroxycalciferol),Biochemistry,Lab analysis,ng/mL,30-100,Vitamina D (25-Hidroxicalciferol),Bioquímica,ng/mL,Vitamina D (25-hidroxicalciferol),Bioquímica,ng/mL,,
+C-reactive protein (CRP),Biochemistry,Lab analysis,mg/dL,<0.50,Proteína C reactiva (PCR),Bioquímica,mg/dL,Proteína C reactiva (PCR),Bioquímica,mg/dL,,
+PSA,Biochemistry,Lab analysis,ng/mL,<4.00,"PSA, Antigénio Específico da Próstata",Bioquímica,ng/mL,PSA,Bioquímica,ng/mL,,
+Hormone Thyrostimulant (TSH),Endochronology,Lab analysis,mUI/L,0.55-4.78,Hormona tirostimulante (TSH),Endocronologia,mUI/L,Hormona tiroestimulante (TSH),Endocronología,mUI/L,,
+Free thyroxine (FT4),Endochronology,Lab analysis,pmol/L,10.3-34.7,Tiroxina livre (FT4),Endocronologia,pmol/L,Tiroxina libre (FT4),Endocronología,pmol/L,,
+Free triiodothyronine (FT3),Endochronology,Lab analysis,pmol/L,3.5-6.5,Triiodotironina livre (FT3),Endocronologia,pmol/L,Libre Triyodotironina (FT3),Endocronología,pmol/L,,
+17-β-Estradiol (E2),Endochronology,Lab analysis,pg/mL,<56.0,17-ϐeta Estradiol (E2),Endocronologia,pg/mL,17-β-estradiol (E2),Endocronología,pg/mL,,
+17-Hydroxyprogesterone (17OH-PRG),Endochronology,Lab analysis,ng/mL,0.59-3.44,17-Hidroxiprogesterona (17OH-PRG),Endocronologia,ng/mL,17-hidroxiprogesterona (17OH-PRG),Endocronología,ng/mL,,
+Total Testosterone,Endochronology,Lab analysis,pg/mL,1.60-7.30,Testosterona Total,Endocronologia,pg/mL,Testosterona total,Endocronología,pg/mL,,
+Free Testosterone,Endochronology,Lab analysis,ng/mL,8.90-42.50,Testosterona livre,Endocronologia,ng/mL,Testosterona libre,Endocronología,ng/mL,,
+Delta-4-androstenedione,Endochronology,Lab analysis,μg/dL,0.6-3.3,Delta-4-androstenediona,Endocronologia,μg/dL,Delta-4-androstenediona,Endocronología,μg/dL,,
+Dehydroepiandrosterone Sulfate (DHEA-SO4),Endochronology,Lab analysis,nmol/L,80.0-560.0,Dehidroepiandrosterona Sulfato (DHEA-SO4),Endocronologia,nmol/L,Sulfato de dehidroepiandrosterona (DHEA-SO4),Endocronología,nmol/L,,
+Sex hormone-binding globulin (SHBG),Endochronology,Lab analysis,pg/mL,10.0-57.0,Globulinas de transporte das hormonas sexuais (SHBG),Endocronologia,pg/mL,Globulina fijadora de hormonas sexuales (SHBG),Endocronología,pg/mL,,
+Adrenocorticotropic hormone (ACTH),Endochronology,Lab analysis,pmol/L,<46.0,Hormona adrenocorticotropica (ACTH),Endocronologia,pmol/L,Hormona adrenocorticotrópica (ACTH),Endocronología,pmol/L,,
+Cortisol,Endochronology,Lab analysis,μg/dL,4.30-22.4,Cortisol,Endocronologia,μg/dL,Cortisol,Endocronología,μg/dL,,
+Antinuclear antibodies (ANA),Immunology,Lab analysis,,,Ac Anti-nucleares (ANA),Imunologia,,Anticuerpos antinucleares (ANA),Inmunología,,,
+Urine - color,Urine,Lab analysis,,,Urina - cor,Urina,,Color de la orina,Orina,,,
+Urine - appearance,Urine,Lab analysis,,,Urina - aspecto,Urina,,Aspecto de la orina,Orina,,,
+Urine - density,Urine,Lab analysis,,,Urina - densidade,Urina,,Densidad de la orina,Orina,,,
+Urine - pH,Urine,Lab analysis,,,Urina - pH,Urina,,Ph de la orina,Orina,,,
+Urine - protein,Urine,Lab analysis,,,Urina - Proteínas,Urina,,Proteínas de la orina,Orina,,,
+Urine - glucose,Urine,Lab analysis,,,Urina - Glucose,Urina,,Glucosa de la orina,Orina,,,
+Urine - ketone bodies,Urine,Lab analysis,,,Urina - Corpos Cetónicos,Urina,,Cuerpos cetónicos de la orina,Orina,,,
+Urine - urobilinogen,Urine,Lab analysis,,,Urina - Urobilinogénio,Urina,,Urobilinógeno de la orina,Orina,,,
+Urine - bilirubin,Urine,Lab analysis,,,Urina - Bilirrubina,Urina,,Bilirrubina de la orina,Orina,,,
+Urine - nitrites,Urine,Lab analysis,,,Urina - Nitritos,Urina,,Nitritos de la orina,Orina,,,
+Urine - leukocyte esterase (leukocytes),Urine,Lab analysis,,,Urina - Esterase leucocitária (Leucócitos),Urina,,Esterasa leucocitaria (leucocitos),Orina,,,
+Urine - hemoglobin,Urine,Lab analysis,,,Urina - Hemoglobina,Urina,,Hemoglobina de la orina,Orina,,,
+Urine albumin-creatinine ratio (ACR),Urine,Lab analysis,mg/g,<30,Relação albumina-creatinina na urina (RAC),Urina,mg/g,Relación albúmina-creatinina (RCA) en orina,Orina,mg/g,,
+"Free cortisol, 24-hour urine",Urine,Lab analysis,,,"Cortisol livre, Urina 24h",Urina,μg/24h,"Cortisol libre, orina de 24 horas",Orina,μg/24h,,
+Urine - Epithelial Cells,Urine,Lab analysis,,,Urina - Células Epiteliais,Urina,,Orina - Células epiteliales,Orina,,,
+Urine - Leukocytes,Urine,Lab analysis,,,Urina - Leucócitos,Urina,,Orina - Leucocitos,Orina,,,

@@ -24,7 +24,8 @@ from app.schemas.health_record import (
     HealthRecordDocExamResponse, HealthRecordDocExamSummary, PaginatedImageResponse,
     PaginationInfo, ImageType, ImageFindings,
     HealthRecordMetricCreate, HealthRecordMetricUpdate, HealthRecordSectionUpdate,
-    HealthRecordTypeCreate, HealthRecordTypeUpdate, HealthRecordTypeResponse
+    HealthRecordTypeCreate, HealthRecordTypeUpdate, HealthRecordTypeResponse,
+    CheckDuplicateRequest
 )
 from app.schemas.surgery_hospitalization import (
     SurgeryHospitalizationCreate, SurgeryHospitalizationUpdate, 
@@ -119,18 +120,28 @@ async def create_health_record(
 
 @router.post("/check-duplicate")
 async def check_duplicate_health_record(
-    metric_id: int,
-    recorded_at: str,
+    request: CheckDuplicateRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Check for duplicate health records on the same date/hour"""
+    """
+    Check for duplicate health records on the same date/hour.
+    
+    This endpoint checks if a health record already exists for the given metric
+    within the same hour. It rounds the recorded_at timestamp to the nearest hour
+    and searches for any existing records in that hour window.
+    
+    Returns:
+    - duplicate_found: True if a duplicate exists, False otherwise
+    - existing_record: Details of the duplicate record (if found)
+    - message: Human-readable message about the duplicate status
+    """
     try:
         from datetime import datetime
-        recorded_datetime = datetime.fromisoformat(recorded_at.replace('Z', '+00:00'))
+        recorded_datetime = datetime.fromisoformat(request.recorded_at.replace('Z', '+00:00'))
         
         duplicate_record = health_record_crud._check_duplicate_record(
-            db, current_user.id, metric_id, recorded_datetime
+            db, current_user.id, request.metric_id, recorded_datetime
         )
         
         if duplicate_record:

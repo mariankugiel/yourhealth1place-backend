@@ -336,6 +336,11 @@ class BulkHealthRecordResponse(BaseModel):
     created_records: List[HealthRecordResponse]
     failed_records: List[Dict[str, Any]]
 
+class CheckDuplicateRequest(BaseModel):
+    """Request schema for checking duplicate health records"""
+    metric_id: int = Field(..., description="Metric ID to check for duplicates")
+    recorded_at: str = Field(..., description="Recorded timestamp in ISO format (e.g., '2024-01-01T10:00:00Z')")
+
 # ============================================================================
 # SEARCH AND FILTER SCHEMAS
 # ============================================================================

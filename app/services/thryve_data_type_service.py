@@ -10,9 +10,11 @@ class ThryveDataTypeService:
     def get_by_id(db: Session, data_type_id: int, type: str) -> Optional[ThryveDataType]:
         """Get Thryve data type by data_type_id and type (Daily/Epoch)"""
         data_type_enum = ThryveDailyEpoch.DAILY if type.lower() == "daily" else ThryveDailyEpoch.EPOCH
+        # With values_callable in the model, we can use the enum member directly
+        # SQLAlchemy will automatically use the enum value ("Daily" or "Epoch")
         return db.query(ThryveDataType).filter(
             ThryveDataType.data_type_id == data_type_id,
-            ThryveDataType.type == data_type_enum,
+            ThryveDataType.type == data_type_enum,  # Enum member, SQLAlchemy uses .value automatically
             ThryveDataType.is_active == True
         ).first()
     
@@ -36,6 +38,17 @@ class ThryveDataTypeService:
             data_type = ThryveDataTypeService.get_by_id(db, data_type_id, "daily")
         else:
             return None
+        
+        return data_type.name if data_type else None
+    
+    @staticmethod
+    def map_data_type_id_simple(db: Session, data_type_id: int) -> Optional[str]:
+        """Map dataTypeId to name - temporarily only compare by data_type_id, ignore type (Daily/Epoch)"""
+        # Query by data_type_id only, get the first match (regardless of Daily/Epoch)
+        data_type = db.query(ThryveDataType).filter(
+            ThryveDataType.data_type_id == data_type_id,
+            ThryveDataType.is_active == True
+        ).first()
         
         return data_type.name if data_type else None
     

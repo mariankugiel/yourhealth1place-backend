@@ -42,13 +42,18 @@ class HealthAnalysis(Base):
 
 # Template tables for admin-defined metric templates
 class HealthRecordSectionTemplate(Base):
+    """
+    Template for health record sections.
+    NOTE: This table stores ONLY the source language (English) content.
+    All translations (ES, PT) are stored in the 'translations' table.
+    """
     __tablename__ = "health_record_sections_tmp"
     
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     name = Column(String(100), nullable=False)  # e.g., "Blood Work", "Chemistry Panel"
-    display_name = Column(String(100), nullable=False)  # Display name in source language
-    description = Column(Text)
-    source_language = Column(String(10), nullable=False, default='en')  # Language of original content ('en', 'es', 'pt')
+    display_name = Column(String(100), nullable=False)  # Display name in source language (English only)
+    description = Column(Text)  # Description in source language (English only)
+    source_language = Column(String(10), nullable=False, default='en')  # Language of original content (always 'en' for admin templates)
     health_record_type_id = Column(Integer, ForeignKey("health_record_type.id"), nullable=False)
     is_active = Column(Boolean, default=True)
     is_default = Column(Boolean, default=True)  # True for admin pre-defined, False for user custom
@@ -64,15 +69,20 @@ class HealthRecordSectionTemplate(Base):
     metric_templates = relationship("HealthRecordMetricTemplate", back_populates="section_template")
 
 class HealthRecordMetricTemplate(Base):
+    """
+    Template for health record metrics.
+    NOTE: This table stores ONLY the source language (English) content.
+    All translations (ES, PT) for display_name and default_unit are stored in the 'translations' table.
+    """
     __tablename__ = "health_record_metrics_tmp"
     
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     section_template_id = Column(Integer, ForeignKey("health_record_sections_tmp.id"), nullable=False)
     name = Column(String(100), nullable=False)  # e.g., "White Blood Cells"
-    display_name = Column(String(100), nullable=False)  # Display name in source language
-    description = Column(Text)
-    default_unit = Column(String(20))  # Unit in source language (e.g., "K/uL")
-    source_language = Column(String(10), nullable=False, default='en')  # Language of original content ('en', 'es', 'pt')
+    display_name = Column(String(100), nullable=False)  # Display name in source language (English only)
+    description = Column(Text)  # Description in source language (English only)
+    default_unit = Column(String(20))  # Unit in source language (English only, e.g., "K/uL")
+    source_language = Column(String(10), nullable=False, default='en')  # Language of original content (always 'en' for admin templates)
     original_reference = Column(Text)  # Store original reference string like "Men: <25%, Female: <35%"
     reference_data = Column(JSON)  # Store parsed reference data for all metrics (includes gender-specific when applicable)
     data_type = Column(String(50), default="number")  # "number", "json", "text", "boolean"

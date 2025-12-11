@@ -28,6 +28,7 @@ else:
     load_dotenv(override=True)
 
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from app.core.database import SessionLocal
 from app.core.config import settings
 from app.models.thryve_data_type import ThryveDataType, ThryveDailyEpoch
@@ -116,25 +117,18 @@ def seed_thryve_data_types(db: Session) -> tuple[int, int]:
                 # Parse platform support (use cleaned row)
                 platform_support = parse_platform_support(row_clean)
                 
-                # Check if exists (same data_type_id and type)
+                # Check if data_type_id already exists (skip if found, regardless of type)
                 existing = db.query(ThryveDataType).filter(
-                    ThryveDataType.data_type_id == data_type_id,
-                    ThryveDataType.type == data_type_enum
+                    ThryveDataType.data_type_id == data_type_id
                 ).first()
                 
                 if existing:
-                    # Update existing
-                    existing.name = name
-                    existing.category = category
-                    existing.description = description
-                    existing.unit = unit
-                    existing.value_type = value_type
-                    existing.platform_support = platform_support
-                    existing.is_active = True
-                    updated_count += 1
-                    logger.debug(f"Updated data type: {name} (ID: {data_type_id}, Type: {type_str})")
-                else:
-                    # Create new
+                    # Data type ID already exists, skip this entry
+                    logger.debug(f"⏭️  Skipped (data_type_id exists): {name} (ID: {data_type_id}, Type: {type_str})")
+                    continue
+                
+                # Create new - handle duplicates gracefully
+                try:
                     new_type = ThryveDataType(
                         data_type_id=data_type_id,
                         name=name,
@@ -147,11 +141,24 @@ def seed_thryve_data_types(db: Session) -> tuple[int, int]:
                         is_active=True
                     )
                     db.add(new_type)
+                    db.flush()  # Flush to check for duplicates before commit
                     created_count += 1
                     logger.debug(f"Created data type: {name} (ID: {data_type_id}, Type: {type_str})")
+                except IntegrityError as e:
+                    # Duplicate entry found (race condition), skip it
+                    db.rollback()
+                    logger.warning(f"⏭️  Skipped duplicate (IntegrityError): {name} (ID: {data_type_id}, Type: {type_str})")
+                    continue
         
-        db.commit()
-        logger.info(f"✅ Successfully seeded Thryve data types: {created_count} created, {updated_count} updated")
+        # Commit all changes at once
+        try:
+            db.commit()
+            logger.info(f"✅ Successfully seeded Thryve data types: {created_count} created, {updated_count} updated")
+        except IntegrityError as e:
+            db.rollback()
+            logger.error(f"❌ Error committing changes: {e}")
+            raise
+        
         return (created_count, updated_count)
         
     except Exception as e:

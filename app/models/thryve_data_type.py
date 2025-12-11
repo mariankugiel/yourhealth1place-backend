@@ -17,7 +17,19 @@ class ThryveDataType(Base):
     data_type_id = Column(Integer, nullable=False, unique=True, index=True)
     name = Column(String(255), nullable=False, index=True)
     category = Column(String(255))  # Can be comma-separated, e.g., "Activity,Workouts"
-    type = Column(Enum(ThryveDailyEpoch, name='thryvedailyepoch'), nullable=False, index=True)  # Daily or Epoch
+    # Use PostgreSQL native enum with values_callable to use enum VALUES ("Daily", "Epoch")
+    # instead of enum NAMES ("DAILY", "EPOCH")
+    # By default, SQLAlchemy uses enum member names, but we need the values to match PostgreSQL
+    type = Column(
+        Enum(
+            ThryveDailyEpoch,
+            name='thryvedailyepoch',
+            values_callable=lambda x: [e.value for e in x],  # Use enum values, not names
+            create_constraint=True
+        ),
+        nullable=False,
+        index=True
+    )  # Daily or Epoch
     description = Column(Text)
     unit = Column(String(100), nullable=True)
     value_type = Column(String(50))  # LONG, DOUBLE, BOOLEAN, STRING, DATE, JSON

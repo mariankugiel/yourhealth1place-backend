@@ -3,7 +3,9 @@ import json
 import logging
 from typing import Dict, Any, Optional
 from sqlalchemy.orm import Session
+from sqlalchemy import and_
 from app.services.thryve_data_type_service import ThryveDataTypeService
+from app.models.health_record import HealthRecordSection, HealthRecordMetric
 
 logger = logging.getLogger(__name__)
 
@@ -41,8 +43,8 @@ class ThryveWebhookService:
     def map_data_type_ids(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """
         Map all dataTypeId values to names in the payload
+        Temporarily: Only compare by data_type_id, ignore event_type
         """
-        event_type = payload.get("type", "")
         mapped_payload = payload.copy()
         
         # Process epoch data
@@ -52,13 +54,13 @@ class ThryveWebhookService:
                     for epoch_entry in data_item["epochData"]:
                         data_type_id = epoch_entry.get("dataTypeId")
                         if data_type_id:
-                            data_type_name = self.data_type_service.map_data_type_id(
-                                self.db, data_type_id, event_type
+                            data_type_name = self.data_type_service.map_data_type_id_simple(
+                                self.db, data_type_id
                             )
                             if data_type_name:
                                 epoch_entry["dataTypeName"] = data_type_name
                             else:
-                                logger.warning(f"Data type ID {data_type_id} not found for event type {event_type}")
+                                logger.warning(f"Data type ID {data_type_id} not found")
         
         # Process daily data
         if "dailyData" in str(payload):
@@ -67,13 +69,13 @@ class ThryveWebhookService:
                     for daily_entry in data_item["dailyData"]:
                         data_type_id = daily_entry.get("dataTypeId")
                         if data_type_id:
-                            data_type_name = self.data_type_service.map_data_type_id(
-                                self.db, data_type_id, event_type
+                            data_type_name = self.data_type_service.map_data_type_id_simple(
+                                self.db, data_type_id
                             )
                             if data_type_name:
                                 daily_entry["dataTypeName"] = data_type_name
                             else:
-                                logger.warning(f"Data type ID {data_type_id} not found for event type {event_type}")
+                                logger.warning(f"Data type ID {data_type_id} not found")
         
         return mapped_payload
     
@@ -101,7 +103,7 @@ class ThryveWebhookService:
         # TODO: Implement health record storage logic
         return {"status": "processed", "event_type": "daily.create"}
     
-    def store_health_data(self, payload: Dict[str, Any], mapped_payload: Dict[str, Any]) -> None:
+    async def store_health_data(self, payload: Dict[str, Any], mapped_payload: Dict[str, Any]) -> None:
         """
         Store health data from Thryve webhook into health_records
         Maps end_user_id (Thryve access token) to internal user_id via Supabase
@@ -109,7 +111,11 @@ class ThryveWebhookService:
         from app.crud.user import get_user_by_supabase_id
         from app.core.supabase_client import SupabaseService
         from app.models.user import User
-        import asyncio
+        from app.models.health_record import HealthRecord, HealthRecordSection, HealthRecordMetric
+        from app.models.health_metrics import HealthRecordMetricTemplate, HealthRecordSectionTemplate
+        from app.schemas.health_record import HealthRecordCreate
+        from app.crud.health_record import health_record_crud
+        from datetime import datetime
         
         logger.info("Storing health data from Thryve webhook")
         end_user_id = payload.get("endUserId", "")
@@ -119,32 +125,23 @@ class ThryveWebhookService:
             return
         
         # Get Supabase user_id from user_integrations table using thryve_access_token
-        # Since access_token = end_user_id, we need to find user with matching thryve_access_token
         supabase_service = SupabaseService()
         
-        # Find user by thryve_access_token in user_integrations
-        # We'll need to query Supabase to find the user
         try:
             # Query Supabase user_integrations to find user_id with matching thryve_access_token
-            # This is async, so we need to handle it properly
-            async def find_user():
-                # Get all user integrations and find matching thryve_access_token
-                # Note: This is a simplified approach - in production, you might want a more efficient query
-                try:
-                    # Query Supabase for user with matching thryve_access_token
-                    response = supabase_service.client.table("user_integrations").select("user_id").eq("thryve_access_token", end_user_id).execute()
-                    if response.data and len(response.data) > 0:
-                        supabase_user_id = response.data[0].get("user_id")
-                        if supabase_user_id:
-                            # Find internal user by supabase_user_id
-                            user = get_user_by_supabase_id(self.db, supabase_user_id)
-                            return user
-                except Exception as e:
-                    logger.error(f"Error finding user by thryve_access_token: {e}")
-                return None
-            
-            # Run async function
-            user = asyncio.run(find_user())
+            try:
+                response = supabase_service.client.table("user_integrations").select("user_id").eq("thryve_access_token", end_user_id).execute()
+                if response.data and len(response.data) > 0:
+                    supabase_user_id = response.data[0].get("user_id")
+                    if supabase_user_id:
+                        user = get_user_by_supabase_id(self.db, supabase_user_id)
+                    else:
+                        user = None
+                else:
+                    user = None
+            except Exception as e:
+                logger.error(f"Error finding user by thryve_access_token: {e}")
+                user = None
             
             if not user:
                 logger.warning(f"User not found for Thryve end_user_id: {end_user_id}")
@@ -152,10 +149,316 @@ class ThryveWebhookService:
             
             logger.info(f"Found user {user.id} for Thryve end_user_id: {end_user_id}")
             
-            # TODO: Implement actual health record creation based on event type
-            # This will require mapping Thryve data types to HealthRecordMetric
-            # and creating HealthRecord entries
+            # Process data based on event type
+            event_type = payload.get("type", "")
+            data_items = payload.get("data", [])
+            
+            created_count = 0
+            skipped_count = 0
+            
+            for data_item in data_items:
+                # Process epoch data
+                if "epochData" in data_item:
+                    for epoch_entry in data_item.get("epochData", []):
+                        result = self._create_health_record_from_epoch(
+                            self.db, user.id, epoch_entry
+                        )
+                        if result:
+                            created_count += 1
+                        else:
+                            skipped_count += 1
+                
+                # Process daily data
+                if "dailyData" in data_item:
+                    for daily_entry in data_item.get("dailyData", []):
+                        result = self._create_health_record_from_daily(
+                            self.db, user.id, daily_entry
+                        )
+                        if result:
+                            created_count += 1
+                        else:
+                            skipped_count += 1
+            
+            logger.info(f"Created {created_count} health records, skipped {skipped_count} for user {user.id}")
             
         except Exception as e:
             logger.error(f"Error storing health data: {e}", exc_info=True)
+    
+    def _get_or_create_user_section(
+        self, db: Session, user_id: int, section_template_id: int
+    ) -> HealthRecordSection:
+        """Get or create user's health record section from template"""
+        from app.models.health_metrics import HealthRecordSectionTemplate
+        
+        # Check if user already has this section
+        existing_section = db.query(HealthRecordSection).filter(
+            and_(
+                HealthRecordSection.section_template_id == section_template_id,
+                HealthRecordSection.created_by == user_id
+            )
+        ).first()
+        
+        if existing_section:
+            return existing_section
+        
+        # Get template
+        template = db.query(HealthRecordSectionTemplate).filter(
+            HealthRecordSectionTemplate.id == section_template_id
+        ).first()
+        
+        if not template:
+            raise ValueError(f"Section template {section_template_id} not found")
+        
+        # Create user section from template
+        new_section = HealthRecordSection(
+            name=template.name,
+            display_name=template.display_name,
+            description=template.description,
+            source_language=template.source_language,
+            health_record_type_id=template.health_record_type_id,
+            section_template_id=template.id,
+            is_default=False,  # User's active section
+            created_by=user_id
+        )
+        
+        db.add(new_section)
+        db.commit()
+        db.refresh(new_section)
+        
+        logger.info(f"Created user section {new_section.id} from template {section_template_id} for user {user_id}")
+        return new_section
+    
+    def _get_or_create_user_metric(
+        self, db: Session, user_id: int, section_id: int, metric_template_id: int
+    ) -> HealthRecordMetric:
+        """Get or create user's health record metric from template"""
+        from app.models.health_metrics import HealthRecordMetricTemplate
+        
+        # Check if user already has this metric in this section
+        existing_metric = db.query(HealthRecordMetric).filter(
+            and_(
+                HealthRecordMetric.metric_tmp_id == metric_template_id,
+                HealthRecordMetric.section_id == section_id,
+                HealthRecordMetric.created_by == user_id
+            )
+        ).first()
+        
+        if existing_metric:
+            return existing_metric
+        
+        # Get template
+        template = db.query(HealthRecordMetricTemplate).filter(
+            HealthRecordMetricTemplate.id == metric_template_id
+        ).first()
+        
+        if not template:
+            raise ValueError(f"Metric template {metric_template_id} not found")
+        
+        # Create user metric from template
+        new_metric = HealthRecordMetric(
+            section_id=section_id,
+            metric_tmp_id=template.id,
+            name=template.name,
+            display_name=template.display_name,
+            description=template.description,
+            default_unit=template.default_unit,
+            source_language=template.source_language,
+            reference_data=template.reference_data,
+            data_type=template.data_type,
+            is_default=False,  # User's active metric
+            created_by=user_id
+        )
+        
+        db.add(new_metric)
+        db.commit()
+        db.refresh(new_metric)
+        
+        logger.info(f"Created user metric {new_metric.id} from template {metric_template_id} for user {user_id}")
+        return new_metric
+    
+    def _create_health_record_from_epoch(
+        self, db: Session, user_id: int, epoch_entry: Dict[str, Any]
+    ) -> bool:
+        """Create health record from epoch data entry"""
+        from app.schemas.health_record import HealthRecordCreate
+        from app.crud.health_record import health_record_crud
+        from app.models.thryve_data_type import ThryveDataType
+        from datetime import datetime
+        
+        try:
+            data_type_id = epoch_entry.get("dataTypeId")
+            if not data_type_id:
+                logger.warning("No dataTypeId in epoch entry")
+                return False
+            
+            # Get ThryveDataType - temporarily only compare by data_type_id
+            thryve_data_type = db.query(ThryveDataType).filter(
+                ThryveDataType.data_type_id == data_type_id,
+                ThryveDataType.is_active == True
+            ).first()
+            
+            if not thryve_data_type:
+                logger.warning(f"Thryve data type {data_type_id} not found")
+                return False
+            
+            # Find metric template linked to this Thryve data type
+            from app.models.health_metrics import HealthRecordMetricTemplate
+            metric_template = db.query(HealthRecordMetricTemplate).filter(
+                HealthRecordMetricTemplate.thryve_data_type_id == thryve_data_type.id,
+                HealthRecordMetricTemplate.is_active == True
+            ).first()
+            
+            if not metric_template:
+                logger.warning(f"No metric template found for Thryve data type {data_type_id}")
+                return False
+            
+            # Get or create user section
+            section = self._get_or_create_user_section(
+                db, user_id, metric_template.section_template_id
+            )
+            
+            # Get or create user metric
+            metric = self._get_or_create_user_metric(
+                db, user_id, section.id, metric_template.id
+            )
+            
+            # Parse timestamp
+            start_timestamp = epoch_entry.get("startTimestamp")
+            if not start_timestamp:
+                logger.warning("No startTimestamp in epoch entry")
+                return False
+            
+            # Convert milliseconds to datetime
+            recorded_at = datetime.fromtimestamp(start_timestamp / 1000.0)
+            
+            # Parse value
+            value = epoch_entry.get("value")
+            if value is None:
+                logger.warning("No value in epoch entry")
+                return False
+            
+            # Convert to float if needed
+            try:
+                value_float = float(value)
+            except (ValueError, TypeError):
+                logger.warning(f"Invalid value format: {value}")
+                return False
+            
+            # Create health record
+            health_record_data = HealthRecordCreate(
+                section_id=section.id,
+                metric_id=metric.id,
+                value=value_float,
+                status="normal",  # Default status
+                source="thryve",
+                recorded_at=recorded_at
+            )
+            
+            health_record, was_created = health_record_crud.create(
+                db, health_record_data, user_id
+            )
+            
+            if was_created:
+                logger.info(f"Created health record {health_record.id} for metric {metric.id}")
+            else:
+                logger.info(f"Updated existing health record {health_record.id} for metric {metric.id}")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error creating health record from epoch entry: {e}", exc_info=True)
+            return False
+    
+    def _create_health_record_from_daily(
+        self, db: Session, user_id: int, daily_entry: Dict[str, Any]
+    ) -> bool:
+        """Create health record from daily data entry"""
+        from app.schemas.health_record import HealthRecordCreate
+        from app.crud.health_record import health_record_crud
+        from app.models.thryve_data_type import ThryveDataType
+        from datetime import datetime
+        
+        try:
+            data_type_id = daily_entry.get("dataTypeId")
+            if not data_type_id:
+                logger.warning("No dataTypeId in daily entry")
+                return False
+            
+            # Get ThryveDataType - temporarily only compare by data_type_id
+            thryve_data_type = db.query(ThryveDataType).filter(
+                ThryveDataType.data_type_id == data_type_id,
+                ThryveDataType.is_active == True
+            ).first()
+            
+            if not thryve_data_type:
+                logger.warning(f"Thryve data type {data_type_id} not found")
+                return False
+            
+            # Find metric template linked to this Thryve data type
+            from app.models.health_metrics import HealthRecordMetricTemplate
+            metric_template = db.query(HealthRecordMetricTemplate).filter(
+                HealthRecordMetricTemplate.thryve_data_type_id == thryve_data_type.id,
+                HealthRecordMetricTemplate.is_active == True
+            ).first()
+            
+            if not metric_template:
+                logger.warning(f"No metric template found for Thryve data type {data_type_id}")
+                return False
+            
+            # Get or create user section
+            section = self._get_or_create_user_section(
+                db, user_id, metric_template.section_template_id
+            )
+            
+            # Get or create user metric
+            metric = self._get_or_create_user_metric(
+                db, user_id, section.id, metric_template.id
+            )
+            
+            # Parse day timestamp
+            day_timestamp = daily_entry.get("day")
+            if not day_timestamp:
+                logger.warning("No day timestamp in daily entry")
+                return False
+            
+            # Convert Unix timestamp to datetime (start of day)
+            recorded_at = datetime.fromtimestamp(day_timestamp)
+            
+            # Parse value
+            value = daily_entry.get("value")
+            if value is None:
+                logger.warning("No value in daily entry")
+                return False
+            
+            # Convert to float if needed
+            try:
+                value_float = float(value)
+            except (ValueError, TypeError):
+                logger.warning(f"Invalid value format: {value}")
+                return False
+            
+            # Create health record
+            health_record_data = HealthRecordCreate(
+                section_id=section.id,
+                metric_id=metric.id,
+                value=value_float,
+                status="normal",  # Default status
+                source="thryve",
+                recorded_at=recorded_at
+            )
+            
+            health_record, was_created = health_record_crud.create(
+                db, health_record_data, user_id
+            )
+            
+            if was_created:
+                logger.info(f"Created health record {health_record.id} for metric {metric.id}")
+            else:
+                logger.info(f"Updated existing health record {health_record.id} for metric {metric.id}")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error creating health record from daily entry: {e}", exc_info=True)
+            return False
 

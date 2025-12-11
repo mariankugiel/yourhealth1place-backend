@@ -9,15 +9,39 @@ import os
 from pathlib import Path
 
 # Add parent directory to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
+
+# Load environment variables from .env file in project root BEFORE importing app modules
+from dotenv import load_dotenv
+env_path = project_root / ".env"
+
+# Load .env file if it exists
+if env_path.exists():
+    load_dotenv(env_path, override=True)
+    print(f"✅ Loaded environment variables from {env_path}")
+else:
+    print(f"⚠️  Warning: .env file not found at {env_path}")
+    print("   Attempting to load from environment variables...")
+    # Try loading from project root if script is run from different directory
+    load_dotenv(override=True)
 
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from app.core.database import SessionLocal
+from app.core.config import settings
 from app.models.thryve_data_source import ThryveDataSource
 import logging
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Verify DATABASE_URL is loaded
+if "username" in settings.DATABASE_URL or "password" in settings.DATABASE_URL:
+    logger.warning("⚠️  DATABASE_URL appears to have placeholder values. Please check your .env file.")
+    logger.warning(f"   Current DATABASE_URL: {settings.DATABASE_URL.split('@')[0]}@...")
+else:
+    logger.info(f"✅ Database connection configured (host: {settings.DATABASE_URL.split('@')[1].split('/')[0] if '@' in settings.DATABASE_URL else 'unknown'})")
 
 
 def seed_thryve_data_sources(db: Session) -> tuple[int, int]:
@@ -62,22 +86,36 @@ def seed_thryve_data_sources(db: Session) -> tuple[int, int]:
                     updated_count += 1
                     logger.debug(f"Updated data source: {name} (ID: {data_source_id})")
                 else:
-                    # Create new
-                    new_source = ThryveDataSource(
-                        id=data_source_id,
-                        name=name,
-                        data_source_type=data_source_type,
-                        retrieval_method=retrieval_method,
-                        historic_data=historic_data,
-                        shared_oauth_client=shared_oauth_client,
-                        is_active=True
-                    )
-                    db.add(new_source)
-                    created_count += 1
-                    logger.debug(f"Created data source: {name} (ID: {data_source_id})")
+                    # Create new - handle duplicates gracefully
+                    try:
+                        new_source = ThryveDataSource(
+                            id=data_source_id,
+                            name=name,
+                            data_source_type=data_source_type,
+                            retrieval_method=retrieval_method,
+                            historic_data=historic_data,
+                            shared_oauth_client=shared_oauth_client,
+                            is_active=True
+                        )
+                        db.add(new_source)
+                        db.flush()  # Flush to check for duplicates before commit
+                        created_count += 1
+                        logger.debug(f"Created data source: {name} (ID: {data_source_id})")
+                    except IntegrityError as e:
+                        # Duplicate entry found (race condition), skip it
+                        db.rollback()
+                        logger.warning(f"⏭️  Skipped duplicate (IntegrityError): {name} (ID: {data_source_id})")
+                        continue
         
-        db.commit()
-        logger.info(f"✅ Successfully seeded Thryve data sources: {created_count} created, {updated_count} updated")
+        # Commit all changes at once
+        try:
+            db.commit()
+            logger.info(f"✅ Successfully seeded Thryve data sources: {created_count} created, {updated_count} updated")
+        except IntegrityError as e:
+            db.rollback()
+            logger.error(f"❌ Error committing changes: {e}")
+            raise
+        
         return (created_count, updated_count)
         
     except Exception as e:
