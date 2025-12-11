@@ -28,6 +28,11 @@ async def thryve_data_push_webhook(
         )
     
     try:
+        # Log request headers for debugging
+        content_type = request.headers.get("content-type", "not-set")
+        content_length = request.headers.get("content-length", "not-set")
+        logger.info(f"Thryve webhook received - Content-Type: {content_type}, Content-Length: {content_length}")
+        
         # Read compressed binary body
         compressed_body = await request.body()
         
@@ -37,10 +42,12 @@ async def thryve_data_push_webhook(
                 detail="Empty request body"
             )
         
+        logger.info(f"Received body size: {len(compressed_body)} bytes")
+        
         # Initialize webhook service
         webhook_service = ThryveWebhookService(db)
         
-        # Decompress payload
+        # Decompress payload (with fallback to plain JSON)
         decompressed = webhook_service.decompress_payload(compressed_body)
         
         # Parse JSON
