@@ -8,6 +8,7 @@ from app.core.config import settings
 import logging
 import base64
 import time
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -152,6 +153,10 @@ async def process_webhook_background(compressed_body: bytes, content_encoding: s
         # Parse JSON
         payload = webhook_service.parse_payload(decompressed)
         
+        # Log decompressed JSON payload (pretty formatted)
+        logger.info("📄 Decompressed JSON Payload:")
+        logger.info(json.dumps(payload, indent=2, ensure_ascii=False))
+        
         # Map dataTypeIds to names
         mapped_payload = webhook_service.map_data_type_ids(payload)
         
@@ -162,6 +167,7 @@ async def process_webhook_background(compressed_body: bytes, content_encoding: s
         # Validate event type
         valid_event_types = [
             "event.data.epoch.create",
+            "event.data.epoch.update",
             "event.data.daily.update",
             "event.data.daily.create"
         ]
