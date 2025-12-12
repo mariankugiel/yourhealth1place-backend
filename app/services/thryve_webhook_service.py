@@ -17,61 +17,68 @@ class ThryveWebhookService:
         self.db = db
         self.data_type_service = ThryveDataTypeService()
     
-    def decompress_payload(self, compressed_body: bytes) -> bytes:
+    def decompress_payload(self, compressed_body: bytes, content_encoding: str = None) -> bytes:
         """
-        Decompress Zstandard compressed binary payload
-        Falls back to plain JSON if decompression fails
+        Decompress payload based on Content-Encoding header
+        According to Thryve docs: Content-Type: application/json, Content-Encoding: zstd
         """
         if not compressed_body:
             raise ValueError("Empty payload body")
         
-        # Log payload info for debugging
-        logger.info(f"Received payload: size={len(compressed_body)} bytes, first_bytes={compressed_body[:20].hex() if len(compressed_body) >= 20 else compressed_body.hex()}")
+        # Check Content-Encoding header first (Thryve standard)
+        if content_encoding and content_encoding.lower() == "zstd":
+            logger.info("Content-Encoding: zstd detected - attempting zstandard decompression")
+            try:
+                dctx = zstd.ZstdDecompressor()
+                decompressed = dctx.decompress(compressed_body)
+                logger.info(f"✅ Successfully decompressed zstandard payload: {len(compressed_body)} -> {len(decompressed)} bytes")
+                return decompressed
+            except Exception as e:
+                logger.error(f"❌ Failed to decompress zstandard payload: {e}")
+                raise ValueError(f"Failed to decompress zstd payload: {e}")
         
-        # Check if payload is zstandard compressed by checking magic bytes
-        # Zstandard magic number: 0x28B52FFD (4 bytes) or 0xFD2FB528 (little-endian)
-        zstd_magic = compressed_body[:4] if len(compressed_body) >= 4 else b''
-        is_zstd = (
-            zstd_magic == b'\x28\xb5\x2f\xfd' or  # Zstandard magic (big-endian)
-            zstd_magic == b'\xfd\x2f\xb5\x28' or  # Zstandard magic (little-endian)
-            zstd_magic[:2] == b'\x28\xb5' or      # Partial match
-            zstd_magic[:2] == b'\xfd\x2f'
-        )
+        # If Content-Encoding is not zstd, check if it's plain JSON
+        if content_encoding and content_encoding.lower() not in ["zstd", "not-set", ""]:
+            logger.warning(f"Unknown Content-Encoding: {content_encoding}. Attempting to parse as JSON...")
         
         # Try to detect if it's already JSON (starts with { or [)
         try:
             first_char = compressed_body[:1].decode('utf-8', errors='ignore')
             if first_char in ['{', '[']:
-                logger.warning("Payload appears to be JSON, not zstandard compressed. Attempting to parse as JSON.")
+                logger.info("Payload appears to be plain JSON (not compressed)")
                 return compressed_body  # Return as-is, will be parsed as JSON
         except:
             pass
         
-        # If it looks like zstandard, try decompression
-        if is_zstd or len(compressed_body) > 4:
+        # Check zstandard magic bytes as fallback detection
+        zstd_magic = compressed_body[:4] if len(compressed_body) >= 4 else b''
+        is_zstd_magic = (
+            zstd_magic == b'\x28\xb5\x2f\xfd' or  # Zstandard magic (big-endian)
+            zstd_magic == b'\xfd\x2f\xb5\x28'     # Zstandard magic (little-endian)
+        )
+        
+        if is_zstd_magic:
+            logger.warning("Zstandard magic bytes detected but Content-Encoding header missing. Attempting decompression...")
             try:
                 dctx = zstd.ZstdDecompressor()
                 decompressed = dctx.decompress(compressed_body)
-                logger.info(f"Successfully decompressed zstandard payload: {len(compressed_body)} -> {len(decompressed)} bytes")
+                logger.info(f"✅ Successfully decompressed (magic bytes detected): {len(compressed_body)} -> {len(decompressed)} bytes")
                 return decompressed
             except Exception as e:
-                logger.warning(f"Failed to decompress as zstandard: {e}. Trying as plain JSON...")
-                # Fall through to try as plain JSON
+                logger.warning(f"Failed to decompress despite magic bytes: {e}")
         
         # Fallback: try as plain JSON
         try:
-            # Try to decode as UTF-8 JSON
             decoded = compressed_body.decode('utf-8')
-            # Quick check if it looks like JSON
             if decoded.strip().startswith(('{', '[')):
-                logger.info("Payload parsed as plain JSON (not compressed)")
+                logger.info("Payload parsed as plain JSON (fallback)")
                 return compressed_body
         except UnicodeDecodeError:
             pass
         
         # If we get here, it's neither zstandard nor plain JSON
-        logger.error(f"Payload is neither zstandard compressed nor plain JSON. Size: {len(compressed_body)}, Magic: {zstd_magic.hex()}")
-        raise ValueError(f"Unable to decompress or parse payload. It may be corrupted or in an unexpected format.")
+        logger.error(f"❌ Unable to determine payload format. Size: {len(compressed_body)}, Magic: {zstd_magic.hex()}, Content-Encoding: {content_encoding}")
+        raise ValueError(f"Unable to decompress or parse payload. Content-Encoding: {content_encoding}, Magic bytes: {zstd_magic.hex()}")
     
     def parse_payload(self, payload: bytes) -> Dict[str, Any]:
         """

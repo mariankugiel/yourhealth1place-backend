@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from typing import Dict, Any
 
 # Sample webhook payload structure
-def create_sample_epoch_payload(end_user_id: str = "a9bdec856974e93648c6674ac706c9dd") -> Dict[str, Any]:
+def create_sample_epoch_payload(end_user_id: str = "8801fc03fa7ff1fe24f61a53efd2a1b3") -> Dict[str, Any]:
     """Create a sample epoch.create event payload"""
     return {
         "endUserId": end_user_id,
@@ -43,7 +43,7 @@ def create_sample_epoch_payload(end_user_id: str = "a9bdec856974e93648c6674ac706
     }
 
 
-def create_sample_daily_payload(end_user_id: str = "a9bdec856974e93648c6674ac706c9dd") -> Dict[str, Any]:
+def create_sample_daily_payload(end_user_id: str = "8801fc03fa7ff1fe24f61a53efd2a1b3") -> Dict[str, Any]:
     """Create a sample daily.create event payload"""
     today = datetime.now(timezone.utc)
     day_timestamp = int(today.timestamp())
@@ -144,8 +144,8 @@ def main():
     parser.add_argument(
         "--end-user-id",
         type=str,
-        default="a9bdec856974e93648c6674ac706c9dd",
-        help="Thryve endUserId (access token) to use (default: a9bdec856974e93648c6674ac706c9dd)"
+        default="8801fc03fa7ff1fe24f61a53efd2a1b3",
+        help="Thryve endUserId (access token) to use (default: 8801fc03fa7ff1fe24f61a53efd2a1b3)"
     )
     parser.add_argument(
         "--payload",

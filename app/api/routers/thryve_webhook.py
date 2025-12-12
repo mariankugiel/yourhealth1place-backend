@@ -28,12 +28,23 @@ async def thryve_data_push_webhook(
         )
     
     try:
-        # Log request headers for debugging
-        content_type = request.headers.get("content-type", "not-set")
-        content_length = request.headers.get("content-length", "not-set")
-        logger.info(f"Thryve webhook received - Content-Type: {content_type}, Content-Length: {content_length}")
+        import base64
+        import time
+        start_time = time.time()
         
-        # Read compressed binary body
+        # Get Content-Encoding header (required for decompression logic)
+        content_encoding = request.headers.get("content-encoding", "not-set")
+        
+        # Log headers for debugging (Content-Type is informational only, not used for validation)
+        logger.info("=" * 80)
+        logger.info("Thryve Webhook Received")
+        logger.info("=" * 80)
+        logger.info(f"Content-Encoding: {content_encoding} (used for decompression)")
+        logger.info(f"Content-Type: {request.headers.get('content-type', 'not-set')} (informational)")
+        logger.info(f"Content-Length: {request.headers.get('content-length', 'not-set')}")
+        logger.info(f"All Headers: {dict(request.headers)}")
+        
+        # Read binary body
         compressed_body = await request.body()
         
         if not compressed_body:
@@ -42,13 +53,21 @@ async def thryve_data_push_webhook(
                 detail="Empty request body"
             )
         
-        logger.info(f"Received body size: {len(compressed_body)} bytes")
+        # Log raw bytes in base64 format for manual decompression
+        logger.info(f"\nReceived body size: {len(compressed_body)} bytes")
+        
+        # Full payload in base64 for manual decompression
+        full_base64 = base64.b64encode(compressed_body).decode('utf-8')
+        logger.info(f"\nFull payload (base64) - Copy this for manual decompression:")
+        logger.info(f"{full_base64}")
+        
+        logger.info("=" * 80)
         
         # Initialize webhook service
         webhook_service = ThryveWebhookService(db)
         
-        # Decompress payload (with fallback to plain JSON)
-        decompressed = webhook_service.decompress_payload(compressed_body)
+        # Decompress payload based on Content-Encoding header
+        decompressed = webhook_service.decompress_payload(compressed_body, content_encoding)
         
         # Parse JSON
         payload = webhook_service.parse_payload(decompressed)
@@ -84,7 +103,10 @@ async def thryve_data_push_webhook(
         # Store health data (this handles all processing and record creation)
         await webhook_service.store_health_data(payload, mapped_payload)
         
-        logger.info(f"Successfully processed {event_type} for end_user_id: {end_user_id}, count: {processed_count}")
+        elapsed_time = time.time() - start_time
+        logger.info(f"✅ Successfully processed {event_type} for end_user_id: {end_user_id}, count: {processed_count}")
+        logger.info(f"⏱️  Total processing time: {elapsed_time:.3f} seconds")
+        logger.info("=" * 80)
         
         return ThryveWebhookResponse(
             status="success",
