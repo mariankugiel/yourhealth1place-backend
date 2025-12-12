@@ -52,12 +52,12 @@ async def thryve_data_push_webhook(
         logger.info("=" * 80)
         logger.info("Thryve Webhook Received")
         logger.info("=" * 80)
-        logger.info(f"X-HMAC-Signature: {'present' if hmac_signature else 'missing'}")
+        # logger.info(f"X-HMAC-Signature: {'present' if hmac_signature else 'missing'}")
         logger.info(f"X-HMAC-Signature: {hmac_signature}")
-        logger.info(f"X-HMAC-Timestamp: {hmac_timestamp if hmac_timestamp else 'missing'}")
-        logger.info(f"Content-Encoding: {content_encoding}")
-        logger.info(f"Content-Type: {headers_lower.get('content-type', 'not-set')}")
-        logger.info(f"Content-Length: {headers_lower.get('content-length', 'not-set')}")
+        # logger.info(f"X-HMAC-Timestamp: {hmac_timestamp if hmac_timestamp else 'missing'}")
+        # logger.info(f"Content-Encoding: {content_encoding}")
+        # logger.info(f"Content-Type: {headers_lower.get('content-type', 'not-set')}")
+        # logger.info(f"Content-Length: {headers_lower.get('content-length', 'not-set')}")
         
         # Read request body (may be base64-encoded string or raw bytes)
         raw_body = await request.body()
@@ -91,7 +91,7 @@ async def thryve_data_push_webhook(
             )
         
         # Initialize webhook service
-        webhook_service = ThryveWebhookService(db)
+        # webhook_service = ThryveWebhookService(db)
         
         # HMAC verification - COMMENTED OUT FOR NOW
         # if not webhook_service.verify_hmac_signature(compressed_body, hmac_signature, hmac_timestamp):
@@ -154,8 +154,8 @@ async def process_webhook_background(compressed_body: bytes, content_encoding: s
         payload = webhook_service.parse_payload(decompressed)
         
         # Log decompressed JSON payload (pretty formatted)
-        logger.info("📄 Decompressed JSON Payload:")
-        logger.info(json.dumps(payload, indent=2, ensure_ascii=False))
+        # logger.info("📄 Decompressed JSON Payload:")
+        # logger.info(json.dumps(payload, indent=2, ensure_ascii=False))
         
         # Map dataTypeIds to names
         mapped_payload = webhook_service.map_data_type_ids(payload)
