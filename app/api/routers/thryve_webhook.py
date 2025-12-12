@@ -68,8 +68,9 @@ async def thryve_data_push_webhook(
         
         # Log raw bytes in base64 format for manual decompression
         logger.info(f"\nReceived body size: {len(compressed_body)} bytes")
-        logger.info(f"\nRaw payload bytes (base64):")
-        logger.info(f"{base64.b64encode(compressed_body).decode('utf-8')}")
+        # Convert bytes to base64 string for logging
+        # logger.info(f"{base64.b64encode(compressed_body).decode('utf-8')}")
+        logger.info(f"{compressed_body}")
         
         # Initialize webhook service
         webhook_service = ThryveWebhookService(db)
