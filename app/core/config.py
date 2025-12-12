@@ -97,6 +97,7 @@ class Settings(BaseSettings):
     # Thryve Integration Configuration
     THRYVE_WEBHOOK_ENABLED: bool = True
     THRYVE_WEBHOOK_URL: str = ""  # Public URL for Thryve dashboard webhook
+    THRYVE_WEBHOOK_HMAC_SECRET: str = ""  # HMAC secret for webhook signature verification
     THRYVE_API_BASE_URL: str = "https://api.und-gesund.de"  # For access token API
     THRYVE_API_WIDGET_URL: str = "https://api.thryve.de"  # For widget API
     THRYVE_SERVICE_BASE_URL: str = "https://service2.und-gesund.de"  # For connection URLs

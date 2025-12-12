@@ -1,11 +1,14 @@
 import zstandard as zstd
 import json
 import logging
+import hmac
+import hashlib
 from typing import Dict, Any, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
 from app.services.thryve_data_type_service import ThryveDataTypeService
 from app.models.health_record import HealthRecordSection, HealthRecordMetric
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +19,60 @@ class ThryveWebhookService:
     def __init__(self, db: Session):
         self.db = db
         self.data_type_service = ThryveDataTypeService()
+    
+    def verify_hmac_signature(
+        self, 
+        compressed_body: bytes, 
+        signature: str, 
+        timestamp: str
+    ) -> bool:
+        """
+        Verify HMAC-SHA256 signature for Thryve webhook payload
+        
+        Args:
+            compressed_body: The compressed payload as received (before decompression)
+            signature: The HMAC signature from X-HMAC-Signature header
+            timestamp: The timestamp from X-HMAC-Timestamp header
+            
+        Returns:
+            True if signature is valid, False otherwise
+        """
+        if not settings.THRYVE_WEBHOOK_HMAC_SECRET:
+            logger.warning("THRYVE_WEBHOOK_HMAC_SECRET not configured, skipping HMAC verification")
+            return True  # Allow processing if secret not configured (for testing)
+        
+        if not signature or not timestamp:
+            logger.error("Missing HMAC signature or timestamp headers")
+            return False
+        
+        try:
+            # Create message: compressed_body + timestamp
+            # According to Thryve docs, signature is calculated on compressed payload + timestamp
+            message = compressed_body + timestamp.encode('utf-8')
+            
+            # Calculate HMAC-SHA256
+            secret_bytes = settings.THRYVE_WEBHOOK_HMAC_SECRET.encode('utf-8')
+            computed_signature = hmac.new(
+                secret_bytes,
+                message,
+                hashlib.sha256
+            ).hexdigest()
+            
+            # Constant-time comparison to prevent timing attacks
+            is_valid = hmac.compare_digest(computed_signature, signature)
+            
+            if is_valid:
+                logger.info("✅ HMAC signature verification successful")
+            else:
+                logger.error(f"❌ HMAC signature verification failed")
+                logger.error(f"   Expected: {computed_signature[:16]}...")
+                logger.error(f"   Received: {signature[:16]}...")
+            
+            return is_valid
+            
+        except Exception as e:
+            logger.error(f"Error during HMAC verification: {e}")
+            return False
     
     def decompress_payload(self, compressed_body: bytes, content_encoding: str = None) -> bytes:
         """
