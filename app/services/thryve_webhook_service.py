@@ -261,33 +261,46 @@ class ThryveWebhookService:
             event_type = payload.get("type", "")
             data_items = payload.get("data", [])
             
+            # Determine if this is an update event
+            is_update_event = event_type.endswith(".update")
+            
             created_count = 0
+            updated_count = 0
             skipped_count = 0
             
             for data_item in data_items:
+                # Extract data source name from payload (e.g., "Nokia", "Withings", "Fitbit")
+                data_source_name = data_item.get("dataSourceName", "Unknown")
+                
                 # Process epoch data
                 if "epochData" in data_item:
                     for epoch_entry in data_item.get("epochData", []):
-                        result = self._create_health_record_from_epoch(
-                            self.db, user.id, epoch_entry
+                        result, was_created = self._create_health_record_from_epoch(
+                            self.db, user.id, epoch_entry, data_source_name, is_update_event, event_type
                         )
                         if result:
-                            created_count += 1
+                            if was_created:
+                                created_count += 1
+                            else:
+                                updated_count += 1
                         else:
                             skipped_count += 1
                 
                 # Process daily data
                 if "dailyData" in data_item:
                     for daily_entry in data_item.get("dailyData", []):
-                        result = self._create_health_record_from_daily(
-                            self.db, user.id, daily_entry
+                        result, was_created = self._create_health_record_from_daily(
+                            self.db, user.id, daily_entry, data_source_name, is_update_event, event_type
                         )
                         if result:
-                            created_count += 1
+                            if was_created:
+                                created_count += 1
+                            else:
+                                updated_count += 1
                         else:
                             skipped_count += 1
             
-            logger.info(f"Created {created_count} health records, skipped {skipped_count} for user {user.id}")
+            logger.info(f"Created {created_count}, updated {updated_count}, skipped {skipped_count} health records for user {user.id}")
             
         except Exception as e:
             logger.error(f"Error storing health data: {e}", exc_info=True)
@@ -385,9 +398,13 @@ class ThryveWebhookService:
         return new_metric
     
     def _create_health_record_from_epoch(
-        self, db: Session, user_id: int, epoch_entry: Dict[str, Any]
-    ) -> bool:
-        """Create health record from epoch data entry"""
+        self, db: Session, user_id: int, epoch_entry: Dict[str, Any], 
+        data_source_name: str, is_update_event: bool, event_type: str
+    ) -> tuple[bool, bool]:
+        """
+        Create or update health record from epoch data entry.
+        Returns (success: bool, was_created: bool)
+        """
         from app.schemas.health_record import HealthRecordCreate
         from app.crud.health_record import health_record_crud
         from app.models.thryve_data_type import ThryveDataType
@@ -397,7 +414,7 @@ class ThryveWebhookService:
             data_type_id = epoch_entry.get("dataTypeId")
             if not data_type_id:
                 logger.warning("No dataTypeId in epoch entry")
-                return False
+                return False, False
             
             # Get ThryveDataType - temporarily only compare by data_type_id
             thryve_data_type = db.query(ThryveDataType).filter(
@@ -407,7 +424,7 @@ class ThryveWebhookService:
             
             if not thryve_data_type:
                 logger.warning(f"Thryve data type {data_type_id} not found")
-                return False
+                return False, False
             
             # Find metric template linked to this Thryve data type
             from app.models.health_metrics import HealthRecordMetricTemplate
@@ -418,7 +435,7 @@ class ThryveWebhookService:
             
             if not metric_template:
                 logger.warning(f"No metric template found for Thryve data type {data_type_id}")
-                return False
+                return False, False
             
             # Get or create user section
             section = self._get_or_create_user_section(
@@ -430,57 +447,78 @@ class ThryveWebhookService:
                 db, user_id, section.id, metric_template.id
             )
             
-            # Parse timestamp
-            start_timestamp = epoch_entry.get("startTimestamp")
-            if not start_timestamp:
+            # Parse timestamps
+            start_timestamp_ms = epoch_entry.get("startTimestamp")
+            end_timestamp_ms = epoch_entry.get("endTimestamp")
+            
+            if not start_timestamp_ms:
                 logger.warning("No startTimestamp in epoch entry")
-                return False
+                return False, False
             
             # Convert milliseconds to datetime
-            recorded_at = datetime.fromtimestamp(start_timestamp / 1000.0)
+            start_timestamp = datetime.fromtimestamp(start_timestamp_ms / 1000.0)
+            end_timestamp = datetime.fromtimestamp(end_timestamp_ms / 1000.0) if end_timestamp_ms else None
+            
+            # Use start_timestamp as recorded_at for backward compatibility
+            recorded_at = start_timestamp
             
             # Parse value
             value = epoch_entry.get("value")
             if value is None:
                 logger.warning("No value in epoch entry")
-                return False
+                return False, False
             
             # Convert to float if needed
             try:
                 value_float = float(value)
             except (ValueError, TypeError):
                 logger.warning(f"Invalid value format: {value}")
-                return False
+                return False, False
             
-            # Create health record
+            # Create health record data
             health_record_data = HealthRecordCreate(
                 section_id=section.id,
                 metric_id=metric.id,
                 value=value_float,
                 status="normal",  # Default status
-                source="thryve",
-                recorded_at=recorded_at
+                source=data_source_name,  # Use data source name instead of "thryve"
+                recorded_at=recorded_at,
+                start_timestamp=start_timestamp,
+                end_timestamp=end_timestamp,
+                data_type="epoch"
             )
             
-            health_record, was_created = health_record_crud.create(
-                db, health_record_data, user_id
-            )
+            # Handle update vs create events
+            if is_update_event:
+                # For update events: find by exact timestamp, update if found, create if not
+                health_record, was_created = health_record_crud.update_or_create(
+                    db, health_record_data, user_id, data_type="epoch"
+                )
+            else:
+                # For create events: always create new (skip duplicate check for webhook data)
+                health_record, was_created = health_record_crud.create(
+                    db, health_record_data, user_id, skip_duplicate_check=True
+                )
             
             if was_created:
-                logger.info(f"Created health record {health_record.id} for metric {metric.id}")
+                logger.info(f"Created health record {health_record.id} for metric {metric.id} (epoch, {event_type})")
             else:
-                logger.info(f"Updated existing health record {health_record.id} for metric {metric.id}")
+                logger.info(f"Updated existing health record {health_record.id} for metric {metric.id} (epoch, {event_type})")
             
-            return True
+            return True, was_created
             
         except Exception as e:
             logger.error(f"Error creating health record from epoch entry: {e}", exc_info=True)
-            return False
+            return False, False
     
     def _create_health_record_from_daily(
-        self, db: Session, user_id: int, daily_entry: Dict[str, Any]
-    ) -> bool:
-        """Create health record from daily data entry"""
+        self, db: Session, user_id: int, daily_entry: Dict[str, Any],
+        data_source_name: str, is_update_event: bool, event_type: str
+    ) -> tuple[bool, bool]:
+        """
+        Create or update health record from daily data entry.
+        Returns (success: bool, was_created: bool)
+        """
         from app.schemas.health_record import HealthRecordCreate
         from app.crud.health_record import health_record_crud
         from app.models.thryve_data_type import ThryveDataType
@@ -490,7 +528,7 @@ class ThryveWebhookService:
             data_type_id = daily_entry.get("dataTypeId")
             if not data_type_id:
                 logger.warning("No dataTypeId in daily entry")
-                return False
+                return False, False
             
             # Get ThryveDataType - temporarily only compare by data_type_id
             thryve_data_type = db.query(ThryveDataType).filter(
@@ -500,7 +538,7 @@ class ThryveWebhookService:
             
             if not thryve_data_type:
                 logger.warning(f"Thryve data type {data_type_id} not found")
-                return False
+                return False, False
             
             # Find metric template linked to this Thryve data type
             from app.models.health_metrics import HealthRecordMetricTemplate
@@ -511,7 +549,7 @@ class ThryveWebhookService:
             
             if not metric_template:
                 logger.warning(f"No metric template found for Thryve data type {data_type_id}")
-                return False
+                return False, False
             
             # Get or create user section
             section = self._get_or_create_user_section(
@@ -523,50 +561,69 @@ class ThryveWebhookService:
                 db, user_id, section.id, metric_template.id
             )
             
-            # Parse day timestamp
-            day_timestamp = daily_entry.get("day")
-            if not day_timestamp:
+            # Parse day timestamp (in milliseconds)
+            day_timestamp_ms = daily_entry.get("day")
+            if not day_timestamp_ms:
                 logger.warning("No day timestamp in daily entry")
-                return False
+                return False, False
             
-            # Convert Unix timestamp to datetime (start of day)
-            recorded_at = datetime.fromtimestamp(day_timestamp)
+            # Convert milliseconds to datetime (start of day)
+            # Note: day timestamp might be in milliseconds or seconds, check format
+            if day_timestamp_ms > 1e12:  # Likely milliseconds
+                start_timestamp = datetime.fromtimestamp(day_timestamp_ms / 1000.0)
+            else:  # Likely seconds
+                start_timestamp = datetime.fromtimestamp(day_timestamp_ms)
+            
+            # For daily data: start_timestamp = day start, end_timestamp = None
+            recorded_at = start_timestamp
+            end_timestamp = None
             
             # Parse value
             value = daily_entry.get("value")
             if value is None:
                 logger.warning("No value in daily entry")
-                return False
+                return False, False
             
             # Convert to float if needed
             try:
                 value_float = float(value)
             except (ValueError, TypeError):
                 logger.warning(f"Invalid value format: {value}")
-                return False
+                return False, False
             
-            # Create health record
+            # Create health record data
             health_record_data = HealthRecordCreate(
                 section_id=section.id,
                 metric_id=metric.id,
                 value=value_float,
                 status="normal",  # Default status
-                source="thryve",
-                recorded_at=recorded_at
+                source=data_source_name,  # Use data source name instead of "thryve"
+                recorded_at=recorded_at,
+                start_timestamp=start_timestamp,
+                end_timestamp=end_timestamp,
+                data_type="daily"
             )
             
-            health_record, was_created = health_record_crud.create(
-                db, health_record_data, user_id
-            )
+            # Handle update vs create events
+            if is_update_event:
+                # For update events: find by exact timestamp, update if found, create if not
+                health_record, was_created = health_record_crud.update_or_create(
+                    db, health_record_data, user_id, data_type="daily"
+                )
+            else:
+                # For create events: always create new (skip duplicate check for webhook data)
+                health_record, was_created = health_record_crud.create(
+                    db, health_record_data, user_id, skip_duplicate_check=True
+                )
             
             if was_created:
-                logger.info(f"Created health record {health_record.id} for metric {metric.id}")
+                logger.info(f"Created health record {health_record.id} for metric {metric.id} (daily, {event_type})")
             else:
-                logger.info(f"Updated existing health record {health_record.id} for metric {metric.id}")
+                logger.info(f"Updated existing health record {health_record.id} for metric {metric.id} (daily, {event_type})")
             
-            return True
+            return True, was_created
             
         except Exception as e:
             logger.error(f"Error creating health record from daily entry: {e}", exc_info=True)
-            return False
+            return False, False
 

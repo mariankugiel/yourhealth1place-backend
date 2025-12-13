@@ -20,32 +20,43 @@ logger = logging.getLogger(__name__)
 class HealthRecordCRUD:
     """CRUD operations for HealthRecord model"""
     
-    def create(self, db: Session, health_record: HealthRecordCreate, user_id: int) -> tuple[HealthRecord, bool]:
-        """Create a new health record with duplicate detection. Returns (record, was_created_new)"""
+    def create(self, db: Session, health_record: HealthRecordCreate, user_id: int, skip_duplicate_check: bool = False) -> tuple[HealthRecord, bool]:
+        """
+        Create a new health record with optional duplicate detection.
+        Returns (record, was_created_new)
+        
+        Args:
+            skip_duplicate_check: If True, skip duplicate check (for webhook data).
+                                 If False, check for duplicates in same hour (for manual entries).
+        """
         try:
-            # Check for duplicate values on the same date/hour
-            duplicate_record = self._check_duplicate_record(
-                db, user_id, health_record.metric_id, health_record.recorded_at
-            )
-            
-            if duplicate_record:
-                # Update existing record instead of creating new one
-                duplicate_record.value = health_record.value
-                duplicate_record.status = health_record.status
-                duplicate_record.source = health_record.source
-                duplicate_record.device_id = health_record.device_id
-                duplicate_record.device_info = health_record.device_info
-                duplicate_record.accuracy = health_record.accuracy
-                duplicate_record.location_data = health_record.location_data
-                duplicate_record.updated_at = func.now()
+            # Check for duplicate values on the same date/hour (only if not skipped)
+            if not skip_duplicate_check:
+                duplicate_record = self._check_duplicate_record(
+                    db, user_id, health_record.metric_id, health_record.recorded_at
+                )
                 
-                db.commit()
-                db.refresh(duplicate_record)
-                
-                logger.info(f"Updated duplicate health record {duplicate_record.id} for user {user_id}")
-                return duplicate_record, False  # False = was not created new, was updated
+                if duplicate_record:
+                    # Update existing record instead of creating new one
+                    duplicate_record.value = health_record.value
+                    duplicate_record.status = health_record.status
+                    duplicate_record.source = health_record.source
+                    duplicate_record.device_id = health_record.device_id
+                    duplicate_record.device_info = health_record.device_info
+                    duplicate_record.accuracy = health_record.accuracy
+                    duplicate_record.location_data = health_record.location_data
+                    duplicate_record.start_timestamp = health_record.start_timestamp
+                    duplicate_record.end_timestamp = health_record.end_timestamp
+                    duplicate_record.data_type = health_record.data_type
+                    duplicate_record.updated_at = func.now()
+                    
+                    db.commit()
+                    db.refresh(duplicate_record)
+                    
+                    logger.info(f"Updated duplicate health record {duplicate_record.id} for user {user_id}")
+                    return duplicate_record, False  # False = was not created new, was updated
             
-            # Create new record if no duplicate found
+            # Create new record if no duplicate found or duplicate check skipped
             db_health_record = HealthRecord(
                 created_by=user_id,
                 section_id=health_record.section_id,
@@ -54,6 +65,9 @@ class HealthRecordCRUD:
                 status=health_record.status,
                 source=health_record.source,
                 recorded_at=health_record.recorded_at,
+                start_timestamp=health_record.start_timestamp,
+                end_timestamp=health_record.end_timestamp,
+                data_type=health_record.data_type,
                 device_id=health_record.device_id,
                 device_info=health_record.device_info,
                 accuracy=health_record.accuracy,
@@ -98,6 +112,97 @@ class HealthRecordCRUD:
             logger.error(f"Failed to check for duplicate record: {e}")
             return None
     
+    def _find_record_by_exact_timestamp(
+        self, 
+        db: Session, 
+        user_id: int, 
+        metric_id: int, 
+        start_timestamp: datetime,
+        data_type: Optional[str] = None
+    ) -> Optional[HealthRecord]:
+        """
+        Find record by exact start_timestamp (not hour-based).
+        Used for update events to find existing records to update.
+        
+        Args:
+            data_type: Optional filter by data_type ('epoch' or 'daily')
+        """
+        try:
+            query = db.query(HealthRecord).filter(
+                and_(
+                    HealthRecord.created_by == user_id,
+                    HealthRecord.metric_id == metric_id,
+                    HealthRecord.start_timestamp == start_timestamp
+                )
+            )
+            
+            # Optionally filter by data_type
+            if data_type:
+                query = query.filter(HealthRecord.data_type == data_type)
+            
+            return query.first()
+            
+        except Exception as e:
+            logger.error(f"Failed to find record by exact timestamp: {e}")
+            return None
+    
+    def update_or_create(
+        self, 
+        db: Session, 
+        health_record: HealthRecordCreate, 
+        user_id: int,
+        data_type: Optional[str] = None
+    ) -> tuple[HealthRecord, bool]:
+        """
+        For update events: find by exact timestamp, update if found, create if not.
+        Returns (record, was_created_new)
+        
+        Args:
+            data_type: Optional data_type filter ('epoch' or 'daily')
+        """
+        try:
+            # Use start_timestamp if available, otherwise fall back to recorded_at
+            timestamp_to_match = health_record.start_timestamp or health_record.recorded_at
+            
+            if not timestamp_to_match:
+                logger.warning("No timestamp available for update_or_create, creating new record")
+                return self.create(db, health_record, user_id, skip_duplicate_check=True)
+            
+            # Find existing record by exact timestamp
+            existing_record = self._find_record_by_exact_timestamp(
+                db, user_id, health_record.metric_id, timestamp_to_match, data_type
+            )
+            
+            if existing_record:
+                # Update existing record
+                existing_record.value = health_record.value
+                existing_record.status = health_record.status
+                existing_record.source = health_record.source
+                existing_record.device_id = health_record.device_id
+                existing_record.device_info = health_record.device_info
+                existing_record.accuracy = health_record.accuracy
+                existing_record.location_data = health_record.location_data
+                existing_record.start_timestamp = health_record.start_timestamp
+                existing_record.end_timestamp = health_record.end_timestamp
+                existing_record.data_type = health_record.data_type
+                existing_record.recorded_at = health_record.recorded_at  # Update recorded_at too
+                existing_record.updated_at = func.now()
+                
+                db.commit()
+                db.refresh(existing_record)
+                
+                logger.info(f"Updated existing health record {existing_record.id} for user {user_id} (update event)")
+                return existing_record, False  # False = was not created new, was updated
+            
+            # No existing record found, create new one
+            logger.info(f"No existing record found for timestamp {timestamp_to_match}, creating new record")
+            return self.create(db, health_record, user_id, skip_duplicate_check=True)
+            
+        except Exception as e:
+            logger.error(f"Failed to update or create health record: {e}")
+            db.rollback()
+            raise
+    
     def get_by_id(self, db: Session, record_id: int, user_id: int) -> Optional[HealthRecord]:
         """Get health record by ID for a specific user"""
         try:
@@ -135,9 +240,33 @@ class HealthRecordCRUD:
                 if filters.device_id:
                     query = query.filter(HealthRecord.device_id == filters.device_id)
                 if filters.start_date:
-                    query = query.filter(HealthRecord.recorded_at >= filters.start_date)
+                    # Use start_timestamp if available, otherwise fall back to recorded_at
+                    query = query.filter(
+                        or_(
+                            and_(
+                                HealthRecord.start_timestamp.isnot(None),
+                                HealthRecord.start_timestamp >= filters.start_date
+                            ),
+                            and_(
+                                HealthRecord.start_timestamp.is_(None),
+                                HealthRecord.recorded_at >= filters.start_date
+                            )
+                        )
+                    )
                 if filters.end_date:
-                    query = query.filter(HealthRecord.recorded_at <= filters.end_date)
+                    # Use start_timestamp if available, otherwise fall back to recorded_at
+                    query = query.filter(
+                        or_(
+                            and_(
+                                HealthRecord.start_timestamp.isnot(None),
+                                HealthRecord.start_timestamp <= filters.end_date
+                            ),
+                            and_(
+                                HealthRecord.start_timestamp.is_(None),
+                                HealthRecord.recorded_at <= filters.end_date
+                            )
+                        )
+                    )
             
             return query.order_by(desc(HealthRecord.recorded_at)).offset(skip).limit(limit).all()
             
@@ -1337,10 +1466,16 @@ class HealthRecordSectionMetricCRUD:
                     ).order_by(HealthRecord.recorded_at.desc()).first()
                     
                     # Get all historical data points for trend analysis
+                    # Filter to show only daily data in metric cards (epoch data excluded)
                     historical_records = db.query(HealthRecord).filter(
                         and_(
                             HealthRecord.created_by == user_id,
-                            HealthRecord.metric_id == metric.id
+                            HealthRecord.metric_id == metric.id,
+                            # Only show daily data, or records without data_type (backward compatibility)
+                            or_(
+                                HealthRecord.data_type == 'daily',
+                                HealthRecord.data_type.is_(None)
+                            )
                         )
                     ).order_by(HealthRecord.recorded_at.asc()).all()
                     
@@ -1520,19 +1655,30 @@ class HealthRecordSectionMetricCRUD:
                         )
                     ).scalar()
                     
-                    # Get latest record for this metric
+                    # Get latest record for this metric (only daily data for metric cards)
                     latest_record = db.query(HealthRecord).filter(
                         and_(
                             HealthRecord.created_by == user_id,
-                            HealthRecord.metric_id == metric.id
+                            HealthRecord.metric_id == metric.id,
+                            # Only show daily data, or records without data_type (backward compatibility)
+                            or_(
+                                HealthRecord.data_type == 'daily',
+                                HealthRecord.data_type.is_(None)
+                            )
                         )
                     ).order_by(HealthRecord.recorded_at.desc()).first()
                     
                     # Get all historical data points for trend analysis
+                    # Filter to show only daily data in metric cards (epoch data excluded)
                     historical_records = db.query(HealthRecord).filter(
                         and_(
                             HealthRecord.created_by == user_id,
-                            HealthRecord.metric_id == metric.id
+                            HealthRecord.metric_id == metric.id,
+                            # Only show daily data, or records without data_type (backward compatibility)
+                            or_(
+                                HealthRecord.data_type == 'daily',
+                                HealthRecord.data_type.is_(None)
+                            )
                         )
                     ).order_by(HealthRecord.recorded_at.asc()).all()
                     

@@ -248,8 +248,13 @@ class HealthRecord(Base):
     metric_id = Column(Integer, ForeignKey("health_record_metrics.id"), nullable=False)
     value = Column(Float, nullable=False)  # Direct numeric value storage
     status = Column(String(50))  # "normal", "abnormal", "excellent"
-    source = Column(String(100))  # "ios_app", "manual_entry", "lab_result", "apple_watch", "fitbit"
-    recorded_at = Column(DateTime, nullable=False)  # When measurement was taken
+    source = Column(String(100))  # "ios_app", "manual_entry", "lab_result", "apple_watch", "fitbit", "Withings", "Fitbit", etc.
+    recorded_at = Column(DateTime, nullable=False)  # When measurement was taken (for backward compatibility, same as start_timestamp for daily data)
+    
+    # Thryve Integration Fields (for epoch/daily data distinction)
+    start_timestamp = Column(DateTime, nullable=True)  # Start time for epoch data, day start for daily data
+    end_timestamp = Column(DateTime, nullable=True)  # End time for epoch data, null for daily data
+    data_type = Column(String(20), nullable=True)  # "epoch" or "daily" to distinguish data types
     
     # iOS Integration Fields
     device_id = Column(Integer, ForeignKey("ios_devices.id"))  # Link to ios_devices table

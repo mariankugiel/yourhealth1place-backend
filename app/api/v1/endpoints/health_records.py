@@ -2225,6 +2225,85 @@ async def get_metric_details(
             detail=f"Failed to get metric details: {str(e)}"
         )
 
+@router.get("/metrics/{metric_id}/records", response_model=List[HealthRecordResponse])
+async def get_metric_records(
+    metric_id: int,
+    start_date: Optional[datetime] = Query(None, description="Start date for filtering records"),
+    end_date: Optional[datetime] = Query(None, description="End date for filtering records"),
+    patient_id: Optional[int] = Query(None, description="Patient ID to access (requires permission)"),
+    patient_token: Optional[str] = Query(None, description="Patient token to access (requires permission)"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get health records for a specific metric with optional date filtering"""
+    try:
+        from app.core.patient_access import check_patient_access
+        
+        # Determine target user ID
+        target_user_id = current_user.id
+        
+        resolved_patient_id = _resolve_patient_identifier(patient_id, patient_token)
+        
+        if resolved_patient_id:
+            # Check permissions
+            has_access, error_message = await check_patient_access(
+                db=db,
+                patient_id=resolved_patient_id,
+                current_user=current_user,
+                permission_type="view_health_records"
+            )
+            
+            if not has_access:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=error_message or "You do not have permission to access this patient's health records"
+                )
+            
+            target_user_id = resolved_patient_id
+        
+        # Create filters with metric_id and optional date range
+        filters = HealthRecordFilter(
+            metric_id=metric_id,
+            start_date=start_date,
+            end_date=end_date
+        )
+        
+        # Get records (no limit for metric detail view, or use a large limit)
+        records = health_record_crud.get_by_user(db, target_user_id, skip=0, limit=10000, filters=filters)
+        
+        return [
+            HealthRecordResponse(
+                id=record.id,
+                section_id=record.section_id,
+                metric_id=record.metric_id,
+                value=record.value,
+                status=record.status,
+                source=record.source,
+                recorded_at=record.recorded_at,
+                start_timestamp=record.start_timestamp,
+                end_timestamp=record.end_timestamp,
+                data_type=record.data_type,
+                device_id=record.device_id,
+                device_info=record.device_info,
+                accuracy=record.accuracy,
+                location_data=record.location_data,
+                created_by=record.created_by,
+                created_at=record.created_at,
+                updated_at=record.updated_at,
+                updated_by=record.updated_by
+            )
+            for record in records
+        ]
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get metric records: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get metric records: {str(e)}"
+        )
+
 @router.delete("/metrics/{metric_id}")
 async def delete_health_record_metric(
     metric_id: int,
