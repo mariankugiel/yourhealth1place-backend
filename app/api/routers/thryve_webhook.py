@@ -9,10 +9,83 @@ import logging
 import base64
 import time
 import json
+import os
+from pathlib import Path
+from datetime import datetime
+from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def save_webhook_data_to_files(
+    compressed_body: bytes,
+    decompressed_payload: Dict[str, Any],
+    event_type: str,
+    end_user_id: str,
+    headers: Dict[str, str],
+    content_encoding: str
+) -> None:
+    """
+    Save raw webhook data and decompressed payload to files in project root.
+    Non-blocking - errors are logged but don't affect webhook processing.
+    
+    Files saved:
+    - {timestamp}_{event_type}_{end_user_id_short}.raw.bin - Raw compressed data
+    - {timestamp}_{event_type}_{end_user_id_short}.meta.json - Metadata (headers, encoding)
+    - {timestamp}_{event_type}_{end_user_id_short}.json - Decompressed JSON payload
+    """
+    try:
+        # Get project root directory (parent of app directory)
+        project_root = Path(__file__).parent.parent.parent
+        webhook_data_dir = project_root / "webhook_data"
+        
+        # Create directory if it doesn't exist
+        webhook_data_dir.mkdir(exist_ok=True)
+        
+        # Generate timestamp for filename (YYYYMMDD_HHMMSS)
+        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        
+        # Sanitize event_type for filename (replace dots with underscores)
+        event_type_safe = event_type.replace(".", "_") if event_type else "unknown"
+        
+        # Get short end_user_id (first 8 chars) for filename
+        end_user_id_short = end_user_id[:8] if end_user_id else "unknown"
+        
+        # Base filename
+        base_filename = f"{timestamp}_{event_type_safe}_{end_user_id_short}"
+        
+        # Save raw compressed data
+        raw_file_path = webhook_data_dir / f"{base_filename}.raw.bin"
+        with open(raw_file_path, "wb") as f:
+            f.write(compressed_body)
+        logger.info(f"💾 Saved raw webhook data to: {raw_file_path}")
+        
+        # Save metadata
+        metadata = {
+            "timestamp": timestamp,
+            "event_type": event_type,
+            "end_user_id": end_user_id,
+            "content_encoding": content_encoding,
+            "raw_body_size": len(compressed_body),
+            "headers": headers,
+            "saved_at": datetime.utcnow().isoformat()
+        }
+        meta_file_path = webhook_data_dir / f"{base_filename}.meta.json"
+        with open(meta_file_path, "w", encoding="utf-8") as f:
+            json.dump(metadata, f, indent=2, ensure_ascii=False)
+        logger.info(f"💾 Saved webhook metadata to: {meta_file_path}")
+        
+        # Save decompressed JSON payload
+        json_file_path = webhook_data_dir / f"{base_filename}.json"
+        with open(json_file_path, "w", encoding="utf-8") as f:
+            json.dump(decompressed_payload, f, indent=2, ensure_ascii=False)
+        logger.info(f"💾 Saved decompressed JSON payload to: {json_file_path}")
+        
+    except Exception as e:
+        logger.warning(f"⚠️  Failed to save webhook data to files: {e}", exc_info=True)
+        # Don't raise - allow webhook processing to continue
 
 
 @router.post("/thryve/data-push", response_model=ThryveWebhookResponse, status_code=status.HTTP_200_OK)
@@ -106,10 +179,13 @@ async def thryve_data_push_webhook(
         logger.info(f"✅ Webhook received in {verification_time:.3f} seconds - acknowledging receipt (HMAC verification disabled)")
         
         # Queue background processing (decompress, parse, store)
+        # Pass headers for file saving (convert to dict)
+        headers_dict = {k: v for k, v in request.headers.items()}
         background_tasks.add_task(
             process_webhook_background,
             compressed_body,
-            content_encoding
+            content_encoding,
+            headers_dict
         )
         
         logger.info("📋 Webhook queued for background processing")
@@ -132,7 +208,7 @@ async def thryve_data_push_webhook(
         )
 
 
-async def process_webhook_background(compressed_body: bytes, content_encoding: str):
+async def process_webhook_background(compressed_body: bytes, content_encoding: str, headers: Dict[str, str] = None):
     """
     Background task to process Thryve webhook payload
     This runs asynchronously after the webhook has been acknowledged
@@ -153,16 +229,26 @@ async def process_webhook_background(compressed_body: bytes, content_encoding: s
         # Parse JSON
         payload = webhook_service.parse_payload(decompressed)
         
+        # Extract event type and end_user_id for file saving
+        event_type = payload.get("type", "")
+        end_user_id = payload.get("endUserId", "")
+        
+        # Save webhook data to files (raw data, metadata, and decompressed JSON)
+        save_webhook_data_to_files(
+            compressed_body=compressed_body,
+            decompressed_payload=payload,
+            event_type=event_type,
+            end_user_id=end_user_id,
+            headers=headers or {},
+            content_encoding=content_encoding
+        )
+        
         # Log decompressed JSON payload (pretty formatted)
         # logger.info("📄 Decompressed JSON Payload:")
         # logger.info(json.dumps(payload, indent=2, ensure_ascii=False))
         
         # Map dataTypeIds to names
         mapped_payload = webhook_service.map_data_type_ids(payload)
-        
-        # Extract event type and end_user_id
-        event_type = payload.get("type", "")
-        end_user_id = payload.get("endUserId", "")
         
         # Validate event type
         valid_event_types = [
