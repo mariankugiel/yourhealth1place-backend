@@ -1,0 +1,91 @@
+{
+  "endUserId": "a9bdec856974e93648c6674ac706c9dd",
+  "timestampType": "unix",
+  "type": "event.data.daily.create",
+  "data": [
+    {
+      "dataSourceId": 8,
+      "dataSourceName": "Nokia",
+      "dailyData": [
+        {
+          "day": 1765670400000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1210,
+          "value": "0.003680555555555556"
+        },
+        {
+          "day": 1765670400000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1100,
+          "value": "47"
+        },
+        {
+          "day": 1765670400000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1101,
+          "value": "45"
+        },
+        {
+          "day": 1765670400000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1114,
+          "value": "2"
+        },
+        {
+          "day": 1765670400000,
+          "timezoneOffset": 0,
+          "dataTypeId": 3000,
+          "value": "60"
+        },
+        {
+          "day": 1765670400000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1011,
+          "value": "22"
+        },
+        {
+          "day": 1765670400000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1010,
+          "value": "1808"
+        },
+        {
+          "day": 1765670400000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1000,
+          "value": "876"
+        },
+        {
+          "day": 1765670400000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1001,
+          "value": "667.72"
+        },
+        {
+          "day": 1765670400000,
+          "timezoneOffset": 0,
+          "dataTypeId": 3090,
+          "value": "161"
+        },
+        {
+          "day": 1765670400000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1003,
+          "value": "2.93"
+        },
+        {
+          "day": 1765670400000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1002,
+          "value": "1"
+        },
+        {
+          "day": 1765670400000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1102,
+          "value": "2"
+        }
+      ]
+    }
+  ]
+}

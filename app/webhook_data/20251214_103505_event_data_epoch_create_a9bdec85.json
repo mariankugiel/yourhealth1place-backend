@@ -1,0 +1,27 @@
+{
+  "endUserId": "a9bdec856974e93648c6674ac706c9dd",
+  "timestampType": "unix",
+  "type": "event.data.epoch.create",
+  "data": [
+    {
+      "dataSourceId": 8,
+      "dataSourceName": "Nokia",
+      "epochData": [
+        {
+          "startTimestamp": 1765707875000,
+          "endTimestamp": 1765707927000,
+          "timezoneOffset": 0,
+          "dataTypeId": 3000,
+          "value": "62"
+        },
+        {
+          "startTimestamp": 1765708459000,
+          "endTimestamp": 1765708495000,
+          "timezoneOffset": 0,
+          "dataTypeId": 3000,
+          "value": "57"
+        }
+      ]
+    }
+  ]
+}

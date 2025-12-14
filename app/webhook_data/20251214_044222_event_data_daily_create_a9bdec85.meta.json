@@ -1,0 +1,25 @@
+{
+  "timestamp": "20251214_044222",
+  "event_type": "event.data.daily.create",
+  "end_user_id": "a9bdec856974e93648c6674ac706c9dd",
+  "content_encoding": "zstd",
+  "raw_body_size": 286,
+  "headers": {
+    "host": "api.yourhealth1place.eu",
+    "x-real-ip": "80.158.109.167",
+    "x-forwarded-for": "80.158.109.167",
+    "x-forwarded-proto": "https",
+    "connection": "upgrade",
+    "content-length": "384",
+    "accept": "text/plain, application/json, application/yaml, application/*+json, */*",
+    "content-type": "application/json",
+    "x-hmac-signature": "f658d7fa059d832955b7678fc8f20f7020a1549b7fd6391649b53e77ddc36b5d",
+    "x-hmac-timestamp": "1765687339981",
+    "x-hmac-algorithm": "hmac-sha256",
+    "content-encoding": "zstd",
+    "traceparent": "00-fbfc5d8288874e48c3222b160fdf9957-b672da9d7821d9b1-01",
+    "accept-encoding": "gzip, x-gzip, deflate",
+    "user-agent": "Apache-HttpClient/5.4.3 (Java/21.0.9)"
+  },
+  "saved_at": "2025-12-14T04:42:22.870845"
+}

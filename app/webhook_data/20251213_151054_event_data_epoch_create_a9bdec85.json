@@ -1,0 +1,972 @@
+{
+  "endUserId": "a9bdec856974e93648c6674ac706c9dd",
+  "timestampType": "unix",
+  "type": "event.data.epoch.create",
+  "data": [
+    {
+      "dataSourceId": 8,
+      "dataSourceName": "Nokia",
+      "epochData": [
+        {
+          "startTimestamp": 1765634580000,
+          "endTimestamp": 1765634640000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1001,
+          "value": "98.51"
+        },
+        {
+          "startTimestamp": 1765635300000,
+          "endTimestamp": 1765635360000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1000,
+          "value": "9.0"
+        },
+        {
+          "startTimestamp": 1765636020000,
+          "endTimestamp": 1765636080000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1001,
+          "value": "11.96"
+        },
+        {
+          "startTimestamp": 1765636560000,
+          "endTimestamp": 1765636620000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1000,
+          "value": "37.0"
+        },
+        {
+          "startTimestamp": 1765636140000,
+          "endTimestamp": 1765636200000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1001,
+          "value": "57.1"
+        },
+        {
+          "startTimestamp": 1765636320000,
+          "endTimestamp": 1765636380000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1000,
+          "value": "49.0"
+        },
+        {
+          "startTimestamp": 1765637700000,
+          "endTimestamp": 1765637760000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1001,
+          "value": "9.22"
+        },
+        {
+          "startTimestamp": 1765638480000,
+          "endTimestamp": 1765638541000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1011,
+          "value": "0.25"
+        },
+        {
+          "startTimestamp": 1765635600000,
+          "endTimestamp": 1765635660000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1011,
+          "value": "1.31"
+        },
+        {
+          "startTimestamp": 1765634040000,
+          "endTimestamp": 1765634100000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1011,
+          "value": "0.35"
+        },
+        {
+          "startTimestamp": 1765634640000,
+          "endTimestamp": 1765634700000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1000,
+          "value": "119.0"
+        },
+        {
+          "startTimestamp": 1765636920000,
+          "endTimestamp": 1765636980000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1000,
+          "value": "57.0"
+        },
+        {
+          "startTimestamp": 1765636260000,
+          "endTimestamp": 1765636320000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1000,
+          "value": "91.0"
+        },
+        {
+          "startTimestamp": 1765636380000,
+          "endTimestamp": 1765636440000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1011,
+          "value": "2.48"
+        },
+        {
+          "startTimestamp": 1765637700000,
+          "endTimestamp": 1765637760000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1011,
+          "value": "0.3"
+        },
+        {
+          "startTimestamp": 1765636080000,
+          "endTimestamp": 1765636140000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1011,
+          "value": "0.17"
+        },
+        {
+          "startTimestamp": 1765638240000,
+          "endTimestamp": 1765638300000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1000,
+          "value": "14.0"
+        },
+        {
+          "startTimestamp": 1765634700000,
+          "endTimestamp": 1765634760000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1000,
+          "value": "122.0"
+        },
+        {
+          "startTimestamp": 1765635960000,
+          "endTimestamp": 1765636020000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1011,
+          "value": "0.82"
+        },
+        {
+          "startTimestamp": 1765636920000,
+          "endTimestamp": 1765636980000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1011,
+          "value": "1.74"
+        },
+        {
+          "startTimestamp": 1765635840000,
+          "endTimestamp": 1765635900000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1001,
+          "value": "31.99"
+        },
+        {
+          "startTimestamp": 1765636620000,
+          "endTimestamp": 1765636680000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1001,
+          "value": "25.71"
+        },
+        {
+          "startTimestamp": 1765636920000,
+          "endTimestamp": 1765636980000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1001,
+          "value": "43.19"
+        },
+        {
+          "startTimestamp": 1765636200000,
+          "endTimestamp": 1765636260000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1001,
+          "value": "79.11"
+        },
+        {
+          "startTimestamp": 1765635720000,
+          "endTimestamp": 1765635780000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1011,
+          "value": "2.34"
+        },
+        {
+          "startTimestamp": 1765634821000,
+          "endTimestamp": 1765634880000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1001,
+          "value": "89.98"
+        },
+        {
+          "startTimestamp": 1765638420000,
+          "endTimestamp": 1765638480000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1011,
+          "value": "1.16"
+        },
+        {
+          "startTimestamp": 1765637688000,
+          "endTimestamp": 1765637753000,
+          "timezoneOffset": 0,
+          "dataTypeId": 3000,
+          "value": "76"
+        },
+        {
+          "startTimestamp": 1765636080000,
+          "endTimestamp": 1765636140000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1001,
+          "value": "5.29"
+        },
+        {
+          "startTimestamp": 1765638360000,
+          "endTimestamp": 1765638420000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1001,
+          "value": "7.62"
+        },
+        {
+          "startTimestamp": 1765634760000,
+          "endTimestamp": 1765634821000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1000,
+          "value": "120.0"
+        },
+        {
+          "startTimestamp": 1765635300000,
+          "endTimestamp": 1765635360000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1001,
+          "value": "5.97"
+        },
+        {
+          "startTimestamp": 1765633980000,
+          "endTimestamp": 1765634040000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1000,
+          "value": "10.0"
+        },
+        {
+          "startTimestamp": 1765636500000,
+          "endTimestamp": 1765636560000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1000,
+          "value": "89.0"
+        },
+        {
+          "startTimestamp": 1765636560000,
+          "endTimestamp": 1765636620000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1011,
+          "value": "0.93"
+        },
+        {
+          "startTimestamp": 1765634040000,
+          "endTimestamp": 1765634100000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1001,
+          "value": "10.49"
+        },
+        {
+          "startTimestamp": 1765634460000,
+          "endTimestamp": 1765634520000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1001,
+          "value": "90.36"
+        },
+        {
+          "startTimestamp": 1765634640000,
+          "endTimestamp": 1765634700000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1011,
+          "value": "3.29"
+        },
+        {
+          "startTimestamp": 1765634040000,
+          "endTimestamp": 1765634100000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1000,
+          "value": "14.0"
+        },
+        {
+          "startTimestamp": 1765634760000,
+          "endTimestamp": 1765634821000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1001,
+          "value": "99.15"
+        },
+        {
+          "startTimestamp": 1765635900000,
+          "endTimestamp": 1765635960000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1001,
+          "value": "29.87"
+        },
+        {
+          "startTimestamp": 1765636620000,
+          "endTimestamp": 1765636680000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1000,
+          "value": "33.0"
+        },
+        {
+          "startTimestamp": 1765634160000,
+          "endTimestamp": 1765634220000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1011,
+          "value": "0.19"
+        },
+        {
+          "startTimestamp": 1765634220000,
+          "endTimestamp": 1765634280000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1001,
+          "value": "11.06"
+        },
+        {
+          "startTimestamp": 1765636320000,
+          "endTimestamp": 1765636380000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1001,
+          "value": "38.49"
+        },
+        {
+          "startTimestamp": 1765634700000,
+          "endTimestamp": 1765634760000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1001,
+          "value": "101.73"
+        },
+        {
+          "startTimestamp": 1765636380000,
+          "endTimestamp": 1765636440000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1001,
+          "value": "70.52"
+        },
+        {
+          "startTimestamp": 1765638360000,
+          "endTimestamp": 1765638420000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1011,
+          "value": "0.25"
+        },
+        {
+          "startTimestamp": 1765635900000,
+          "endTimestamp": 1765635960000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1011,
+          "value": "0.99"
+        },
+        {
+          "startTimestamp": 1765635960000,
+          "endTimestamp": 1765636020000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1001,
+          "value": "24.79"
+        },
+        {
+          "startTimestamp": 1765635720000,
+          "endTimestamp": 1765635780000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1000,
+          "value": "93.0"
+        },
+        {
+          "startTimestamp": 1765634640000,
+          "endTimestamp": 1765634700000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1001,
+          "value": "98.63"
+        },
+        {
+          "startTimestamp": 1765634100000,
+          "endTimestamp": 1765634160000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1000,
+          "value": "32.0"
+        },
+        {
+          "startTimestamp": 1765636140000,
+          "endTimestamp": 1765636200000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1000,
+          "value": "79.0"
+        },
+        {
+          "startTimestamp": 1765635840000,
+          "endTimestamp": 1765635900000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1011,
+          "value": "1.06"
+        },
+        {
+          "startTimestamp": 1765635840000,
+          "endTimestamp": 1765635900000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1000,
+          "value": "43.0"
+        },
+        {
+          "startTimestamp": 1765637760000,
+          "endTimestamp": 1765637820000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1001,
+          "value": "20.54"
+        },
+        {
+          "startTimestamp": 1765636200000,
+          "endTimestamp": 1765636260000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1000,
+          "value": "101.0"
+        },
+        {
+          "startTimestamp": 1765638360000,
+          "endTimestamp": 1765638420000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1000,
+          "value": "9.0"
+        },
+        {
+          "startTimestamp": 1765638180000,
+          "endTimestamp": 1765638240000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1000,
+          "value": "30.0"
+        },
+        {
+          "startTimestamp": 1765635780000,
+          "endTimestamp": 1765635840000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1011,
+          "value": "1.0"
+        },
+        {
+          "startTimestamp": 1765636440000,
+          "endTimestamp": 1765636500000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1000,
+          "value": "107.0"
+        },
+        {
+          "startTimestamp": 1765634460000,
+          "endTimestamp": 1765634520000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1011,
+          "value": "3.12"
+        },
+        {
+          "startTimestamp": 1765638420000,
+          "endTimestamp": 1765638480000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1001,
+          "value": "34.99"
+        },
+        {
+          "startTimestamp": 1765635780000,
+          "endTimestamp": 1765635840000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1000,
+          "value": "39.0"
+        },
+        {
+          "startTimestamp": 1765636020000,
+          "endTimestamp": 1765636080000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1011,
+          "value": "0.39"
+        },
+        {
+          "startTimestamp": 1765636494000,
+          "endTimestamp": 1765636565000,
+          "timezoneOffset": 0,
+          "dataTypeId": 3000,
+          "value": "112"
+        },
+        {
+          "startTimestamp": 1765634520000,
+          "endTimestamp": 1765634580000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1000,
+          "value": "114.0"
+        },
+        {
+          "startTimestamp": 1765638284000,
+          "endTimestamp": 1765638345000,
+          "timezoneOffset": 0,
+          "dataTypeId": 3000,
+          "value": "75"
+        },
+        {
+          "startTimestamp": 1765638480000,
+          "endTimestamp": 1765638541000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1001,
+          "value": "7.73"
+        },
+        {
+          "startTimestamp": 1765634700000,
+          "endTimestamp": 1765634760000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1011,
+          "value": "3.7"
+        },
+        {
+          "startTimestamp": 1765633980000,
+          "endTimestamp": 1765634040000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1011,
+          "value": "0.29"
+        },
+        {
+          "startTimestamp": 1765637760000,
+          "endTimestamp": 1765637820000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1000,
+          "value": "26.0"
+        },
+        {
+          "startTimestamp": 1765636380000,
+          "endTimestamp": 1765636440000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1000,
+          "value": "93.0"
+        },
+        {
+          "startTimestamp": 1765638240000,
+          "endTimestamp": 1765638300000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1001,
+          "value": "11.62"
+        },
+        {
+          "startTimestamp": 1765635600000,
+          "endTimestamp": 1765635660000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1000,
+          "value": "49.0"
+        },
+        {
+          "startTimestamp": 1765634220000,
+          "endTimestamp": 1765634280000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1011,
+          "value": "0.36"
+        },
+        {
+          "startTimestamp": 1765634880000,
+          "endTimestamp": 1765634940000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1001,
+          "value": "7.81"
+        },
+        {
+          "startTimestamp": 1765628082000,
+          "endTimestamp": 1765628141000,
+          "timezoneOffset": 0,
+          "dataTypeId": 3000,
+          "value": "68"
+        },
+        {
+          "startTimestamp": 1765634100000,
+          "endTimestamp": 1765634160000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1001,
+          "value": "24.17"
+        },
+        {
+          "startTimestamp": 1765636140000,
+          "endTimestamp": 1765636200000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1011,
+          "value": "1.9"
+        },
+        {
+          "startTimestamp": 1765629305000,
+          "endTimestamp": 1765629387000,
+          "timezoneOffset": 0,
+          "dataTypeId": 3000,
+          "value": "49"
+        },
+        {
+          "startTimestamp": 1765634760000,
+          "endTimestamp": 1765634821000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1011,
+          "value": "3.31"
+        },
+        {
+          "startTimestamp": 1765636440000,
+          "endTimestamp": 1765636500000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1001,
+          "value": "83.01"
+        },
+        {
+          "startTimestamp": 1765636500000,
+          "endTimestamp": 1765636560000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1001,
+          "value": "66.93"
+        },
+        {
+          "startTimestamp": 1765636020000,
+          "endTimestamp": 1765636080000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1000,
+          "value": "14.0"
+        },
+        {
+          "startTimestamp": 1765634400000,
+          "endTimestamp": 1765634460000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1000,
+          "value": "40.0"
+        },
+        {
+          "startTimestamp": 1765635900000,
+          "endTimestamp": 1765635960000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1000,
+          "value": "39.0"
+        },
+        {
+          "startTimestamp": 1765636560000,
+          "endTimestamp": 1765636620000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1001,
+          "value": "27.94"
+        },
+        {
+          "startTimestamp": 1765632294000,
+          "endTimestamp": 1765632365000,
+          "timezoneOffset": 0,
+          "dataTypeId": 3000,
+          "value": "63"
+        },
+        {
+          "startTimestamp": 1765634520000,
+          "endTimestamp": 1765634580000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1011,
+          "value": "3.1"
+        },
+        {
+          "startTimestamp": 1765633980000,
+          "endTimestamp": 1765634040000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1001,
+          "value": "8.73"
+        },
+        {
+          "startTimestamp": 1765631667000,
+          "endTimestamp": 1765631711000,
+          "timezoneOffset": 0,
+          "dataTypeId": 3000,
+          "value": "72"
+        },
+        {
+          "startTimestamp": 1765636260000,
+          "endTimestamp": 1765636320000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1001,
+          "value": "70.06"
+        },
+        {
+          "startTimestamp": 1765634460000,
+          "endTimestamp": 1765634520000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1000,
+          "value": "113.0"
+        },
+        {
+          "startTimestamp": 1765636200000,
+          "endTimestamp": 1765636260000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1011,
+          "value": "2.63"
+        },
+        {
+          "startTimestamp": 1765634520000,
+          "endTimestamp": 1765634580000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1001,
+          "value": "92.84"
+        },
+        {
+          "startTimestamp": 1765636500000,
+          "endTimestamp": 1765636560000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1011,
+          "value": "2.22"
+        },
+        {
+          "startTimestamp": 1765632862000,
+          "endTimestamp": 1765632901000,
+          "timezoneOffset": 0,
+          "dataTypeId": 3000,
+          "value": "63"
+        },
+        {
+          "startTimestamp": 1765635780000,
+          "endTimestamp": 1765635840000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1001,
+          "value": "29.98"
+        },
+        {
+          "startTimestamp": 1765636320000,
+          "endTimestamp": 1765636380000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1011,
+          "value": "1.28"
+        },
+        {
+          "startTimestamp": 1765634280000,
+          "endTimestamp": 1765634340000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1001,
+          "value": "23.08"
+        },
+        {
+          "startTimestamp": 1765638240000,
+          "endTimestamp": 1765638300000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1011,
+          "value": "0.53"
+        },
+        {
+          "startTimestamp": 1765636620000,
+          "endTimestamp": 1765636680000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1011,
+          "value": "0.85"
+        },
+        {
+          "startTimestamp": 1765637760000,
+          "endTimestamp": 1765637820000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1011,
+          "value": "0.68"
+        },
+        {
+          "startTimestamp": 1765637066000,
+          "endTimestamp": 1765637108000,
+          "timezoneOffset": 0,
+          "dataTypeId": 3000,
+          "value": "70"
+        },
+        {
+          "startTimestamp": 1765636260000,
+          "endTimestamp": 1765636320000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1011,
+          "value": "2.34"
+        },
+        {
+          "startTimestamp": 1765638480000,
+          "endTimestamp": 1765638541000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1000,
+          "value": "10.0"
+        },
+        {
+          "startTimestamp": 1765637700000,
+          "endTimestamp": 1765637760000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1000,
+          "value": "13.0"
+        },
+        {
+          "startTimestamp": 1765635600000,
+          "endTimestamp": 1765635660000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1001,
+          "value": "39.53"
+        },
+        {
+          "startTimestamp": 1765634580000,
+          "endTimestamp": 1765634640000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1000,
+          "value": "120.0"
+        },
+        {
+          "startTimestamp": 1765638180000,
+          "endTimestamp": 1765638240000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1011,
+          "value": "0.72"
+        },
+        {
+          "startTimestamp": 1765634280000,
+          "endTimestamp": 1765634340000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1011,
+          "value": "0.77"
+        },
+        {
+          "startTimestamp": 1765634821000,
+          "endTimestamp": 1765634880000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1000,
+          "value": "112.0"
+        },
+        {
+          "startTimestamp": 1765636440000,
+          "endTimestamp": 1765636500000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1011,
+          "value": "2.82"
+        },
+        {
+          "startTimestamp": 1765634160000,
+          "endTimestamp": 1765634220000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1001,
+          "value": "5.85"
+        },
+        {
+          "startTimestamp": 1765635720000,
+          "endTimestamp": 1765635780000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1001,
+          "value": "70.34"
+        },
+        {
+          "startTimestamp": 1765635660000,
+          "endTimestamp": 1765635720000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1011,
+          "value": "2.3"
+        },
+        {
+          "startTimestamp": 1765634400000,
+          "endTimestamp": 1765634460000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1001,
+          "value": "32.27"
+        },
+        {
+          "startTimestamp": 1765635266000,
+          "endTimestamp": 1765635309000,
+          "timezoneOffset": 0,
+          "dataTypeId": 3000,
+          "value": "66"
+        },
+        {
+          "startTimestamp": 1765634096000,
+          "endTimestamp": 1765634169000,
+          "timezoneOffset": 0,
+          "dataTypeId": 3000,
+          "value": "89"
+        },
+        {
+          "startTimestamp": 1765638420000,
+          "endTimestamp": 1765638480000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1000,
+          "value": "49.0"
+        },
+        {
+          "startTimestamp": 1765635660000,
+          "endTimestamp": 1765635720000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1000,
+          "value": "73.0"
+        },
+        {
+          "startTimestamp": 1765636080000,
+          "endTimestamp": 1765636140000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1000,
+          "value": "7.0"
+        },
+        {
+          "startTimestamp": 1765628678000,
+          "endTimestamp": 1765628733000,
+          "timezoneOffset": 0,
+          "dataTypeId": 3000,
+          "value": "63"
+        },
+        {
+          "startTimestamp": 1765635960000,
+          "endTimestamp": 1765636020000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1000,
+          "value": "30.0"
+        },
+        {
+          "startTimestamp": 1765634880000,
+          "endTimestamp": 1765634940000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1011,
+          "value": "0.27"
+        },
+        {
+          "startTimestamp": 1765634220000,
+          "endTimestamp": 1765634280000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1000,
+          "value": "13.0"
+        },
+        {
+          "startTimestamp": 1765638180000,
+          "endTimestamp": 1765638240000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1001,
+          "value": "21.71"
+        },
+        {
+          "startTimestamp": 1765634160000,
+          "endTimestamp": 1765634220000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1000,
+          "value": "8.0"
+        },
+        {
+          "startTimestamp": 1765635300000,
+          "endTimestamp": 1765635360000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1011,
+          "value": "0.19"
+        },
+        {
+          "startTimestamp": 1765635660000,
+          "endTimestamp": 1765635720000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1001,
+          "value": "57.64"
+        },
+        {
+          "startTimestamp": 1765634580000,
+          "endTimestamp": 1765634640000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1011,
+          "value": "3.53"
+        },
+        {
+          "startTimestamp": 1765634400000,
+          "endTimestamp": 1765634460000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1011,
+          "value": "1.07"
+        },
+        {
+          "startTimestamp": 1765634100000,
+          "endTimestamp": 1765634160000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1011,
+          "value": "0.8"
+        },
+        {
+          "startTimestamp": 1765634280000,
+          "endTimestamp": 1765634340000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1000,
+          "value": "30.0"
+        },
+        {
+          "startTimestamp": 1765634880000,
+          "endTimestamp": 1765634940000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1000,
+          "value": "10.0"
+        }
+      ]
+    }
+  ]
+}
