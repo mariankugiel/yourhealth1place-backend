@@ -25,9 +25,8 @@ class HealthRecordBase(BaseModel):
     value: float = Field(..., description="Numeric value for the health metric")
     status: Optional[str] = Field(None, description="Status like normal, abnormal, excellent")
     source: Optional[str] = Field(None, description="Source like ios_app, manual_entry, lab_result, Withings, Fitbit")
-    recorded_at: datetime = Field(..., description="When the measurement was taken (for backward compatibility)")
-    start_timestamp: Optional[datetime] = Field(None, description="Start time for epoch data, day start for daily data")
-    end_timestamp: Optional[datetime] = Field(None, description="End time for epoch data, null for daily data")
+    measure_start_time: Optional[datetime] = Field(None, description="Start time for epoch data, day start for daily data (datetime with timezone)")
+    measure_end_time: Optional[datetime] = Field(None, description="End time for epoch data, null for daily data (datetime with timezone)")
     data_type: Optional[str] = Field(None, description="Data type: 'epoch' or 'daily'")
     device_id: Optional[int] = Field(None, description="iOS device ID if applicable")
     device_info: Optional[Dict[str, Any]] = Field(None, description="Device information JSON")
@@ -43,9 +42,8 @@ class HealthRecordUpdate(BaseModel):
     value: Optional[float] = None
     status: Optional[str] = None
     source: Optional[str] = None
-    recorded_at: Optional[datetime] = None
-    start_timestamp: Optional[datetime] = None
-    end_timestamp: Optional[datetime] = None
+    measure_start_time: Optional[datetime] = None
+    measure_end_time: Optional[datetime] = None
     data_type: Optional[str] = None
     device_id: Optional[int] = None
     device_info: Optional[Dict[str, Any]] = None
@@ -58,6 +56,7 @@ class HealthRecordResponse(HealthRecordBase):
     created_at: datetime
     updated_at: Optional[datetime] = None
     updated_by: Optional[int] = None
+    recorded_at: Optional[datetime] = Field(None, description="Backward compatibility field - uses measure_start_time if available, otherwise created_at")
 
     class Config:
         from_attributes = True

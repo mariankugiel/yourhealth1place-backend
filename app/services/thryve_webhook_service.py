@@ -455,12 +455,10 @@ class ThryveWebhookService:
                 logger.warning("No startTimestamp in epoch entry")
                 return False, False
             
-            # Convert milliseconds to datetime
-            start_timestamp = datetime.fromtimestamp(start_timestamp_ms / 1000.0)
-            end_timestamp = datetime.fromtimestamp(end_timestamp_ms / 1000.0) if end_timestamp_ms else None
-            
-            # Use start_timestamp as recorded_at for backward compatibility
-            recorded_at = start_timestamp
+            # Convert milliseconds to datetime with timezone (UTC)
+            from datetime import timezone
+            measure_start_time = datetime.fromtimestamp(start_timestamp_ms / 1000.0, tz=timezone.utc)
+            measure_end_time = datetime.fromtimestamp(end_timestamp_ms / 1000.0, tz=timezone.utc) if end_timestamp_ms else None
             
             # Parse value
             value = epoch_entry.get("value")
@@ -482,9 +480,8 @@ class ThryveWebhookService:
                 value=value_float,
                 status="normal",  # Default status
                 source=data_source_name,  # Use data source name instead of "thryve"
-                recorded_at=recorded_at,
-                start_timestamp=start_timestamp,
-                end_timestamp=end_timestamp,
+                measure_start_time=measure_start_time,
+                measure_end_time=measure_end_time,
                 data_type="epoch"
             )
             
@@ -567,16 +564,16 @@ class ThryveWebhookService:
                 logger.warning("No day timestamp in daily entry")
                 return False, False
             
-            # Convert milliseconds to datetime (start of day)
+            # Convert milliseconds to datetime with timezone (UTC) (start of day)
             # Note: day timestamp might be in milliseconds or seconds, check format
+            from datetime import timezone
             if day_timestamp_ms > 1e12:  # Likely milliseconds
-                start_timestamp = datetime.fromtimestamp(day_timestamp_ms / 1000.0)
+                measure_start_time = datetime.fromtimestamp(day_timestamp_ms / 1000.0, tz=timezone.utc)
             else:  # Likely seconds
-                start_timestamp = datetime.fromtimestamp(day_timestamp_ms)
+                measure_start_time = datetime.fromtimestamp(day_timestamp_ms, tz=timezone.utc)
             
-            # For daily data: start_timestamp = day start, end_timestamp = None
-            recorded_at = start_timestamp
-            end_timestamp = None
+            # For daily data: measure_start_time = day start, measure_end_time = None
+            measure_end_time = None
             
             # Parse value
             value = daily_entry.get("value")
@@ -598,9 +595,8 @@ class ThryveWebhookService:
                 value=value_float,
                 status="normal",  # Default status
                 source=data_source_name,  # Use data source name instead of "thryve"
-                recorded_at=recorded_at,
-                start_timestamp=start_timestamp,
-                end_timestamp=end_timestamp,
+                measure_start_time=measure_start_time,
+                measure_end_time=measure_end_time,
                 data_type="daily"
             )
             

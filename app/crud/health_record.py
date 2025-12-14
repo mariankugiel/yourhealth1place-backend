@@ -31,30 +31,33 @@ class HealthRecordCRUD:
         """
         try:
             # Check for duplicate values on the same date/hour (only if not skipped)
+            # For manual entries, use measure_start_time if available, otherwise created_at will be used
             if not skip_duplicate_check:
-                duplicate_record = self._check_duplicate_record(
-                    db, user_id, health_record.metric_id, health_record.recorded_at
-                )
-                
-                if duplicate_record:
-                    # Update existing record instead of creating new one
-                    duplicate_record.value = health_record.value
-                    duplicate_record.status = health_record.status
-                    duplicate_record.source = health_record.source
-                    duplicate_record.device_id = health_record.device_id
-                    duplicate_record.device_info = health_record.device_info
-                    duplicate_record.accuracy = health_record.accuracy
-                    duplicate_record.location_data = health_record.location_data
-                    duplicate_record.start_timestamp = health_record.start_timestamp
-                    duplicate_record.end_timestamp = health_record.end_timestamp
-                    duplicate_record.data_type = health_record.data_type
-                    duplicate_record.updated_at = func.now()
+                timestamp_for_check = health_record.measure_start_time
+                if timestamp_for_check:
+                    duplicate_record = self._check_duplicate_record(
+                        db, user_id, health_record.metric_id, timestamp_for_check
+                    )
                     
-                    db.commit()
-                    db.refresh(duplicate_record)
-                    
-                    logger.info(f"Updated duplicate health record {duplicate_record.id} for user {user_id}")
-                    return duplicate_record, False  # False = was not created new, was updated
+                    if duplicate_record:
+                        # Update existing record instead of creating new one
+                        duplicate_record.value = health_record.value
+                        duplicate_record.status = health_record.status
+                        duplicate_record.source = health_record.source
+                        duplicate_record.device_id = health_record.device_id
+                        duplicate_record.device_info = health_record.device_info
+                        duplicate_record.accuracy = health_record.accuracy
+                        duplicate_record.location_data = health_record.location_data
+                        duplicate_record.measure_start_time = health_record.measure_start_time
+                        duplicate_record.measure_end_time = health_record.measure_end_time
+                        duplicate_record.data_type = health_record.data_type
+                        duplicate_record.updated_at = func.now()
+                        
+                        db.commit()
+                        db.refresh(duplicate_record)
+                        
+                        logger.info(f"Updated duplicate health record {duplicate_record.id} for user {user_id}")
+                        return duplicate_record, False  # False = was not created new, was updated
             
             # Create new record if no duplicate found or duplicate check skipped
             db_health_record = HealthRecord(
@@ -64,9 +67,8 @@ class HealthRecordCRUD:
                 value=health_record.value,
                 status=health_record.status,
                 source=health_record.source,
-                recorded_at=health_record.recorded_at,
-                start_timestamp=health_record.start_timestamp,
-                end_timestamp=health_record.end_timestamp,
+                measure_start_time=health_record.measure_start_time,
+                measure_end_time=health_record.measure_end_time,
                 data_type=health_record.data_type,
                 device_id=health_record.device_id,
                 device_info=health_record.device_info,
@@ -91,20 +93,20 @@ class HealthRecordCRUD:
         db: Session, 
         user_id: int, 
         metric_id: int, 
-        recorded_at: datetime
+        measure_start_time: datetime
     ) -> Optional[HealthRecord]:
-        """Check for duplicate records on the same date/hour"""
+        """Check for duplicate records on the same date/hour using measure_start_time"""
         try:
-            # Round recorded_at to the nearest hour for comparison
-            recorded_hour = recorded_at.replace(minute=0, second=0, microsecond=0)
+            # Round measure_start_time to the nearest hour for comparison
+            recorded_hour = measure_start_time.replace(minute=0, second=0, microsecond=0)
             next_hour = recorded_hour + timedelta(hours=1)
             
             return db.query(HealthRecord).filter(
                 and_(
                     HealthRecord.created_by == user_id,
                     HealthRecord.metric_id == metric_id,
-                    HealthRecord.recorded_at >= recorded_hour,
-                    HealthRecord.recorded_at < next_hour
+                    HealthRecord.measure_start_time >= recorded_hour,
+                    HealthRecord.measure_start_time < next_hour
                 )
             ).first()
             
@@ -117,11 +119,11 @@ class HealthRecordCRUD:
         db: Session, 
         user_id: int, 
         metric_id: int, 
-        start_timestamp: datetime,
+        measure_start_time: datetime,
         data_type: Optional[str] = None
     ) -> Optional[HealthRecord]:
         """
-        Find record by exact start_timestamp (not hour-based).
+        Find record by exact measure_start_time (not hour-based).
         Used for update events to find existing records to update.
         
         Args:
@@ -132,7 +134,7 @@ class HealthRecordCRUD:
                 and_(
                     HealthRecord.created_by == user_id,
                     HealthRecord.metric_id == metric_id,
-                    HealthRecord.start_timestamp == start_timestamp
+                    HealthRecord.measure_start_time == measure_start_time
                 )
             )
             
@@ -161,11 +163,11 @@ class HealthRecordCRUD:
             data_type: Optional data_type filter ('epoch' or 'daily')
         """
         try:
-            # Use start_timestamp if available, otherwise fall back to recorded_at
-            timestamp_to_match = health_record.start_timestamp or health_record.recorded_at
+            # Use measure_start_time for matching
+            timestamp_to_match = health_record.measure_start_time
             
             if not timestamp_to_match:
-                logger.warning("No timestamp available for update_or_create, creating new record")
+                logger.warning("No measure_start_time available for update_or_create, creating new record")
                 return self.create(db, health_record, user_id, skip_duplicate_check=True)
             
             # Find existing record by exact timestamp
@@ -182,10 +184,9 @@ class HealthRecordCRUD:
                 existing_record.device_info = health_record.device_info
                 existing_record.accuracy = health_record.accuracy
                 existing_record.location_data = health_record.location_data
-                existing_record.start_timestamp = health_record.start_timestamp
-                existing_record.end_timestamp = health_record.end_timestamp
+                existing_record.measure_start_time = health_record.measure_start_time
+                existing_record.measure_end_time = health_record.measure_end_time
                 existing_record.data_type = health_record.data_type
-                existing_record.recorded_at = health_record.recorded_at  # Update recorded_at too
                 existing_record.updated_at = func.now()
                 
                 db.commit()
@@ -240,35 +241,40 @@ class HealthRecordCRUD:
                 if filters.device_id:
                     query = query.filter(HealthRecord.device_id == filters.device_id)
                 if filters.start_date:
-                    # Use start_timestamp if available, otherwise fall back to recorded_at
+                    # Use measure_start_time if available, otherwise fall back to created_at
                     query = query.filter(
                         or_(
                             and_(
-                                HealthRecord.start_timestamp.isnot(None),
-                                HealthRecord.start_timestamp >= filters.start_date
+                                HealthRecord.measure_start_time.isnot(None),
+                                HealthRecord.measure_start_time >= filters.start_date
                             ),
                             and_(
-                                HealthRecord.start_timestamp.is_(None),
-                                HealthRecord.recorded_at >= filters.start_date
+                                HealthRecord.measure_start_time.is_(None),
+                                HealthRecord.created_at >= filters.start_date
                             )
                         )
                     )
                 if filters.end_date:
-                    # Use start_timestamp if available, otherwise fall back to recorded_at
+                    # Use measure_start_time if available, otherwise fall back to created_at
                     query = query.filter(
                         or_(
                             and_(
-                                HealthRecord.start_timestamp.isnot(None),
-                                HealthRecord.start_timestamp <= filters.end_date
+                                HealthRecord.measure_start_time.isnot(None),
+                                HealthRecord.measure_start_time <= filters.end_date
                             ),
                             and_(
-                                HealthRecord.start_timestamp.is_(None),
-                                HealthRecord.recorded_at <= filters.end_date
+                                HealthRecord.measure_start_time.is_(None),
+                                HealthRecord.created_at <= filters.end_date
                             )
                         )
                     )
             
-            return query.order_by(desc(HealthRecord.recorded_at)).offset(skip).limit(limit).all()
+            # Order by measure_start_time if available, otherwise created_at
+            return query.order_by(
+                desc(
+                    func.coalesce(HealthRecord.measure_start_time, HealthRecord.created_at)
+                )
+            ).offset(skip).limit(limit).all()
             
         except Exception as e:
             logger.error(f"Failed to get health records for user {user_id}: {e}")
@@ -308,11 +314,40 @@ class HealthRecordCRUD:
                 if filters.source:
                     base_query = base_query.filter(HealthRecord.source == filters.source)
                 if filters.start_date:
-                    base_query = base_query.filter(HealthRecord.recorded_at >= filters.start_date)
+                    # Use measure_start_time if available, otherwise created_at
+                    base_query = base_query.filter(
+                        or_(
+                            and_(
+                                HealthRecord.measure_start_time.isnot(None),
+                                HealthRecord.measure_start_time >= filters.start_date
+                            ),
+                            and_(
+                                HealthRecord.measure_start_time.is_(None),
+                                HealthRecord.created_at >= filters.start_date
+                            )
+                        )
+                    )
                 if filters.end_date:
-                    base_query = base_query.filter(HealthRecord.recorded_at <= filters.end_date)
+                    # Use measure_start_time if available, otherwise created_at
+                    base_query = base_query.filter(
+                        or_(
+                            and_(
+                                HealthRecord.measure_start_time.isnot(None),
+                                HealthRecord.measure_start_time <= filters.end_date
+                            ),
+                            and_(
+                                HealthRecord.measure_start_time.is_(None),
+                                HealthRecord.created_at <= filters.end_date
+                            )
+                        )
+                    )
             
-            return base_query.order_by(desc(HealthRecord.recorded_at)).offset(offset).limit(limit).all()
+            # Order by measure_start_time if available, otherwise created_at
+            return base_query.order_by(
+                desc(
+                    func.coalesce(HealthRecord.measure_start_time, HealthRecord.created_at)
+                )
+            ).offset(offset).limit(limit).all()
             
         except Exception as e:
             logger.error(f"Failed to search health records for user {user_id}: {e}")
@@ -349,22 +384,35 @@ class HealthRecordCRUD:
                 HealthRecord.created_by == user_id
             ).group_by(HealthRecord.status).all()
             
-            # Recent records (last 30 days)
+            # Recent records (last 30 days) - use measure_start_time if available, otherwise created_at
             thirty_days_ago = datetime.utcnow() - timedelta(days=30)
             recent_records = db.query(func.count(HealthRecord.id)).filter(
                 and_(
                     HealthRecord.created_by == user_id,
-                    HealthRecord.recorded_at >= thirty_days_ago
+                    or_(
+                        and_(
+                            HealthRecord.measure_start_time.isnot(None),
+                            HealthRecord.measure_start_time >= thirty_days_ago
+                        ),
+                        and_(
+                            HealthRecord.measure_start_time.is_(None),
+                            HealthRecord.created_at >= thirty_days_ago
+                        )
+                    )
                 )
             ).scalar()
             
-            # Average records per day
-            first_record = db.query(HealthRecord.recorded_at).filter(
+            # Average records per day - use measure_start_time if available, otherwise created_at
+            first_record = db.query(
+                func.coalesce(HealthRecord.measure_start_time, HealthRecord.created_at).label('first_date')
+            ).filter(
                 HealthRecord.created_by == user_id
-            ).order_by(HealthRecord.recorded_at.asc()).first()
+            ).order_by(
+                func.coalesce(HealthRecord.measure_start_time, HealthRecord.created_at).asc()
+            ).first()
             
-            if first_record and first_record[0]:
-                days_since_first = (datetime.utcnow() - first_record[0]).days
+            if first_record and first_record.first_date:
+                days_since_first = (datetime.utcnow() - first_record.first_date).days
                 avg_per_day = total_records / max(days_since_first, 1)
             else:
                 avg_per_day = 0.0
@@ -1424,13 +1472,22 @@ class HealthRecordSectionMetricCRUD:
                     )
                 ).scalar()
                 
-                # Get recent activity (last 7 days)
+                # Get recent activity (last 7 days) - use measure_start_time if available, otherwise created_at
                 seven_days_ago = datetime.utcnow() - timedelta(days=7)
                 recent_activity = db.query(func.count(HealthRecord.id)).filter(
                     and_(
                         HealthRecord.created_by == user_id,
                         HealthRecord.section_id == section.id,
-                        HealthRecord.recorded_at >= seven_days_ago
+                        or_(
+                            and_(
+                                HealthRecord.measure_start_time.isnot(None),
+                                HealthRecord.measure_start_time >= seven_days_ago
+                            ),
+                            and_(
+                                HealthRecord.measure_start_time.is_(None),
+                                HealthRecord.created_at >= seven_days_ago
+                            )
+                        )
                     )
                 ).scalar()
                 
@@ -1457,13 +1514,17 @@ class HealthRecordSectionMetricCRUD:
                         )
                     ).scalar()
                     
-                    # Get latest record for this metric
+                    # Get latest record for this metric - use measure_start_time if available, otherwise created_at
                     latest_record = db.query(HealthRecord).filter(
                         and_(
                             HealthRecord.created_by == user_id,
                             HealthRecord.metric_id == metric.id
                         )
-                    ).order_by(HealthRecord.recorded_at.desc()).first()
+                    ).order_by(
+                        desc(
+                            func.coalesce(HealthRecord.measure_start_time, HealthRecord.created_at)
+                        )
+                    ).first()
                     
                     # Get all historical data points for trend analysis
                     # Filter to show only daily data in metric cards (epoch data excluded)
@@ -1477,18 +1538,22 @@ class HealthRecordSectionMetricCRUD:
                                 HealthRecord.data_type.is_(None)
                             )
                         )
-                    ).order_by(HealthRecord.recorded_at.asc()).all()
+                    ).order_by(
+                        func.coalesce(HealthRecord.measure_start_time, HealthRecord.created_at).asc()
+                    ).all()
                     
                     # Debug logging
                     
                     # Convert historical records to data points format
                     data_points = []
                     for record in historical_records:
+                        # Use measure_start_time if available, otherwise created_at
+                        timestamp = record.measure_start_time if record.measure_start_time else record.created_at
                         data_points.append({
                             "id": record.id,
                             "value": record.value,
                             "status": record.status,
-                            "recorded_at": record.recorded_at.isoformat() if record.recorded_at else None,
+                            "recorded_at": timestamp.isoformat() if timestamp else None,
                             "source": record.source
                         })
                     
@@ -1506,7 +1571,7 @@ class HealthRecordSectionMetricCRUD:
                         "total_records": metric_total_records,
                         "latest_value": latest_record.value if latest_record else None,
                         "latest_status": latest_record.status if latest_record else None,
-                        "latest_recorded_at": latest_record.recorded_at if latest_record else None,
+                        "latest_recorded_at": (latest_record.measure_start_time if latest_record.measure_start_time else latest_record.created_at) if latest_record else None,
                         "data_points": data_points  # Add historical data points for trend analysis
                     }
                     
@@ -1622,13 +1687,22 @@ class HealthRecordSectionMetricCRUD:
                     )
                 ).scalar()
                 
-                # Get recent activity (last 7 days)
+                # Get recent activity (last 7 days) - use measure_start_time if available, otherwise created_at
                 seven_days_ago = datetime.utcnow() - timedelta(days=7)
                 recent_activity = db.query(func.count(HealthRecord.id)).filter(
                     and_(
                         HealthRecord.created_by == user_id,
                         HealthRecord.section_id == section.id,
-                        HealthRecord.recorded_at >= seven_days_ago
+                        or_(
+                            and_(
+                                HealthRecord.measure_start_time.isnot(None),
+                                HealthRecord.measure_start_time >= seven_days_ago
+                            ),
+                            and_(
+                                HealthRecord.measure_start_time.is_(None),
+                                HealthRecord.created_at >= seven_days_ago
+                            )
+                        )
                     )
                 ).scalar()
                 
@@ -1655,7 +1729,7 @@ class HealthRecordSectionMetricCRUD:
                         )
                     ).scalar()
                     
-                    # Get latest record for this metric (only daily data for metric cards)
+                    # Get latest record for this metric (only daily data for metric cards) - use measure_start_time if available, otherwise created_at
                     latest_record = db.query(HealthRecord).filter(
                         and_(
                             HealthRecord.created_by == user_id,
@@ -1666,7 +1740,11 @@ class HealthRecordSectionMetricCRUD:
                                 HealthRecord.data_type.is_(None)
                             )
                         )
-                    ).order_by(HealthRecord.recorded_at.desc()).first()
+                    ).order_by(
+                        desc(
+                            func.coalesce(HealthRecord.measure_start_time, HealthRecord.created_at)
+                        )
+                    ).first()
                     
                     # Get all historical data points for trend analysis
                     # Filter to show only daily data in metric cards (epoch data excluded)
@@ -1680,17 +1758,21 @@ class HealthRecordSectionMetricCRUD:
                                 HealthRecord.data_type.is_(None)
                             )
                         )
-                    ).order_by(HealthRecord.recorded_at.asc()).all()
+                    ).order_by(
+                        func.coalesce(HealthRecord.measure_start_time, HealthRecord.created_at).asc()
+                    ).all()
                     
                     
                     # Convert historical records to data points format
                     data_points = []
                     for record in historical_records:
+                        # Use measure_start_time if available, otherwise created_at
+                        timestamp = record.measure_start_time if record.measure_start_time else record.created_at
                         data_points.append({
                             "id": record.id,
                             "value": record.value,
                             "status": record.status,
-                            "recorded_at": record.recorded_at.isoformat() if record.recorded_at else None,
+                            "recorded_at": timestamp.isoformat() if timestamp else None,
                             "source": record.source,
                             "notes": getattr(record, 'notes', None)  # Use getattr to safely access notes field
                         })
@@ -1708,7 +1790,7 @@ class HealthRecordSectionMetricCRUD:
                         "total_records": metric_total_records,
                         "latest_value": latest_record.value if latest_record else None,
                         "latest_status": latest_record.status if latest_record else "unknown",
-                        "latest_recorded_at": latest_record.recorded_at.isoformat() if latest_record and latest_record.recorded_at else None,
+                        "latest_recorded_at": (latest_record.measure_start_time if latest_record.measure_start_time else latest_record.created_at).isoformat() if latest_record and (latest_record.measure_start_time or latest_record.created_at) else None,
                         "data_points": data_points,
                         "trend": "unknown"  # Could be calculated based on data points
                     }
@@ -1733,11 +1815,15 @@ class HealthRecordSectionMetricCRUD:
             if not metric:
                 return None
             
-            # Get recent data points for this metric
+            # Get recent data points for this metric - use measure_start_time if available, otherwise created_at
             recent_records = db.query(HealthRecord).filter(
                 HealthRecord.metric_id == metric_id,
                 HealthRecord.created_by == user_id
-            ).order_by(HealthRecord.recorded_at.desc()).limit(10).all()
+            ).order_by(
+                desc(
+                    func.coalesce(HealthRecord.measure_start_time, HealthRecord.created_at)
+                )
+            ).limit(10).all()
             
             return {
                 "id": metric.id,
@@ -1757,7 +1843,7 @@ class HealthRecordSectionMetricCRUD:
                         "id": record.id,
                         "value": record.value,
                         "status": record.status,
-                        "recorded_at": record.recorded_at.isoformat() if record.recorded_at else None,
+                        "recorded_at": (record.measure_start_time if record.measure_start_time else record.created_at).isoformat() if (record.measure_start_time or record.created_at) else None,
                         "source": record.source
                     }
                     for record in recent_records

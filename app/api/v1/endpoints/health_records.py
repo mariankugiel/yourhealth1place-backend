@@ -100,7 +100,10 @@ async def create_health_record(
             value=db_health_record.value,
             status=db_health_record.status,
             source=db_health_record.source,
-            recorded_at=db_health_record.recorded_at,
+            recorded_at=db_health_record.measure_start_time if db_health_record.measure_start_time else db_health_record.created_at,
+            measure_start_time=db_health_record.measure_start_time,
+            measure_end_time=db_health_record.measure_end_time,
+            data_type=db_health_record.data_type,
             device_id=db_health_record.device_id,
             device_info=db_health_record.device_info,
             accuracy=db_health_record.accuracy,
@@ -138,22 +141,24 @@ async def check_duplicate_health_record(
     """
     try:
         from datetime import datetime
-        recorded_datetime = datetime.fromisoformat(request.recorded_at.replace('Z', '+00:00'))
+        measure_start_datetime = datetime.fromisoformat(request.measure_start_time.replace('Z', '+00:00'))
         
         duplicate_record = health_record_crud._check_duplicate_record(
-            db, current_user.id, request.metric_id, recorded_datetime
+            db, current_user.id, request.metric_id, measure_start_datetime
         )
         
         if duplicate_record:
+            # Use measure_start_time if available, otherwise created_at
+            recorded_at = duplicate_record.measure_start_time if duplicate_record.measure_start_time else duplicate_record.created_at
             return {
                 "duplicate_found": True,
                 "existing_record": {
                     "id": duplicate_record.id,
                     "value": duplicate_record.value,
-                    "recorded_at": duplicate_record.recorded_at.isoformat(),
+                    "recorded_at": recorded_at.isoformat() if recorded_at else None,
                     "status": duplicate_record.status
                 },
-                "message": f"A value already exists for this metric on {recorded_datetime.strftime('%Y-%m-%d at %H:00')}"
+                "message": f"A value already exists for this metric on {measure_start_datetime.strftime('%Y-%m-%d at %H:00')}"
             }
         
         return {
@@ -189,7 +194,10 @@ async def create_bulk_health_records(
                     value=db_record.value,
                     status=db_record.status,
                     source=db_record.source,
-                    recorded_at=db_record.recorded_at,
+                    recorded_at=db_record.measure_start_time if db_record.measure_start_time else db_record.created_at,
+                    measure_start_time=db_record.measure_start_time,
+                    measure_end_time=db_record.measure_end_time,
+                    data_type=db_record.data_type,
                     device_id=db_record.device_id,
                     device_info=db_record.device_info,
                     accuracy=db_record.accuracy,
@@ -279,7 +287,10 @@ async def read_health_records(
                 value=record.value,
                 status=record.status,
                 source=record.source,
-                recorded_at=record.recorded_at,
+                recorded_at=record.measure_start_time if record.measure_start_time else record.created_at,
+                measure_start_time=record.measure_start_time,
+                measure_end_time=record.measure_end_time,
+                data_type=record.data_type,
                 device_id=record.device_id,
                 device_info=record.device_info,
                 accuracy=record.accuracy,
@@ -336,7 +347,10 @@ async def search_health_records(
                 value=record.value,
                 status=record.status,
                 source=record.source,
-                recorded_at=record.recorded_at,
+                recorded_at=record.measure_start_time if record.measure_start_time else record.created_at,
+                measure_start_time=record.measure_start_time,
+                measure_end_time=record.measure_end_time,
+                data_type=record.data_type,
                 device_id=record.device_id,
                 device_info=record.device_info,
                 accuracy=record.accuracy,
@@ -2271,6 +2285,10 @@ async def get_metric_records(
         # Get records (no limit for metric detail view, or use a large limit)
         records = health_record_crud.get_by_user(db, target_user_id, skip=0, limit=10000, filters=filters)
         
+        # Helper function to get recorded_at (for backward compatibility in response)
+        def get_recorded_at(record):
+            return record.measure_start_time if record.measure_start_time else record.created_at
+        
         return [
             HealthRecordResponse(
                 id=record.id,
@@ -2279,9 +2297,9 @@ async def get_metric_records(
                 value=record.value,
                 status=record.status,
                 source=record.source,
-                recorded_at=record.recorded_at,
-                start_timestamp=record.start_timestamp,
-                end_timestamp=record.end_timestamp,
+                recorded_at=get_recorded_at(record),
+                measure_start_time=record.measure_start_time,
+                measure_end_time=record.measure_end_time,
                 data_type=record.data_type,
                 device_id=record.device_id,
                 device_info=record.device_info,
@@ -3525,7 +3543,10 @@ async def read_health_record(
             value=record.value,
             status=record.status,
             source=record.source,
-            recorded_at=record.recorded_at,
+            recorded_at=record.measure_start_time if record.measure_start_time else record.created_at,
+            measure_start_time=record.measure_start_time,
+            measure_end_time=record.measure_end_time,
+            data_type=record.data_type,
             device_id=record.device_id,
             device_info=record.device_info,
             accuracy=record.accuracy,
@@ -3571,7 +3592,10 @@ async def update_health_record(
             value=updated_record.value,
             status=updated_record.status,
             source=updated_record.source,
-            recorded_at=updated_record.recorded_at,
+            recorded_at=updated_record.measure_start_time if updated_record.measure_start_time else updated_record.created_at,
+            measure_start_time=updated_record.measure_start_time,
+            measure_end_time=updated_record.measure_end_time,
+            data_type=updated_record.data_type,
             device_id=updated_record.device_id,
             device_info=updated_record.device_info,
             accuracy=updated_record.accuracy,
@@ -3995,26 +4019,27 @@ async def bulk_create_lab_records(
                 except (ValueError, TypeError):
                     value = 0.0
                 
-                # Parse date
+                # Parse date - use as measure_start_time
+                from datetime import timezone
                 try:
                     date_str = record_data.get('date_of_value', '')
                     if date_str:
                         # Handle DD-MM-YYYY format
                         if '-' in date_str and len(date_str.split('-')[0]) == 2:
                             day, month, year = date_str.split('-')
-                            recorded_at = datetime(int(year), int(month), int(day))
+                            measure_start_time = datetime(int(year), int(month), int(day), tzinfo=timezone.utc)
                         else:
-                            recorded_at = datetime.now()
+                            measure_start_time = datetime.now(timezone.utc)
                     else:
-                        recorded_at = datetime.now()
+                        measure_start_time = datetime.now(timezone.utc)
                 except (ValueError, TypeError):
-                    recorded_at = datetime.now()
+                    measure_start_time = datetime.now(timezone.utc)
                 
                 health_record_data = HealthRecordCreate(
                     section_id=section.id,
                     metric_id=metric.id,
                     value=value,
-                    recorded_at=recorded_at,
+                    measure_start_time=measure_start_time,
                     source="lab_result",
                     status="normal"
                 )

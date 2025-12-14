@@ -249,11 +249,10 @@ class HealthRecord(Base):
     value = Column(Float, nullable=False)  # Direct numeric value storage
     status = Column(String(50))  # "normal", "abnormal", "excellent"
     source = Column(String(100))  # "ios_app", "manual_entry", "lab_result", "apple_watch", "fitbit", "Withings", "Fitbit", etc.
-    recorded_at = Column(DateTime, nullable=False)  # When measurement was taken (for backward compatibility, same as start_timestamp for daily data)
     
     # Thryve Integration Fields (for epoch/daily data distinction)
-    start_timestamp = Column(DateTime, nullable=True)  # Start time for epoch data, day start for daily data
-    end_timestamp = Column(DateTime, nullable=True)  # End time for epoch data, null for daily data
+    measure_start_time = Column(DateTime(timezone=True), nullable=True)  # Start time for epoch data, day start for daily data (datetime with timezone)
+    measure_end_time = Column(DateTime(timezone=True), nullable=True)  # End time for epoch data, null for daily data (datetime with timezone)
     data_type = Column(String(20), nullable=True)  # "epoch" or "daily" to distinguish data types
     
     # iOS Integration Fields
