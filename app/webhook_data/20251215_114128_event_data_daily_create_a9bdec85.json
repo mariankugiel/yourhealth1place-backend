@@ -1,0 +1,25 @@
+{
+  "endUserId": "a9bdec856974e93648c6674ac706c9dd",
+  "timestampType": "unix",
+  "type": "event.data.daily.create",
+  "data": [
+    {
+      "dataSourceId": 8,
+      "dataSourceName": "Nokia",
+      "dailyData": [
+        {
+          "day": 1765756800000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1003,
+          "value": "11.93"
+        },
+        {
+          "day": 1765756800000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1002,
+          "value": "4"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+{
+  "endUserId": "3356562303ef0f14396e399dd8c75ffc",
+  "timestampType": "unix",
+  "type": "event.data.daily.update",
+  "data": [
+    {
+      "dataSourceId": 8,
+      "dataSourceName": "Nokia",
+      "dailyData": [
+        {
+          "day": 1765756800000,
+          "timezoneOffset": 0,
+          "dataTypeId": 3090,
+          "value": "710"
+        },
+        {
+          "day": 1765756800000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1101,
+          "value": "144"
+        },
+        {
+          "day": 1765756800000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1210,
+          "value": "0.02333333333333333"
+        },
+        {
+          "day": 1765756800000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1001,
+          "value": "3728.61"
+        },
+        {
+          "day": 1765756800000,
+          "timezoneOffset": 0,
+          "dataTypeId": 3000,
+          "value": "64"
+        },
+        {
+          "day": 1765756800000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1100,
+          "value": "192"
+        },
+        {
+          "day": 1765756800000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1000,
+          "value": "4796"
+        }
+      ]
+    }
+  ]
+}

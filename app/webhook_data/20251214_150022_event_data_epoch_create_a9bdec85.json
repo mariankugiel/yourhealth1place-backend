@@ -1,0 +1,83 @@
+{
+  "endUserId": "a9bdec856974e93648c6674ac706c9dd",
+  "timestampType": "unix",
+  "type": "event.data.epoch.create",
+  "data": [
+    {
+      "dataSourceId": 8,
+      "dataSourceName": "Nokia",
+      "epochData": [
+        {
+          "startTimestamp": 1765714462000,
+          "endTimestamp": 1765714501000,
+          "timezoneOffset": 0,
+          "dataTypeId": 3000,
+          "value": "59"
+        },
+        {
+          "startTimestamp": 1765719884000,
+          "endTimestamp": 1765719945000,
+          "timezoneOffset": 0,
+          "dataTypeId": 3000,
+          "value": "41"
+        },
+        {
+          "startTimestamp": 1765718091000,
+          "endTimestamp": 1765718159000,
+          "timezoneOffset": 0,
+          "dataTypeId": 3000,
+          "value": "78"
+        },
+        {
+          "startTimestamp": 1765716915000,
+          "endTimestamp": 1765717007000,
+          "timezoneOffset": 0,
+          "dataTypeId": 3000,
+          "value": "51"
+        },
+        {
+          "startTimestamp": 1765724092000,
+          "endTimestamp": 1765724161000,
+          "timezoneOffset": 0,
+          "dataTypeId": 3000,
+          "value": "50"
+        },
+        {
+          "startTimestamp": 1765715066000,
+          "endTimestamp": 1765715109000,
+          "timezoneOffset": 0,
+          "dataTypeId": 3000,
+          "value": "58"
+        },
+        {
+          "startTimestamp": 1765718694000,
+          "endTimestamp": 1765718765000,
+          "timezoneOffset": 0,
+          "dataTypeId": 3000,
+          "value": "61"
+        },
+        {
+          "startTimestamp": 1765715663000,
+          "endTimestamp": 1765715703000,
+          "timezoneOffset": 0,
+          "dataTypeId": 3000,
+          "value": "55"
+        },
+        {
+          "startTimestamp": 1765713877000,
+          "endTimestamp": 1765713931000,
+          "timezoneOffset": 0,
+          "dataTypeId": 3000,
+          "value": "58"
+        },
+        {
+          "startTimestamp": 1765720472000,
+          "endTimestamp": 1765720521000,
+          "timezoneOffset": 0,
+          "dataTypeId": 3000,
+          "value": "58"
+        }
+      ]
+    }
+  ]
+}

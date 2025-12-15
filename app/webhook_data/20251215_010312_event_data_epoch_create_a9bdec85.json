@@ -1,0 +1,69 @@
+{
+  "endUserId": "a9bdec856974e93648c6674ac706c9dd",
+  "timestampType": "unix",
+  "type": "event.data.epoch.create",
+  "data": [
+    {
+      "dataSourceId": 8,
+      "dataSourceName": "Nokia",
+      "epochData": [
+        {
+          "startTimestamp": 1765747260000,
+          "endTimestamp": 1765747560000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1202,
+          "value": "305"
+        },
+        {
+          "startTimestamp": 1765746420000,
+          "endTimestamp": 1765746840000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1202,
+          "value": "305"
+        },
+        {
+          "startTimestamp": 1765747260000,
+          "endTimestamp": 1765747560000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1011,
+          "value": "5.7300000190735"
+        },
+        {
+          "startTimestamp": 1765746420000,
+          "endTimestamp": 1765746840000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1011,
+          "value": "11.880000114441"
+        },
+        {
+          "startTimestamp": 1765746420000,
+          "endTimestamp": 1765746840000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1200,
+          "value": "105"
+        },
+        {
+          "startTimestamp": 1765747260000,
+          "endTimestamp": 1765747560000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1200,
+          "value": "105"
+        },
+        {
+          "startTimestamp": 1765747260000,
+          "endTimestamp": 1765747560000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1715,
+          "value": "169.52000427246"
+        },
+        {
+          "startTimestamp": 1765747260000,
+          "endTimestamp": 1765747560000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1201,
+          "value": "205"
+        }
+      ]
+    }
+  ]
+}

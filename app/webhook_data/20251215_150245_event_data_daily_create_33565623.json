@@ -1,0 +1,217 @@
+{
+  "endUserId": "3356562303ef0f14396e399dd8c75ffc",
+  "timestampType": "unix",
+  "type": "event.data.daily.create",
+  "data": [
+    {
+      "dataSourceId": 8,
+      "dataSourceName": "Nokia",
+      "dailyData": [
+        {
+          "day": 1765584000000,
+          "timezoneOffset": 0,
+          "dataTypeId": 2005,
+          "value": "63"
+        },
+        {
+          "day": 1765756800000,
+          "timezoneOffset": 0,
+          "dataTypeId": 2003,
+          "value": "271"
+        },
+        {
+          "day": 1765670400000,
+          "timezoneOffset": 0,
+          "dataTypeId": 2101,
+          "value": "1765689600000"
+        },
+        {
+          "day": 1765756800000,
+          "timezoneOffset": 0,
+          "dataTypeId": 2006,
+          "value": "2"
+        },
+        {
+          "day": 1765756800000,
+          "timezoneOffset": 0,
+          "dataTypeId": 2001,
+          "value": "370"
+        },
+        {
+          "day": 1765756800000,
+          "timezoneOffset": 0,
+          "dataTypeId": 2000,
+          "value": "368"
+        },
+        {
+          "day": 1765756800000,
+          "timezoneOffset": 0,
+          "dataTypeId": 2007,
+          "value": "2"
+        },
+        {
+          "day": 1765756800000,
+          "timezoneOffset": 0,
+          "dataTypeId": 2101,
+          "value": "1765784700000"
+        },
+        {
+          "day": 1765584000000,
+          "timezoneOffset": 0,
+          "dataTypeId": 2006,
+          "value": "2"
+        },
+        {
+          "day": 1765584000000,
+          "timezoneOffset": 0,
+          "dataTypeId": 2210,
+          "value": "84.01492537313435"
+        },
+        {
+          "day": 1765670400000,
+          "timezoneOffset": 0,
+          "dataTypeId": 2003,
+          "value": "61"
+        },
+        {
+          "day": 1765584000000,
+          "timezoneOffset": 0,
+          "dataTypeId": 2100,
+          "value": "1765618080000"
+        },
+        {
+          "day": 1765756800000,
+          "timezoneOffset": 0,
+          "dataTypeId": 3020,
+          "value": "54"
+        },
+        {
+          "day": 1765756800000,
+          "timezoneOffset": 0,
+          "dataTypeId": 2200,
+          "value": "99"
+        },
+        {
+          "day": 1765584000000,
+          "timezoneOffset": 0,
+          "dataTypeId": 2101,
+          "value": "1765626120000"
+        },
+        {
+          "day": 1765670400000,
+          "timezoneOffset": 0,
+          "dataTypeId": 2000,
+          "value": "163"
+        },
+        {
+          "day": 1765670400000,
+          "timezoneOffset": 0,
+          "dataTypeId": 2006,
+          "value": "2"
+        },
+        {
+          "day": 1765584000000,
+          "timezoneOffset": 0,
+          "dataTypeId": 3020,
+          "value": "53"
+        },
+        {
+          "day": 1765584000000,
+          "timezoneOffset": 0,
+          "dataTypeId": 3001,
+          "value": "62"
+        },
+        {
+          "day": 1765670400000,
+          "timezoneOffset": 0,
+          "dataTypeId": 2005,
+          "value": "102"
+        },
+        {
+          "day": 1765670400000,
+          "timezoneOffset": 0,
+          "dataTypeId": 2100,
+          "value": "1765679700000"
+        },
+        {
+          "day": 1765756800000,
+          "timezoneOffset": 0,
+          "dataTypeId": 2005,
+          "value": "97"
+        },
+        {
+          "day": 1765670400000,
+          "timezoneOffset": 0,
+          "dataTypeId": 3020,
+          "value": "53"
+        },
+        {
+          "day": 1765584000000,
+          "timezoneOffset": 0,
+          "dataTypeId": 2000,
+          "value": "134"
+        },
+        {
+          "day": 1765584000000,
+          "timezoneOffset": 0,
+          "dataTypeId": 2001,
+          "value": "134"
+        },
+        {
+          "day": 1765584000000,
+          "timezoneOffset": 0,
+          "dataTypeId": 2003,
+          "value": "71"
+        },
+        {
+          "day": 1765670400000,
+          "timezoneOffset": 0,
+          "dataTypeId": 2200,
+          "value": "99"
+        },
+        {
+          "day": 1765670400000,
+          "timezoneOffset": 0,
+          "dataTypeId": 2001,
+          "value": "165"
+        },
+        {
+          "day": 1765756800000,
+          "timezoneOffset": 0,
+          "dataTypeId": 3001,
+          "value": "57"
+        },
+        {
+          "day": 1765756800000,
+          "timezoneOffset": 0,
+          "dataTypeId": 2100,
+          "value": "1765762500000"
+        },
+        {
+          "day": 1765670400000,
+          "timezoneOffset": 0,
+          "dataTypeId": 2210,
+          "value": "77.76969696969697"
+        },
+        {
+          "day": 1765670400000,
+          "timezoneOffset": 0,
+          "dataTypeId": 3001,
+          "value": "57"
+        },
+        {
+          "day": 1765756800000,
+          "timezoneOffset": 0,
+          "dataTypeId": 2210,
+          "value": "90.54594594594593"
+        },
+        {
+          "day": 1765584000000,
+          "timezoneOffset": 0,
+          "dataTypeId": 2200,
+          "value": "100"
+        }
+      ]
+    }
+  ]
+}

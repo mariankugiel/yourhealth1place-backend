@@ -1,0 +1,91 @@
+{
+  "endUserId": "a9bdec856974e93648c6674ac706c9dd",
+  "timestampType": "unix",
+  "type": "event.data.daily.create",
+  "data": [
+    {
+      "dataSourceId": 8,
+      "dataSourceName": "Nokia",
+      "dailyData": [
+        {
+          "day": 1763424000000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1001,
+          "value": "2746.58"
+        },
+        {
+          "day": 1763424000000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1114,
+          "value": "12"
+        },
+        {
+          "day": 1763424000000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1011,
+          "value": "84"
+        },
+        {
+          "day": 1763424000000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1101,
+          "value": "153"
+        },
+        {
+          "day": 1763424000000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1010,
+          "value": "1788"
+        },
+        {
+          "day": 1763424000000,
+          "timezoneOffset": 0,
+          "dataTypeId": 3090,
+          "value": "911"
+        },
+        {
+          "day": 1763424000000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1102,
+          "value": "12"
+        },
+        {
+          "day": 1763424000000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1000,
+          "value": "3565"
+        },
+        {
+          "day": 1763424000000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1100,
+          "value": "165"
+        },
+        {
+          "day": 1763424000000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1002,
+          "value": "6"
+        },
+        {
+          "day": 1763424000000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1003,
+          "value": "19.32"
+        },
+        {
+          "day": 1763424000000,
+          "timezoneOffset": 0,
+          "dataTypeId": 3000,
+          "value": "65"
+        },
+        {
+          "day": 1763424000000,
+          "timezoneOffset": 0,
+          "dataTypeId": 1210,
+          "value": "0.013958333333333333"
+        }
+      ]
+    }
+  ]
+}
