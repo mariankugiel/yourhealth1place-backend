@@ -437,6 +437,11 @@ class ThryveWebhookService:
                 logger.warning(f"No metric template found for Thryve data type {data_type_id}")
                 return False, False
             
+            # Check if this metric accepts epoch events based on thryve_type
+            if metric_template.thryve_type and metric_template.thryve_type != "Epoch":
+                logger.info(f"Skipping epoch event for metric {metric_template.id} ({metric_template.name}) - thryve_type is '{metric_template.thryve_type}', not 'Epoch'")
+                return False, False
+            
             # Get or create user section
             section = self._get_or_create_user_section(
                 db, user_id, metric_template.section_template_id
@@ -546,6 +551,11 @@ class ThryveWebhookService:
             
             if not metric_template:
                 logger.warning(f"No metric template found for Thryve data type {data_type_id}")
+                return False, False
+            
+            # Check if this metric accepts daily events based on thryve_type
+            if metric_template.thryve_type and metric_template.thryve_type != "Daily":
+                logger.info(f"Skipping daily event for metric {metric_template.id} ({metric_template.name}) - thryve_type is '{metric_template.thryve_type}', not 'Daily'")
                 return False, False
             
             # Get or create user section

@@ -1506,6 +1506,14 @@ class HealthRecordSectionMetricCRUD:
                 
                 # Add metrics data
                 for metric in metrics:
+                    # Get metric template to check thryve_type
+                    from app.models.health_metrics import HealthRecordMetricTemplate
+                    metric_template = None
+                    if metric.metric_tmp_id:
+                        metric_template = db.query(HealthRecordMetricTemplate).filter(
+                            HealthRecordMetricTemplate.id == metric.metric_tmp_id
+                        ).first()
+                    
                     # Get metric statistics
                     metric_total_records = db.query(func.count(HealthRecord.id)).filter(
                         and_(
@@ -1527,18 +1535,36 @@ class HealthRecordSectionMetricCRUD:
                     ).first()
                     
                     # Get all historical data points for trend analysis
-                    # Filter to show only daily data in metric cards (epoch data excluded)
-                    historical_records = db.query(HealthRecord).filter(
+                    # Filter based on thryve_type from metric template:
+                    # - If thryve_type is "Daily": show only daily data (one value per date)
+                    # - If thryve_type is "Epoch": show all epoch data (multiple values per date)
+                    # - If thryve_type is None: show all data (backward compatibility)
+                    historical_records_query = db.query(HealthRecord).filter(
                         and_(
                             HealthRecord.created_by == user_id,
-                            HealthRecord.metric_id == metric.id,
-                            # Only show daily data, or records without data_type (backward compatibility)
+                            HealthRecord.metric_id == metric.id
+                        )
+                    )
+                    
+                    if metric_template and metric_template.thryve_type == "Daily":
+                        # For Daily type: only show daily data
+                        historical_records_query = historical_records_query.filter(
                             or_(
                                 HealthRecord.data_type == 'daily',
-                                HealthRecord.data_type.is_(None)
+                                HealthRecord.data_type.is_(None)  # Backward compatibility
                             )
                         )
-                    ).order_by(
+                    elif metric_template and metric_template.thryve_type == "Epoch":
+                        # For Epoch type: show all epoch data (multiple values per date allowed)
+                        historical_records_query = historical_records_query.filter(
+                            or_(
+                                HealthRecord.data_type == 'epoch',
+                                HealthRecord.data_type.is_(None)  # Backward compatibility
+                            )
+                        )
+                    # If thryve_type is None, show all data (no additional filter)
+                    
+                    historical_records = historical_records_query.order_by(
                         func.coalesce(HealthRecord.measure_start_time, HealthRecord.created_at).asc()
                     ).all()
                     
@@ -1558,6 +1584,11 @@ class HealthRecordSectionMetricCRUD:
                         })
                     
                     
+                    # Get thryve_type from metric template if available
+                    thryve_type = None
+                    if metric_template:
+                        thryve_type = metric_template.thryve_type
+                    
                     metric_data = {
                         "id": metric.id,
                         "name": metric.name,
@@ -1568,6 +1599,7 @@ class HealthRecordSectionMetricCRUD:
                         "reference_data": metric.reference_data,
                         "data_type": metric.data_type,
                         "is_default": metric.is_default,
+                        "thryve_type": thryve_type,  # Add thryve_type from template
                         "total_records": metric_total_records,
                         "latest_value": latest_record.value if latest_record else None,
                         "latest_status": latest_record.status if latest_record else None,
@@ -1721,6 +1753,14 @@ class HealthRecordSectionMetricCRUD:
                 
                 # Add metrics data
                 for metric in metrics:
+                    # Get metric template to check thryve_type
+                    from app.models.health_metrics import HealthRecordMetricTemplate
+                    metric_template = None
+                    if metric.metric_tmp_id:
+                        metric_template = db.query(HealthRecordMetricTemplate).filter(
+                            HealthRecordMetricTemplate.id == metric.metric_tmp_id
+                        ).first()
+                    
                     # Get metric statistics
                     metric_total_records = db.query(func.count(HealthRecord.id)).filter(
                         and_(
@@ -1729,17 +1769,38 @@ class HealthRecordSectionMetricCRUD:
                         )
                     ).scalar()
                     
-                    # Get latest record for this metric (only daily data for metric cards) - use measure_start_time if available, otherwise created_at
-                    latest_record = db.query(HealthRecord).filter(
-                        and_(
-                            HealthRecord.created_by == user_id,
-                            HealthRecord.metric_id == metric.id,
-                            # Only show daily data, or records without data_type (backward compatibility)
-                            or_(
-                                HealthRecord.data_type == 'daily',
-                                HealthRecord.data_type.is_(None)
-                            )
+                    # Build filter for latest record and historical records based on thryve_type
+                    latest_record_filter = and_(
+                        HealthRecord.created_by == user_id,
+                        HealthRecord.metric_id == metric.id
+                    )
+                    historical_records_filter = and_(
+                        HealthRecord.created_by == user_id,
+                        HealthRecord.metric_id == metric.id
+                    )
+                    
+                    # Apply thryve_type filtering
+                    if metric_template and metric_template.thryve_type == "Daily":
+                        # For Daily type: only show daily data
+                        daily_filter = or_(
+                            HealthRecord.data_type == 'daily',
+                            HealthRecord.data_type.is_(None)  # Backward compatibility
                         )
+                        latest_record_filter = and_(latest_record_filter, daily_filter)
+                        historical_records_filter = and_(historical_records_filter, daily_filter)
+                    elif metric_template and metric_template.thryve_type == "Epoch":
+                        # For Epoch type: show all epoch data (multiple values per date allowed)
+                        epoch_filter = or_(
+                            HealthRecord.data_type == 'epoch',
+                            HealthRecord.data_type.is_(None)  # Backward compatibility
+                        )
+                        latest_record_filter = and_(latest_record_filter, epoch_filter)
+                        historical_records_filter = and_(historical_records_filter, epoch_filter)
+                    # If thryve_type is None, show all data (no additional filter)
+                    
+                    # Get latest record for this metric - use measure_start_time if available, otherwise created_at
+                    latest_record = db.query(HealthRecord).filter(
+                        latest_record_filter
                     ).order_by(
                         desc(
                             func.coalesce(HealthRecord.measure_start_time, HealthRecord.created_at)
@@ -1747,17 +1808,8 @@ class HealthRecordSectionMetricCRUD:
                     ).first()
                     
                     # Get all historical data points for trend analysis
-                    # Filter to show only daily data in metric cards (epoch data excluded)
                     historical_records = db.query(HealthRecord).filter(
-                        and_(
-                            HealthRecord.created_by == user_id,
-                            HealthRecord.metric_id == metric.id,
-                            # Only show daily data, or records without data_type (backward compatibility)
-                            or_(
-                                HealthRecord.data_type == 'daily',
-                                HealthRecord.data_type.is_(None)
-                            )
-                        )
+                        historical_records_filter
                     ).order_by(
                         func.coalesce(HealthRecord.measure_start_time, HealthRecord.created_at).asc()
                     ).all()
@@ -1777,6 +1829,11 @@ class HealthRecordSectionMetricCRUD:
                             "notes": getattr(record, 'notes', None)  # Use getattr to safely access notes field
                         })
                     
+                    # Get thryve_type from metric template if available
+                    thryve_type = None
+                    if metric_template:
+                        thryve_type = metric_template.thryve_type
+                    
                     metric_data = {
                         "id": metric.id,
                         "name": metric.name,
@@ -1787,6 +1844,7 @@ class HealthRecordSectionMetricCRUD:
                         "default_unit": metric.default_unit,
                         "unit": metric.default_unit,  # For compatibility
                         "reference_data": metric.reference_data,
+                        "thryve_type": thryve_type,  # Add thryve_type from template
                         "total_records": metric_total_records,
                         "latest_value": latest_record.value if latest_record else None,
                         "latest_status": latest_record.status if latest_record else "unknown",

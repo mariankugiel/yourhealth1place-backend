@@ -247,6 +247,7 @@ class AdminTemplateImporter:
             # Thryve data
             thryve_name = row_clean.get("Thryve name", "").strip()
             thryve_data_type_id_str = row_clean.get("Thryve dataTypeId", "").strip()
+            thryve_type = row_clean.get("Thryve type", "").strip()  # "Daily" or "Epoch"
             
             if not metric_en or not section_en:
                 continue
@@ -292,7 +293,8 @@ class AdminTemplateImporter:
                 "reference_data": reference_data,
                 "data_type": data_type,
                 "thryve_name": thryve_name,
-                "thryve_data_type_id": thryve_data_type_id
+                "thryve_data_type_id": thryve_data_type_id,
+                "thryve_type": thryve_type if thryve_type in ["Daily", "Epoch"] else None
             }
             
             sections[section_name]["metrics"].append(metric_data)
@@ -373,6 +375,12 @@ class AdminTemplateImporter:
             # Update Thryve link if provided
             if metric_data.get("thryve_data_type_id"):
                 self._link_thryve_data_type(existing, metric_data["thryve_data_type_id"])
+            # Update thryve_type if provided
+            if metric_data.get("thryve_type"):
+                existing.thryve_type = metric_data["thryve_type"]
+                self.db.commit()
+                self.db.refresh(existing)
+                logger.info(f"Updated thryve_type to '{metric_data['thryve_type']}' for metric template {existing.id}")
             return existing
         
         # Find Thryve data type if dataTypeId is provided
@@ -401,6 +409,7 @@ class AdminTemplateImporter:
             "reference_data": metric_data.get("reference_data"),
             "data_type": metric_data.get("data_type", "number"),
             "thryve_data_type_id": thryve_data_type_id,
+            "thryve_type": metric_data.get("thryve_type"),  # "Daily" or "Epoch"
             "is_active": True,
             "is_default": True,
             "created_by": self.admin_user_id
