@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from sqlalchemy import desc
+from sqlalchemy import desc, func
 from typing import List, Dict, Any
 from decimal import Decimal
 
@@ -104,7 +104,9 @@ async def get_health_goals(
                 latest_record = db.query(HealthRecord).filter(
                     HealthRecord.metric_id == goal.connected_metric_id,
                     HealthRecord.created_by == current_user.id
-                ).order_by(desc(HealthRecord.recorded_at)).first()
+                ).order_by(
+                    desc(func.coalesce(HealthRecord.measure_start_time, HealthRecord.created_at))
+                ).first()
                 
                 if latest_record:
                     # Get unit from the metric relationship
@@ -197,10 +199,14 @@ async def create_health_goal(
         # Get baseline value from current metric value if available
         baseline_value = None
         if goal_data.get("metric_id"):
+            # Order by measure_start_time if available, otherwise by created_at
+            # Use coalesce to prefer measure_start_time, fallback to created_at
             latest_record = db.query(HealthRecord).filter(
                 HealthRecord.metric_id == goal_data.get("metric_id"),
                 HealthRecord.created_by == current_user.id
-            ).order_by(desc(HealthRecord.recorded_at)).first()
+            ).order_by(
+                desc(func.coalesce(HealthRecord.measure_start_time, HealthRecord.created_at))
+            ).first()
             
             if latest_record:
                 baseline_value = Decimal(str(latest_record.value))
@@ -427,7 +433,9 @@ async def update_goal_progress(
             latest_record = db.query(HealthRecord).filter(
                 HealthRecord.metric_id == goal.connected_metric_id,
                 HealthRecord.created_by == current_user.id
-            ).order_by(desc(HealthRecord.recorded_at)).first()
+            ).order_by(
+                desc(func.coalesce(HealthRecord.measure_start_time, HealthRecord.created_at))
+            ).first()
             
             if latest_record:
                 current_numeric_value = float(latest_record.value) if latest_record.value else None

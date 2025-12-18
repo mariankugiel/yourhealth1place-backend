@@ -1602,29 +1602,13 @@ async def create_health_record_section(
                     detail=f"Section '{section_data['display_name']}' already exists"
                 )
             
-            # Create custom section in BOTH tmp table (as template) AND normal table (for UI)
-            from app.models.health_metrics import HealthRecordSectionTemplate
-            
-            # First create in tmp table as a template
-            new_template = HealthRecordSectionTemplate(
-                name=section_data["name"],
-                display_name=section_data["display_name"],
-                description=section_data.get("description", ""),
-                health_record_type_id=section_data["health_record_type_id"],
-                is_default=False,  # User custom template
-                created_by=current_user.id
-            )
-            db.add(new_template)
-            db.commit()
-            db.refresh(new_template)
-            
-            # Then create in normal table for UI
+            # Create custom section in main table only (no tmp table entry for user-created sections)
             new_section = HealthRecordSection(
                 name=section_data["name"],
                 display_name=section_data["display_name"],
                 description=section_data.get("description", ""),
                 health_record_type_id=section_data["health_record_type_id"],
-                section_template_id=new_template.id,  # Link to the template we just created
+                section_template_id=None,  # No tmp table entry for user-created sections
                 is_default=False,  # User's active section
                 created_by=current_user.id
             )
@@ -1994,46 +1978,14 @@ async def create_health_record_metric(
                     detail=f"Metric '{metric_data['name']}' already exists in this section"
                 )
             
-            # Create custom metric in BOTH tmp table (as template) AND normal table (for UI)
-            from app.models.health_metrics import HealthRecordMetricTemplate
-            
-            # First create in tmp table as a template
-            # Find the corresponding section template ID
-            from app.models.health_metrics import HealthRecordSectionTemplate
-            section_template = db.query(HealthRecordSectionTemplate).filter(
-                and_(
-                    HealthRecordSectionTemplate.name == section.name,
-                    HealthRecordSectionTemplate.health_record_type_id == section.health_record_type_id
-                )
-            ).first()
-            
-            if not section_template:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Corresponding section template not found"
-                )
-            
+            # For user-created sections (no section_template_id), don't create tmp table entries
+            # Only create in main table
             reference_data = metric_data.get('reference_data', {})
-            new_template = HealthRecordMetricTemplate(
-                section_template_id=section_template.id,
-                name=metric_data['name'],
-                display_name=metric_data['display_name'],
-                description=metric_data.get('description', ''),
-                default_unit=metric_data.get('default_unit', ''),
-                original_reference='',  # Custom metrics don't have original reference
-                reference_data=reference_data,
-                data_type=metric_data['data_type'],
-                is_default=False,  # User custom template
-                created_by=current_user.id
-            )
-            db.add(new_template)
-            db.commit()
-            db.refresh(new_template)
             
-            # Then create in normal table for UI
+            # Create in normal table only (no tmp table entry for user-created metrics)
             metric_create_data = HealthRecordMetricCreate(
                 section_id=metric_data['section_id'],
-                metric_tmp_id=new_template.id,  # Link to the template we just created
+                metric_tmp_id=None,  # No tmp table entry for user-created metrics
                 name=metric_data['name'],
                 display_name=metric_data['display_name'],
                 description=metric_data.get('description', ''),
@@ -3708,6 +3660,38 @@ async def upload_and_analyze_lab_document(
                 lab_data = extract_lab_data_with_ocr(file_content, file.filename)
                 logger.info(f"OCR extraction completed: {len(lab_data)} records found")
                 
+                # Detect language from OCR text (extract text first for detection)
+                text = lab_service._extract_text_from_pdf(file_content)
+                from app.services.language_detection_service import detect_document_language
+                detected_language = detect_document_language(text, fallback='en')
+                logger.info(f"Detected document language (OCR): {detected_language}")
+                
+                # Get user's preferred language
+                from app.utils.user_language import get_user_language_from_cache
+                user_language = await get_user_language_from_cache(current_user.id, db)
+                logger.info(f"User preferred language: {user_language}")
+                
+                # Translate lab data if detected language differs from user language
+                translated_data = None
+                translation_applied = False
+                if detected_language != user_language and detected_language != 'en':
+                    logger.info(f"Languages differ (detected: {detected_language}, user: {user_language}). Batch translating lab data...")
+                    try:
+                        from app.services.translation_service import TranslationService
+                        translation_service = TranslationService()
+                        
+                        # Use batch translation for efficiency (single API call)
+                        translated_data = translation_service.translate_lab_data_batch(
+                            lab_data,
+                            target_language=user_language,
+                            source_language=detected_language
+                        )
+                        
+                        translation_applied = True
+                        logger.info(f"Successfully batch translated {len(translated_data)} lab records from {detected_language} to {user_language}")
+                    except Exception as e:
+                        logger.error(f"Failed to translate lab data: {e}", exc_info=True)
+                
                 # Parse reference ranges
                 for item in lab_data:
                     if 'reference' in item or 'reference_range' in item:
@@ -3720,11 +3704,28 @@ async def upload_and_analyze_lab_document(
                                 'original': original_reference
                             }
                 
+                # Also parse reference ranges for translated data if available
+                if translated_data:
+                    for item in translated_data:
+                        if 'reference' in item or 'reference_range' in item:
+                            original_reference = item.get('reference') or item.get('reference_range', '')
+                            if original_reference:
+                                parsed_range = lab_service._parse_simple_range(original_reference)
+                                item['reference_range_parsed'] = {
+                                    'min': parsed_range.get('min'),
+                                    'max': parsed_range.get('max'),
+                                    'original': original_reference
+                                }
+                
                 return {
                     "success": True,
                     "message": "OCR extraction completed successfully",
                     "s3_url": s3_url,
-                    "lab_data": lab_data,
+                    "lab_data": lab_data,  # Original data in detected language
+                    "translated_data": translated_data,  # Translated data (if translation applied)
+                    "detected_language": detected_language,
+                    "user_language": user_language,
+                    "translation_applied": translation_applied,
                     "extracted_records_count": len(lab_data),
                     "ocr_used": True,
                     "form_data": {
@@ -3743,6 +3744,17 @@ async def upload_and_analyze_lab_document(
         
         # Standard extraction (fast path)
         text = lab_service._extract_text_from_pdf(file_content)
+        
+        # Detect document language using OpenAI
+        from app.services.language_detection_service import detect_document_language
+        detected_language = detect_document_language(text, fallback='en')
+        logger.info(f"Detected document language: {detected_language}")
+        
+        # Get user's preferred language
+        from app.utils.user_language import get_user_language_from_cache
+        user_language = await get_user_language_from_cache(current_user.id, db)
+        logger.info(f"User preferred language: {user_language}")
+        
         lab_data = lab_service._extract_lab_data_advanced(text)
         
         # If no records found with standard method, suggest OCR to frontend
@@ -3753,6 +3765,10 @@ async def upload_and_analyze_lab_document(
                 "message": "No data extracted with standard method. Document may be scanned. Trying OCR mode...",
                 "s3_url": s3_url,
                 "lab_data": [],
+                "translated_data": None,
+                "detected_language": detected_language,
+                "user_language": user_language,
+                "translation_applied": False,
                 "extracted_records_count": 0,
                 "ocr_used": False,
                 "suggest_ocr": True,  # Frontend will automatically trigger OCR request
@@ -3763,6 +3779,27 @@ async def upload_and_analyze_lab_document(
                     "description": description
                 }
             }
+        
+        # Translate lab data if detected language differs from user language
+        translated_data = None
+        translation_applied = False
+        if detected_language != user_language and detected_language != 'en':
+            logger.info(f"Languages differ (detected: {detected_language}, user: {user_language}). Batch translating lab data...")
+            try:
+                from app.services.translation_service import TranslationService
+                translation_service = TranslationService()
+                
+                # Use batch translation for efficiency (single API call)
+                translated_data = translation_service.translate_lab_data_batch(
+                    lab_data,
+                    target_language=user_language,
+                    source_language=detected_language
+                )
+                
+                translation_applied = True
+                logger.info(f"Successfully batch translated {len(translated_data)} lab records from {detected_language} to {user_language}")
+            except Exception as e:
+                logger.error(f"Failed to translate lab data: {e}", exc_info=True)
         
         # Parse reference ranges for each lab data entry (standard extraction success)
         for item in lab_data:
@@ -3778,13 +3815,30 @@ async def upload_and_analyze_lab_document(
                         'original': original_reference
                     }
         
+        # Also parse reference ranges for translated data if available
+        if translated_data:
+            for item in translated_data:
+                if 'reference' in item or 'reference_range' in item:
+                    original_reference = item.get('reference') or item.get('reference_range', '')
+                    if original_reference:
+                        parsed_range = lab_service._parse_simple_range(original_reference)
+                    item['reference_range_parsed'] = {
+                        'min': parsed_range.get('min'),
+                        'max': parsed_range.get('max'),
+                        'original': original_reference
+                    }
+        
         logger.info(f"Successfully extracted {len(lab_data)} lab records for user {current_user.id}")
         
         return {
             "success": True,
             "message": "Lab document analyzed successfully",
             "s3_url": s3_url,
-            "lab_data": lab_data,
+            "lab_data": lab_data,  # Original data in detected language
+            "translated_data": translated_data,  # Translated data (if translation applied)
+            "detected_language": detected_language,
+            "user_language": user_language,
+            "translation_applied": translation_applied,
             "extracted_records_count": len(lab_data),
             "ocr_used": False,
             "suggest_ocr": False,
@@ -3857,6 +3911,19 @@ async def bulk_create_lab_records(
         # Import lab service
         from app.services.lab_document_analysis_service import LabDocumentAnalysisService
         lab_service = LabDocumentAnalysisService()
+        
+        # Set detected language if provided (from upload/analysis step)
+        detected_language = request.get('detected_language')
+        if detected_language:
+            lab_service._detected_language = detected_language
+            logger.info(f"Using detected language from request: {detected_language}")
+        else:
+            # Fallback: try to detect from records (less accurate)
+            # Get user language as fallback
+            from app.utils.user_language import get_user_language_from_cache
+            user_language = await get_user_language_from_cache(current_user.id, db)
+            lab_service._detected_language = user_language  # Use user language as fallback
+            logger.info(f"No detected_language provided, using user language as fallback: {user_language}")
         
         # Validate required fields
         file_name = request.get('file_name')

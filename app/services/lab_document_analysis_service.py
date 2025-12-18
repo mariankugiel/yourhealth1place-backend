@@ -13,6 +13,7 @@ from app.models.health_record import (
     HealthRecordMetric, GeneralDocumentType, LabDocumentType
 )
 from app.schemas.health_record import HealthRecordCreate, HealthRecordDocLabCreate, HealthRecordSectionCreate, HealthRecordMetricCreate
+from app.services.language_detection_service import detect_document_language
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +22,7 @@ class LabDocumentAnalysisService:
     
     def __init__(self):
         self._init_patterns()
+        self._detected_language: Optional[str] = None  # Store detected language for document
     
     def _init_patterns(self):
         """Initialize comprehensive regex patterns for lab report extraction"""
@@ -485,9 +487,43 @@ class LabDocumentAnalysisService:
             if not text:
                 raise ValueError("No text could be extracted from the PDF")
             
+            # Detect document language using OpenAI
+            detected_language = detect_document_language(text, fallback='en')
+            logger.info(f"Detected document language: {detected_language}")
+            
+            # Get user's preferred language
+            from app.utils.user_language import get_user_language_from_cache
+            user_language = await get_user_language_from_cache(user_id, db)
+            logger.info(f"User preferred language: {user_language}")
+            
+            # Store detected language for use in section/metric creation
+            self._detected_language = detected_language
+            
             # Extract lab data using advanced parsing
             lab_data = self._extract_lab_data_advanced(text)
             logger.info(f"Extracted {len(lab_data)} lab records")
+            
+            # Translate lab data if detected language differs from user language
+            translated_data = None
+            translation_applied = False
+            if detected_language != user_language and detected_language != 'en':
+                logger.info(f"Languages differ (detected: {detected_language}, user: {user_language}). Batch translating lab data...")
+                try:
+                    from app.services.translation_service import TranslationService
+                    translation_service = TranslationService()
+                    
+                    # Use batch translation for efficiency (single API call)
+                    translated_data = translation_service.translate_lab_data_batch(
+                        lab_data,
+                        target_language=user_language,
+                        source_language=detected_language
+                    )
+                    
+                    translation_applied = True
+                    logger.info(f"Successfully batch translated {len(translated_data)} lab records from {detected_language} to {user_language}")
+                except Exception as e:
+                    logger.error(f"Failed to translate lab data: {e}", exc_info=True)
+                    # Continue without translation if it fails
             
             # If no records found, try OCR fallback
             ocr_used = False
@@ -529,7 +565,11 @@ class LabDocumentAnalysisService:
                 "success": True,
                 "message": "Lab document analyzed successfully",
                 "s3_url": s3_url,
-                "lab_data": lab_data,
+                "lab_data": lab_data,  # Original data in detected language
+                "translated_data": translated_data,  # Translated data (if translation applied)
+                "detected_language": detected_language,
+                "user_language": user_language,
+                "translation_applied": translation_applied,
                 "created_records_count": len(created_records),
                 "ocr_used": ocr_used
             }
@@ -855,7 +895,7 @@ class LabDocumentAnalysisService:
         return health_record_type.id
 
     async def _get_or_create_section(self, db: Session, user_id: int, section_type: str) -> HealthRecordSection:
-        """Get or create health record section (both tmp and main tables)"""
+        """Get or create health record section (main table only, no tmp table for user-created sections)"""
         try:
             if not section_type:
                 raise ValueError("Section type is required but was None or empty")
@@ -864,25 +904,8 @@ class LabDocumentAnalysisService:
             # Ensure health_record_type_id=1 exists
             health_record_type_id = self._ensure_health_record_type(db, type_id=1)
             
-            # First, ensure section exists in template table
-            tmp_section = health_record_section_template_crud.get_by_name_and_type(db, section_name, health_record_type_id)
-            
-            if not tmp_section:
-                # Create in template table
-                tmp_section_data = {
-                    "name": section_name,
-                    "display_name": section_type,
-                    "description": "",
-                    "health_record_type_id": health_record_type_id,
-                    "is_active": True,
-                    "is_default": False,
-                    "created_by": user_id,
-                    "created_at": datetime.utcnow()
-                }
-                tmp_section = health_record_section_template_crud.create(db, tmp_section_data)
-                logger.info(f"Created new template section: {tmp_section.display_name}")
-            
-            # Then, ensure section exists in main table for UI
+            # For user-created sections from lab documents, we don't create tmp table entries
+            # Only create in main table for UI
             existing_section = db.query(HealthRecordSection).filter(
                 HealthRecordSection.name == section_name,
                 HealthRecordSection.health_record_type_id == health_record_type_id,
@@ -890,7 +913,7 @@ class LabDocumentAnalysisService:
             ).first()
             
             if not existing_section:
-                # Create in main table
+                # Create in main table only (no tmp table entry for user-created sections)
                 section_data = HealthRecordSectionCreate(
                     name=section_name,
                     display_name=section_type,
@@ -898,8 +921,12 @@ class LabDocumentAnalysisService:
                     health_record_type_id=health_record_type_id,
                     is_default=False
                 )
-                existing_section = health_record_section_crud.create(db, section_data, user_id)
-                logger.info(f"Created new main section: {existing_section.display_name}")
+                # Use detected language if available, otherwise default to 'en'
+                source_language = getattr(self, '_detected_language', None) or 'en'
+                existing_section = health_record_section_crud.create(
+                    db, section_data, user_id, source_language=source_language
+                )
+                logger.info(f"Created new user section (no tmp table): {existing_section.display_name} with source_language: {source_language}")
             
             return existing_section
             
@@ -914,51 +941,20 @@ class LabDocumentAnalysisService:
         section_id: int, 
         record_data: Dict[str, Any]
     ) -> HealthRecordMetric:
-        """Get or create health record metric (both tmp and main tables)"""
+        """Get or create health record metric (main table only, no tmp table for user-created metrics)"""
         try:
             metric_name_raw = record_data.get("metric_name")
             if not metric_name_raw:
                 raise ValueError("Metric name is required but was None or empty")
             metric_name = metric_name_raw.lower().replace(" ", "_")
             
-            # Get the template section ID from the main section
+            # Get the main section
             main_section = db.query(HealthRecordSection).filter(HealthRecordSection.id == section_id).first()
             if not main_section:
                 raise ValueError(f"Section with ID {section_id} not found")
             
-            # Find the corresponding template section
-            section_name = main_section.name
-            tmp_section = health_record_section_template_crud.get_by_name_and_type(db, section_name, 1)
-            if not tmp_section:
-                raise ValueError(f"Template section with name {section_name} not found")
-            
-            # First, ensure metric exists in template table
-            tmp_metric = health_record_metric_template_crud.get_by_section_and_name(db, tmp_section.id, metric_name)
-            
-            if not tmp_metric:
-                # Parse reference range using new format
-                original_reference = record_data.get("reference_range", "") or record_data.get("reference", "")
-                reference_data = self._parse_reference_range_new(original_reference)
-                
-                # Create in template table
-                tmp_metric_data = {
-                    "section_template_id": tmp_section.id,
-                    "name": metric_name,
-                    "display_name": record_data["metric_name"],
-                    "description": f"Lab metric: {record_data['metric_name']}",
-                    "default_unit": record_data.get("unit", ""),
-                    "data_type": "number" if record_data["value"].replace(".", "").replace(",", "").isdigit() else "text",
-                    "original_reference": original_reference,
-                    "reference_data": reference_data,
-                    "is_active": True,
-                    "is_default": False,
-                    "created_by": user_id,
-                    "created_at": datetime.utcnow()
-                }
-                tmp_metric = health_record_metric_template_crud.create(db, tmp_metric_data)
-                logger.info(f"Created new template metric: {tmp_metric.display_name} with reference: {original_reference}")
-            
-            # Then, ensure metric exists in main table for UI
+            # For user-created metrics from lab documents, we don't create tmp table entries
+            # Only create in main table for UI
             existing_metric = db.query(HealthRecordMetric).filter(
                 HealthRecordMetric.section_id == section_id,
                 HealthRecordMetric.name == metric_name
@@ -981,7 +977,7 @@ class LabDocumentAnalysisService:
                             "max": male_range.get("max")
                         }
                 
-                # Create in main table
+                # Create in main table only (no tmp table entry for user-created metrics)
                 metric_data = HealthRecordMetricCreate(
                     section_id=section_id,
                     name=metric_name,
@@ -993,8 +989,12 @@ class LabDocumentAnalysisService:
                     threshold=threshold,
                     is_default=False
                 )
-                existing_metric = health_record_metric_crud.create(db, metric_data, user_id)
-                logger.info(f"Created new main metric: {existing_metric.display_name} with threshold {threshold}")
+                # Use detected language if available, otherwise default to 'en'
+                source_language = getattr(self, '_detected_language', None) or 'en'
+                existing_metric = health_record_metric_crud.create(
+                    db, metric_data, user_id, source_language=source_language
+                )
+                logger.info(f"Created new user metric (no tmp table): {existing_metric.display_name} with source_language: {source_language} and threshold {threshold}")
             
             return existing_metric
             

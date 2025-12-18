@@ -1071,13 +1071,13 @@ class HealthRecordTypeCRUD:
 class HealthRecordSectionCRUD:
     """CRUD operations for HealthRecordSection model"""
     
-    def create(self, db: Session, section_data, user_id: int):
+    def create(self, db: Session, section_data, user_id: int, source_language: Optional[str] = None):
         """Create a new health record section"""
         try:
-            # Get user's language preference for source_language
-            # Note: In sync context, default to 'en' for source_language
-            # This is acceptable as source_language is mainly for tracking original language
-            source_language = 'en'
+            # Use provided source_language or default to 'en'
+            # source_language should be detected from document content when available
+            if source_language is None:
+                source_language = 'en'
             
             db_section = HealthRecordSection(
                 name=section_data.name,
@@ -1216,30 +1216,54 @@ class HealthRecordSectionCRUD:
                     if section_template:
                         # Delete ALL metric templates that reference this section template
                         # This prevents foreign key constraint violations when deleting the section template
-                        all_metric_templates = db.query(HealthRecordMetricTemplate).filter(
+                        # Use a loop to ensure we get all templates (in case more are added during deletion)
+                        max_iterations = 10  # Safety limit
+                        iteration = 0
+                        total_deleted = 0
+                        
+                        while iteration < max_iterations:
+                            # Query for all metric templates referencing this section template
+                            all_metric_templates = db.query(HealthRecordMetricTemplate).filter(
+                                HealthRecordMetricTemplate.section_template_id == section_template.id
+                            ).all()
+                            
+                            if not all_metric_templates:
+                                # No more templates to delete
+                                break
+                            
+                            # Delete all found templates
+                            for metric_template in all_metric_templates:
+                                if metric_template.is_default == False and metric_template.created_by == user_id:
+                                    logger.info(f"Deleting user-created metric template {metric_template.id}")
+                                else:
+                                    logger.warning(f"Deleting admin-created metric template {metric_template.id} that references user-created section template {section_template.id}")
+                                
+                                db.delete(metric_template)
+                                total_deleted += 1
+                            
+                            # Flush deletions to ensure they're committed
+                            db.flush()
+                            iteration += 1
+                            
+                            logger.info(f"Iteration {iteration}: Deleted {len(all_metric_templates)} metric templates (total: {total_deleted})")
+                        
+                        # Final check: verify no metric templates remain
+                        remaining_templates = db.query(HealthRecordMetricTemplate).filter(
                             HealthRecordMetricTemplate.section_template_id == section_template.id
                         ).all()
                         
-                        # Delete user-created metric templates
-                        for metric_template in all_metric_templates:
-                            if metric_template.is_default == False and metric_template.created_by == user_id:
-                                db.delete(metric_template)
-                                logger.info(f"Deleted user-created metric template {metric_template.id}")
-                            else:
-                                # If there are admin-created metric templates referencing a user-created section template,
-                                # this is a data inconsistency. We need to delete them too to avoid FK constraint violations.
-                                logger.warning(f"Admin-created metric template {metric_template.id} references user-created section template {section_template.id}. Deleting to avoid FK constraint violation.")
-                                db.delete(metric_template)
-                                logger.info(f"Deleted admin-created metric template {metric_template.id} that referenced user-created section template")
+                        if remaining_templates:
+                            remaining_ids = [t.id for t in remaining_templates]
+                            logger.error(
+                                f"Cannot delete section template {section_template.id}: "
+                                f"{len(remaining_templates)} metric templates still reference it (IDs: {remaining_ids}). "
+                                f"Total deleted: {total_deleted}"
+                            )
+                            raise ValueError(
+                                f"Cannot delete section template: {len(remaining_templates)} metric templates still reference it"
+                            )
                         
-                        # Verify no metric templates remain before deleting section template
-                        remaining_count = db.query(HealthRecordMetricTemplate).filter(
-                            HealthRecordMetricTemplate.section_template_id == section_template.id
-                        ).count()
-                        
-                        if remaining_count > 0:
-                            logger.error(f"Cannot delete section template {section_template.id}: {remaining_count} metric templates still reference it")
-                            raise ValueError(f"Cannot delete section template: {remaining_count} metric templates still reference it")
+                        logger.info(f"Successfully deleted {total_deleted} metric templates referencing section template {section_template.id}")
                         
                         # Now safe to delete the section template
                         db.delete(section_template)
@@ -1275,13 +1299,13 @@ class HealthRecordSectionCRUD:
 class HealthRecordMetricCRUD:
     """CRUD operations for HealthRecordMetric model"""
     
-    def create(self, db: Session, metric_data, user_id: int):
+    def create(self, db: Session, metric_data, user_id: int, source_language: Optional[str] = None):
         """Create a new health record metric"""
         try:
-            # Get user's language preference for source_language
-            # Note: In sync context, default to 'en' for source_language
-            # This is acceptable as source_language is mainly for tracking original language
-            source_language = 'en'
+            # Use provided source_language or default to 'en'
+            # source_language should be detected from document content when available
+            if source_language is None:
+                source_language = 'en'
             
             db_metric = HealthRecordMetric(
                 section_id=metric_data.section_id,

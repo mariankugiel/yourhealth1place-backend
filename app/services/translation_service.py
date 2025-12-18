@@ -275,6 +275,159 @@ class TranslationService:
         
         return translated_fields
 
+    def translate_lab_data_batch(
+        self,
+        lab_data: List[Dict[str, Any]],
+        target_language: str,
+        source_language: str = 'en'
+    ) -> List[Dict[str, Any]]:
+        """
+        Translate lab data records in a single batch API call for efficiency.
+        
+        Args:
+            lab_data: List of lab record dictionaries
+            target_language: Target language code ('en', 'es', 'pt')
+            source_language: Source language code ('en', 'es', 'pt')
+        
+        Returns:
+            List of translated lab record dictionaries
+        """
+        if not lab_data or not isinstance(lab_data, list):
+            return lab_data
+        
+        if source_language == target_language:
+            return lab_data
+        
+        if not self.openai_enabled:
+            logger.warning(f"⚠️ [Translation] OpenAI not available, cannot translate lab data from {source_language} to {target_language}. Returning original data.")
+            return lab_data
+        
+        # Language name mapping
+        language_names = {
+            'en': 'English',
+            'es': 'Spanish',
+            'pt': 'Portuguese'
+        }
+        
+        source_name = language_names.get(source_language, 'English')
+        target_name = language_names.get(target_language, 'English')
+        
+        try:
+            # Prepare text items to translate with their positions
+            text_items = []
+            item_map = []  # Track which record and field each item belongs to
+            
+            for record_idx, record in enumerate(lab_data):
+                item_entry = {'record_idx': record_idx, 'fields': {}}
+                
+                # Collect section name
+                if record.get('type_of_analysis'):
+                    text_items.append(record['type_of_analysis'])
+                    item_entry['fields']['type_of_analysis'] = len(text_items) - 1
+                
+                # Collect metric name
+                if record.get('metric_name'):
+                    text_items.append(record['metric_name'])
+                    item_entry['fields']['metric_name'] = len(text_items) - 1
+                
+                # Collect reference range (only if it contains text)
+                if record.get('reference_range') and isinstance(record['reference_range'], str):
+                    if any(c.isalpha() for c in record['reference_range']):
+                        text_items.append(record['reference_range'])
+                        item_entry['fields']['reference_range'] = len(text_items) - 1
+                
+                item_map.append(item_entry)
+            
+            if not text_items:
+                logger.info("No text items to translate in lab data")
+                return lab_data
+            
+            # Create structured prompt with numbered items
+            numbered_items = "\n".join([f"{i+1}. {item}" for i, item in enumerate(text_items)])
+            
+            prompt = f"""Translate the following medical lab report terms from {source_name} to {target_name}.
+
+Return ONLY a JSON array with the translations in the same order, one translation per line item. Format: ["translation1", "translation2", ...]
+
+Items to translate:
+{numbered_items}
+
+Return only the JSON array, nothing else."""
+
+            logger.info(f"🌐 [Translation] Batch translating {len(text_items)} items from {source_language} to {target_language}")
+            
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a professional medical translator. Translate medical and health-related content accurately while preserving medical terminology and context. Always return a valid JSON array with translations in the same order as provided."
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                temperature=0.3,
+                max_tokens=2000  # Increased for batch translations
+            )
+            
+            translated_text = response.choices[0].message.content.strip()
+            
+            # Parse JSON array from response
+            try:
+                # Remove markdown code blocks if present
+                if translated_text.startswith("```"):
+                    translated_text = translated_text.split("```")[1]
+                    if translated_text.startswith("json"):
+                        translated_text = translated_text[4:]
+                    translated_text = translated_text.strip()
+                
+                translations = json.loads(translated_text)
+                
+                if not isinstance(translations, list) or len(translations) != len(text_items):
+                    raise ValueError(f"Expected {len(text_items)} translations, got {len(translations) if isinstance(translations, list) else 'non-list'}")
+                
+                # Map translations back to records
+                translated_data = []
+                translation_idx = 0
+                
+                for record_idx, record in enumerate(lab_data):
+                    translated_record = record.copy()
+                    item_entry = item_map[record_idx]
+                    
+                    # Apply translations
+                    if 'type_of_analysis' in item_entry['fields']:
+                        idx = item_entry['fields']['type_of_analysis']
+                        translated_record['type_of_analysis'] = translations[idx]
+                        translation_idx += 1
+                    
+                    if 'metric_name' in item_entry['fields']:
+                        idx = item_entry['fields']['metric_name']
+                        translated_record['metric_name'] = translations[idx]
+                        translation_idx += 1
+                    
+                    if 'reference_range' in item_entry['fields']:
+                        idx = item_entry['fields']['reference_range']
+                        translated_record['reference_range'] = translations[idx]
+                        translation_idx += 1
+                    
+                    translated_data.append(translated_record)
+                
+                logger.info(f"✅ [Translation] Successfully batch translated {len(lab_data)} lab records from {source_language} to {target_language}")
+                return translated_data
+                
+            except (json.JSONDecodeError, ValueError) as parse_error:
+                logger.error(f"❌ [Translation] Failed to parse batch translation response: {parse_error}")
+                logger.error(f"Response was: {translated_text[:500]}")
+                logger.warning("Returning original lab data without translation")
+                return lab_data
+            
+        except Exception as e:
+            logger.error(f"❌ [Translation] Failed to batch translate lab data: {e}", exc_info=True)
+            logger.warning("Returning original lab data without translation")
+            return lab_data
+
 
 # Create singleton instance
 translation_service = TranslationService()
