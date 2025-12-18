@@ -1204,20 +1204,7 @@ class HealthRecordSectionCRUD:
                     # For user-created sections: delete from both normal and template tables
                     logger.info(f"Deleting user-created section {section_id} from both normal and template tables")
                     
-                    # Delete user-created metric templates
-                    user_metric_templates = db.query(HealthRecordMetricTemplate).filter(
-                        and_(
-                            HealthRecordMetricTemplate.section_template_id == db_section.section_template_id,
-                            HealthRecordMetricTemplate.created_by == user_id,
-                            HealthRecordMetricTemplate.is_default == False  # User-created templates
-                        )
-                    ).all()
-                    
-                    for metric_template in user_metric_templates:
-                        db.delete(metric_template)
-                        logger.info(f"Deleted user-created metric template {metric_template.id}")
-                    
-                    # Delete user-created section template
+                    # Get the section template first
                     section_template = db.query(HealthRecordSectionTemplate).filter(
                         and_(
                             HealthRecordSectionTemplate.id == db_section.section_template_id,
@@ -1227,6 +1214,34 @@ class HealthRecordSectionCRUD:
                     ).first()
                     
                     if section_template:
+                        # Delete ALL metric templates that reference this section template
+                        # This prevents foreign key constraint violations when deleting the section template
+                        all_metric_templates = db.query(HealthRecordMetricTemplate).filter(
+                            HealthRecordMetricTemplate.section_template_id == section_template.id
+                        ).all()
+                        
+                        # Delete user-created metric templates
+                        for metric_template in all_metric_templates:
+                            if metric_template.is_default == False and metric_template.created_by == user_id:
+                                db.delete(metric_template)
+                                logger.info(f"Deleted user-created metric template {metric_template.id}")
+                            else:
+                                # If there are admin-created metric templates referencing a user-created section template,
+                                # this is a data inconsistency. We need to delete them too to avoid FK constraint violations.
+                                logger.warning(f"Admin-created metric template {metric_template.id} references user-created section template {section_template.id}. Deleting to avoid FK constraint violation.")
+                                db.delete(metric_template)
+                                logger.info(f"Deleted admin-created metric template {metric_template.id} that referenced user-created section template")
+                        
+                        # Verify no metric templates remain before deleting section template
+                        remaining_count = db.query(HealthRecordMetricTemplate).filter(
+                            HealthRecordMetricTemplate.section_template_id == section_template.id
+                        ).count()
+                        
+                        if remaining_count > 0:
+                            logger.error(f"Cannot delete section template {section_template.id}: {remaining_count} metric templates still reference it")
+                            raise ValueError(f"Cannot delete section template: {remaining_count} metric templates still reference it")
+                        
+                        # Now safe to delete the section template
                         db.delete(section_template)
                         logger.info(f"Deleted user-created section template {section_template.id}")
                 else:

@@ -1,0 +1,21 @@
+{
+  "id": "chatcmpl-Co2EXcgmXOKanVEfefc91HNWMdlwh",
+  "object": "chat.completion",
+  "created": 1766041021,
+  "model": "gpt-4o-mini-2024-07-18",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "```json\n{\n    \"areas_of_concern\": [\n        \"Your SPO2 level is at 86%, which is considered low and can be concerning. It’s great that you had a normal reading of 97% recently, but please consult a healthcare provider for further evaluation.\"\n    ],\n    \"positive_trends\": [\n        \"Your heart rate metrics look fantastic! With a resting heart rate of 63 bpm and good durations of light and moderate activity, you’re showing solid cardiovascular health. Keep it up!\"\n    ],\n    \"recommendations\": [\n        \"Focus on increasing your physical activity, aiming for at least 150 minutes of moderate exercise weekly. Also, consider checking your oxygen levels regularly and discuss the low SPO2 reading with your healthcare provider.\"\n    ]\n}\n```"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 1755,
+    "completion_tokens": 157,
+    "total_tokens": 1912
+  }
+}

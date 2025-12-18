@@ -5,6 +5,7 @@ import re
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
+from pathlib import Path
 
 from app.core.config import settings
 from app.models.health_record import HealthRecord, HealthRecordMetric, HealthRecordSection, HealthRecordDocExam
@@ -22,6 +23,70 @@ except ImportError:
     logging.warning("OpenAI package not installed. AI analysis will use fallback mode.")
 
 logger = logging.getLogger(__name__)
+
+
+def save_openai_request_response_to_files(
+    request_data: Dict[str, Any],
+    response_data: Dict[str, Any],
+    user_id: int,
+    health_record_type_id: int,
+    target_language: str = 'en'
+) -> None:
+    """
+    Save OpenAI request and response data to files in project root.
+    Non-blocking - errors are logged but don't affect AI analysis processing.
+    
+    Files saved:
+    - {timestamp}_ai_analysis_user_{user_id}_type_{type_id}_{language}.request.json - Request data (messages, model, parameters)
+    - {timestamp}_ai_analysis_user_{user_id}_type_{type_id}_{language}.response.json - Response data (full OpenAI response)
+    - {timestamp}_ai_analysis_user_{user_id}_type_{type_id}_{language}.meta.json - Metadata (user_id, type_id, language, etc.)
+    """
+    try:
+        # Get project root directory (parent of app directory)
+        project_root = Path(__file__).parent.parent.parent
+        openai_data_dir = project_root / "openai_data"
+        
+        # Create directory if it doesn't exist
+        openai_data_dir.mkdir(exist_ok=True)
+        
+        # Generate timestamp for filename (YYYYMMDD_HHMMSS)
+        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        
+        # Base filename
+        base_filename = f"{timestamp}_ai_analysis_user_{user_id}_type_{health_record_type_id}_{target_language}"
+        
+        # Save request data
+        request_file_path = openai_data_dir / f"{base_filename}.request.json"
+        with open(request_file_path, "w", encoding="utf-8") as f:
+            json.dump(request_data, f, indent=2, ensure_ascii=False)
+        logger.info(f"💾 Saved OpenAI request data to: {request_file_path}")
+        
+        # Save response data
+        response_file_path = openai_data_dir / f"{base_filename}.response.json"
+        with open(response_file_path, "w", encoding="utf-8") as f:
+            json.dump(response_data, f, indent=2, ensure_ascii=False)
+        logger.info(f"💾 Saved OpenAI response data to: {response_file_path}")
+        
+        # Save metadata
+        metadata = {
+            "timestamp": timestamp,
+            "user_id": user_id,
+            "health_record_type_id": health_record_type_id,
+            "target_language": target_language,
+            "saved_at": datetime.utcnow().isoformat(),
+            "model": request_data.get("model", "unknown"),
+            "has_response": bool(response_data),
+            "response_success": response_data.get("success", False) if isinstance(response_data, dict) else True
+        }
+        meta_file_path = openai_data_dir / f"{base_filename}.meta.json"
+        with open(meta_file_path, "w", encoding="utf-8") as f:
+            json.dump(metadata, f, indent=2, ensure_ascii=False)
+        logger.info(f"💾 Saved OpenAI metadata to: {meta_file_path}")
+        
+    except Exception as e:
+        logger.warning(f"⚠️  Failed to save OpenAI request/response data to files: {e}", exc_info=True)
+        # Don't raise - allow AI analysis processing to continue
+
 
 class AIAnalysisService:
     def __init__(self):
@@ -214,7 +279,7 @@ class AIAnalysisService:
                     }
             
             # Generate AI analysis using GPT in user's language (either forced or required by 5-day rule)
-            ai_analysis_result = await self._generate_ai_analysis(health_data, health_record_type_id, target_language=user_language)
+            ai_analysis_result = await self._generate_ai_analysis(health_data, health_record_type_id, user_id=user_id, target_language=user_language)
             ai_analysis = ai_analysis_result["analysis"]
             ai_success = ai_analysis_result["success"]
             
@@ -364,6 +429,7 @@ class AIAnalysisService:
         self, 
         health_data: Dict[str, Any], 
         health_record_type_id: int = 1,
+        user_id: int = None,
         target_language: str = 'en'
     ) -> Dict[str, Any]:
         """Generate AI analysis using GPT or fallback to local analysis"""
@@ -386,10 +452,8 @@ class AIAnalysisService:
             # Prepare the prompt for GPT
             prompt = self._create_analysis_prompt(health_data, health_record_type_id, target_language)
             
-            # Call OpenAI API
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
+            # Prepare request messages
+            messages = [
                     {
                         "role": "system",
                         "content": f"""You are a medical AI assistant that analyzes health data and provides insights, recommendations, and assessments. 
@@ -415,10 +479,54 @@ class AIAnalysisService:
                         "role": "user",
                         "content": prompt
                     }
+            ]
+            
+            # Prepare request data for saving
+            request_params = {
+                "model": self.model,
+                "messages": messages,
+                "max_tokens": 2000,
+                "temperature": 0.7
+            }
+            
+            # Call OpenAI API
+            response = self.client.chat.completions.create(**request_params)
+            
+            # Convert response to dict for saving (handles OpenAI response object)
+            response_dict = {
+                "id": response.id,
+                "object": response.object,
+                "created": response.created,
+                "model": response.model,
+                "choices": [
+                    {
+                        "index": choice.index,
+                        "message": {
+                            "role": choice.message.role,
+                            "content": choice.message.content
+                        },
+                        "finish_reason": choice.finish_reason
+                    } for choice in response.choices
                 ],
-                max_tokens=2000,
-                temperature=0.7
-            )
+                "usage": {
+                    "prompt_tokens": response.usage.prompt_tokens if response.usage else None,
+                    "completion_tokens": response.usage.completion_tokens if response.usage else None,
+                    "total_tokens": response.usage.total_tokens if response.usage else None
+                }
+            }
+            
+            # Save request and response to files
+            if user_id:
+                try:
+                    save_openai_request_response_to_files(
+                        request_data=request_params,
+                        response_data=response_dict,
+                        user_id=user_id,
+                        health_record_type_id=health_record_type_id,
+                        target_language=target_language
+                    )
+                except Exception as save_error:
+                    logger.warning(f"Failed to save OpenAI request/response data: {save_error}")
             
             # Parse the response
             ai_response = response.choices[0].message.content
@@ -450,6 +558,25 @@ class AIAnalysisService:
             
         except Exception as e:
             logger.error(f"Error generating AI analysis: {e}")
+            
+            # Save error response if user_id is available
+            if user_id:
+                try:
+                    error_response = {
+                        "success": False,
+                        "error": str(e),
+                        "error_type": type(e).__name__
+                    }
+                    save_openai_request_response_to_files(
+                        request_data={"error": "Request not sent due to exception", "exception": str(e)},
+                        response_data=error_response,
+                        user_id=user_id,
+                        health_record_type_id=health_record_type_id,
+                        target_language=target_language
+                    )
+                except Exception as save_error:
+                    logger.warning(f"Failed to save error response: {save_error}")
+            
             return {
                 "success": False,
                 "message": f"AI analysis failed: {str(e)}. Using local analysis instead.",

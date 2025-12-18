@@ -95,7 +95,8 @@ async def analyze_health_data(
         # Re-raise HTTP exceptions
         raise
     except Exception as e:
-        logger.error(f"Unexpected error in AI analysis for user {current_user.id}: {e}")
+        user_id = current_user.id if current_user else "unknown"
+        logger.error(f"Unexpected error in AI analysis for user {user_id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Unexpected error during AI analysis: {str(e)}"
