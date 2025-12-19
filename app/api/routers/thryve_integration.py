@@ -101,9 +101,44 @@ async def get_disconnection_url(
         # Get access token
         access_token = await integration_service.get_user_access_token(current_user_id)
         if not access_token:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="User does not have Thryve access token. Please connect a data source first."
+            # No access token means integration is not actually connected
+            # Remove the integration from user_integrations instead of raising an error
+            logger.info(f"No Thryve access token found for user {current_user_id}. Removing integration for data source {data_source_id}.")
+            
+            # Map data source ID to field name
+            data_source_to_field = {
+                1: "fitbit",
+                2: "garmin",
+                3: "polar",
+                8: "withings",
+                11: "strava",
+                16: "omron_connect",
+                17: "suunto",
+                18: "oura",
+                27: "beurer",
+                38: "huawei_health",
+            }
+            
+            field_name = data_source_to_field.get(data_source_id)
+            if field_name:
+                # Remove the integration by setting it to False
+                from app.core.supabase_client import SupabaseService
+                supabase_service = SupabaseService()
+                await supabase_service.update_user_integrations(
+                    user_id=current_user_id,
+                    integrations={field_name: False}
+                )
+                logger.info(f"Removed {field_name} integration for user {current_user_id}")
+            
+            # Return a dummy response that indicates the integration was removed
+            # The frontend will handle this by updating the UI
+            if not redirect_uri:
+                redirect_uri = f"{integration_service.service_base_url}/dataSourceDirectConnectionResult.html"
+            
+            # Return a response that indicates success (integration removed)
+            return ThryveConnectionResponse(
+                url=redirect_uri + "?dataSource=" + str(data_source_id) + "&connected=false",
+                connection_session_token=""
             )
         
         # Get connection session token

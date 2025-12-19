@@ -1774,6 +1774,174 @@ async def get_sections_combined(
             detail=f"Failed to get combined sections: {str(e)}"
         )
 
+@router.get("/summary", response_model=Dict[str, Any])
+async def get_health_records_summary(
+    patient_id: Optional[int] = Query(None, description="Patient ID to access (requires permission)"),
+    patient_token: Optional[str] = Query(None, description="Patient token to access (requires permission)"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    request: Request = None
+):
+    """Get summary data for health records summary page with recommended and recent metrics"""
+    try:
+        from app.core.patient_access import check_patient_access
+        
+        # Determine target user ID
+        target_user_id = current_user.id
+        
+        resolved_patient_id = _resolve_patient_identifier(patient_id, patient_token)
+        
+        if resolved_patient_id:
+            # Check permissions
+            has_access, error_message = await check_patient_access(
+                db=db,
+                patient_id=resolved_patient_id,
+                current_user=current_user,
+                permission_type="view_health_records"
+            )
+            
+            if not has_access:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=error_message or "You do not have permission to access this patient's health records"
+                )
+            
+            target_user_id = resolved_patient_id
+        
+        # Get wellness metrics (types 2, 3, 4: Vitals, Body, Lifestyle)
+        wellness_types = [2, 3, 4]
+        wellness_metrics = []
+        for type_id in wellness_types:
+            sections = health_record_section_metric_crud.get_all_sections_with_user_data(
+                db, target_user_id, include_inactive=False, health_record_type_id=type_id
+            )
+            for section in sections:
+                for metric in section.get("metrics", []):
+                    if metric.get("total_records", 0) > 0:  # Only include metrics with data
+                        metric_data = {
+                            **metric,
+                            "section_id": section.get("id"),
+                            "section_name": section.get("display_name", section.get("name")),
+                            "health_record_type_id": type_id
+                        }
+                        wellness_metrics.append(metric_data)
+        
+        # Get analysis metrics (type 1)
+        analysis_metrics = []
+        analysis_sections = health_record_section_metric_crud.get_all_sections_with_user_data(
+            db, target_user_id, include_inactive=False, health_record_type_id=1
+        )
+        for section in analysis_sections:
+            for metric in section.get("metrics", []):
+                if metric.get("total_records", 0) > 0:  # Only include metrics with data
+                    metric_data = {
+                        **metric,
+                        "section_id": section.get("id"),
+                        "section_name": section.get("display_name", section.get("name")),
+                        "health_record_type_id": 1
+                    }
+                    analysis_metrics.append(metric_data)
+        
+        # Helper function to score metrics for recommendation
+        def score_metric(metric):
+            score = 0
+            # Abnormal status gets high priority
+            if metric.get("latest_status") in ["abnormal", "critical"]:
+                score += 10
+            # Recent updates (within 7 days)
+            if metric.get("latest_recorded_at"):
+                try:
+                    latest_date = datetime.fromisoformat(metric["latest_recorded_at"].replace("Z", "+00:00"))
+                    days_ago = (datetime.utcnow() - latest_date.replace(tzinfo=None)).days
+                    if days_ago <= 7:
+                        score += 3
+                except:
+                    pass
+            # Has trend data
+            if metric.get("trend") and metric.get("trend") != "unknown":
+                score += 2
+            # Has multiple records (more reliable)
+            if metric.get("total_records", 0) > 5:
+                score += 1
+            return score
+        
+        # Get recommended metrics (top 3 by score)
+        wellness_sorted = sorted(wellness_metrics, key=score_metric, reverse=True)
+        wellness_recommended = wellness_sorted[:3]
+        wellness_recommended_ids = {m.get("id") for m in wellness_recommended}
+        
+        # Helper function to get sortable date value (handle None)
+        def get_sortable_date(metric):
+            date_str = metric.get("latest_recorded_at")
+            if date_str is None:
+                return ""  # Empty string sorts last
+            return date_str
+        
+        # Get recent metrics (excluding recommended, sorted by latest_recorded_at)
+        wellness_recent = sorted(
+            [m for m in wellness_metrics if m.get("id") not in wellness_recommended_ids],
+            key=get_sortable_date,
+            reverse=True
+        )[:3]
+        
+        # Same for analysis
+        analysis_sorted = sorted(analysis_metrics, key=score_metric, reverse=True)
+        analysis_recommended = analysis_sorted[:3]
+        analysis_recommended_ids = {m.get("id") for m in analysis_recommended}
+        
+        analysis_recent = sorted(
+            [m for m in analysis_metrics if m.get("id") not in analysis_recommended_ids],
+            key=get_sortable_date,
+            reverse=True
+        )[:3]
+        
+        # Apply translations
+        from app.utils.translation_helpers import apply_translations_to_sections_with_metrics
+        
+        # Format response
+        def format_metrics(metrics_list):
+            formatted = []
+            for metric in metrics_list:
+                formatted.append({
+                    "id": metric.get("id"),
+                    "name": metric.get("name"),
+                    "display_name": metric.get("display_name"),
+                    "description": metric.get("description"),
+                    "unit": metric.get("unit"),
+                    "default_unit": metric.get("default_unit"),
+                    "reference_data": metric.get("reference_data"),
+                    "latest_value": metric.get("latest_value"),
+                    "latest_status": metric.get("latest_status"),
+                    "latest_recorded_at": metric.get("latest_recorded_at"),
+                    "total_records": metric.get("total_records", 0),
+                    "trend": metric.get("trend"),
+                    "data_points": metric.get("data_points", [])[:30],  # Last 30 for charts
+                    "section_id": metric.get("section_id"),
+                    "section_name": metric.get("section_name"),
+                    "health_record_type_id": metric.get("health_record_type_id")
+                })
+            return formatted
+        
+        return {
+            "wellness": {
+                "recommended": format_metrics(wellness_recommended),
+                "recent": format_metrics(wellness_recent)
+            },
+            "analysis": {
+                "recommended": format_metrics(analysis_recommended),
+                "recent": format_metrics(analysis_recent)
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get health records summary: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get health records summary: {str(e)}"
+        )
+
 @router.get("/metrics/all", response_model=List[Dict[str, Any]])
 async def get_all_user_metrics(
     patient_id: Optional[int] = Query(None, description="Patient ID to access (requires permission)"),

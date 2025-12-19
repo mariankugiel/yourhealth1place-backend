@@ -9,9 +9,11 @@ from pathlib import Path
 
 from app.core.config import settings
 from app.models.health_record import HealthRecord, HealthRecordMetric, HealthRecordSection, HealthRecordDocExam
-from app.crud.health_record import health_record_section_metric_crud
+from app.models.user import User
+from app.crud.health_record import health_record_section_metric_crud, medical_condition_crud, family_medical_history_crud
 from app.crud.medical_images import MedicalImageCRUD
 from app.crud.ai_analysis import ai_analysis_history_crud
+from app.core.supabase_client import supabase_service
 
 # Try to import OpenAI, fallback if not available
 try:
@@ -344,6 +346,149 @@ class AIAnalysisService:
                 }
             }
     
+    async def _get_user_context_data(
+        self,
+        db: Session,
+        user_id: int
+    ) -> Dict[str, Any]:
+        """Get user context data (age, sex, conditions, medications, family history) for AI analysis"""
+        try:
+            context = {
+                "age": None,
+                "sex": None,
+                "current_conditions": [],
+                "past_conditions": [],
+                "family_history": [],
+                "medications": []
+            }
+            
+            # Get user from database to access supabase_user_id
+            user = db.query(User).filter(User.id == user_id).first()
+            if not user:
+                return context
+            
+            # Get user profile from Supabase
+            if user.supabase_user_id:
+                try:
+                    profile = await supabase_service.get_user_profile(user.supabase_user_id)
+                    if profile:
+                        # Calculate age from date_of_birth
+                        if profile.get("date_of_birth"):
+                            try:
+                                dob = datetime.fromisoformat(profile["date_of_birth"].replace("Z", "+00:00"))
+                                today = datetime.utcnow()
+                                age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+                                context["age"] = age
+                            except (ValueError, TypeError):
+                                pass
+                        
+                        # Get sex/gender
+                        gender = profile.get("gender")
+                        if gender:
+                            context["sex"] = gender.capitalize()
+                        
+                        # Get medications
+                        medications = profile.get("current_medications")
+                        if medications:
+                            med_list = []
+                            if isinstance(medications, dict):
+                                # Check if it's a dict with "medications" key containing array
+                                if "medications" in medications and isinstance(medications["medications"], list):
+                                    meds = medications["medications"]
+                                    for med in meds:
+                                        if isinstance(med, dict):
+                                            drug_name = med.get("drugName", med.get("name", ""))
+                                            dosage = med.get("dosage", "")
+                                            frequency = med.get("frequency", "")
+                                            if drug_name:
+                                                med_str = drug_name
+                                                if dosage:
+                                                    med_str += f" {dosage}"
+                                                if frequency:
+                                                    med_str += f" {frequency}"
+                                                med_list.append(med_str)
+                            elif isinstance(medications, list):
+                                # Direct list format
+                                for med in medications:
+                                    if isinstance(med, dict):
+                                        drug_name = med.get("drugName", med.get("name", ""))
+                                        dosage = med.get("dosage", "")
+                                        frequency = med.get("frequency", "")
+                                        if drug_name:
+                                            med_str = drug_name
+                                            if dosage:
+                                                med_str += f" {dosage}"
+                                            if frequency:
+                                                med_str += f" {frequency}"
+                                            med_list.append(med_str)
+                            elif isinstance(medications, str):
+                                # String format
+                                if medications.strip():
+                                    med_list.append(medications)
+                            
+                            if med_list:
+                                context["medications"] = med_list
+                except Exception as e:
+                    logger.warning(f"Failed to fetch user profile from Supabase: {e}")
+            
+            # Get medical conditions
+            try:
+                conditions = medical_condition_crud.get_by_user(db, user_id, skip=0, limit=1000)
+                for condition in conditions:
+                    condition_str = condition.condition_name or ""
+                    if condition.diagnosed_date:
+                        condition_str += f" (Diagnosed: {condition.diagnosed_date.strftime('%Y-%m-%d')})"
+                    
+                    status = condition.status.value if hasattr(condition.status, 'value') else str(condition.status)
+                    if status in ['current', 'active', 'ongoing']:
+                        context["current_conditions"].append(condition_str)
+                    elif status in ['past', 'resolved', 'inactive']:
+                        context["past_conditions"].append(condition_str)
+            except Exception as e:
+                logger.warning(f"Failed to fetch medical conditions: {e}")
+            
+            # Get family history
+            try:
+                family_history = family_medical_history_crud.get_by_user(db, user_id, skip=0, limit=1000)
+                for history in family_history:
+                    relation = history.relation.value if hasattr(history.relation, 'value') else str(history.relation)
+                    conditions_list = []
+                    
+                    # Use chronic_diseases if available
+                    if history.chronic_diseases and isinstance(history.chronic_diseases, list):
+                        for disease in history.chronic_diseases:
+                            if isinstance(disease, dict):
+                                disease_name = disease.get("disease", disease.get("condition", ""))
+                                age_at_diagnosis = disease.get("age_at_diagnosis", disease.get("age_at_onset"))
+                                if disease_name:
+                                    if age_at_diagnosis:
+                                        conditions_list.append(f"{disease_name} (Age at onset: {age_at_diagnosis})")
+                                    else:
+                                        conditions_list.append(disease_name)
+                    # Fallback to legacy fields
+                    elif history.condition_name:
+                        condition_str = history.condition_name
+                        if history.age_of_onset:
+                            condition_str += f" (Age at onset: {history.age_of_onset})"
+                        conditions_list.append(condition_str)
+                    
+                    if conditions_list:
+                        context["family_history"].append(f"{relation}: {', '.join(conditions_list)}")
+            except Exception as e:
+                logger.warning(f"Failed to fetch family history: {e}")
+            
+            return context
+        except Exception as e:
+            logger.error(f"Error getting user context data: {e}")
+            return {
+                "age": None,
+                "sex": None,
+                "current_conditions": [],
+                "past_conditions": [],
+                "family_history": [],
+                "medications": []
+            }
+    
     async def _get_user_health_data(
         self, 
         db: Session, 
@@ -366,10 +511,14 @@ class AIAnalysisService:
             if not sections_data:
                 return {}
             
+            # Get user context data
+            user_context = await self._get_user_context_data(db, user_id)
+            
             # Structure the data for AI analysis
             health_data = {
                 "user_id": user_id,
                 "analysis_date": datetime.utcnow().isoformat(),
+                "user_context": user_context,
                 "sections": []
             }
             
@@ -456,24 +605,33 @@ class AIAnalysisService:
             messages = [
                     {
                         "role": "system",
-                        "content": f"""You are a medical AI assistant that analyzes health data and provides insights, recommendations, and assessments. 
-                        
-                        IMPORTANT: Provide all your responses in {target_language_name} language.
-                        
-                        Your role is to:
-                        1. Analyze health metrics and identify patterns
-                        2. Identify areas of concern based on abnormal values
-                        3. Highlight positive trends and improvements
-                        4. Provide actionable recommendations
-                        5. Assess overall health status
-                        6. Identify potential risk factors
-                        7. Suggest next steps for health monitoring
-                        
-                        Always provide evidence-based insights and recommend consulting healthcare providers for medical decisions.
-                        Be encouraging but realistic about health status.
-                        Focus on actionable, personalized recommendations.
-                        
-                        All responses must be in {target_language_name}."""
+                        "content": f"""You are a medical AI assistant that analyzes health data and provides insights, recommendations, and assessments. In this case you are using user's vitals data over time and provide clear, evidence-based insights. You are not diagnosing or replacing a healthcare professional.
+
+IMPORTANT: Provide all your responses in {target_language_name} language
+
+Your role is to:
+
+1. Analyze health metrics using widely accepted WHO or international clinical reference ranges and identify patterns
+
+2. Identify areas of concern based on abnormal values
+
+3. Highlight positive trends and improvements
+
+4. Provide actionable recommendations
+
+5. Assess overall health status
+
+6. Identify potential risk factors
+
+7. Suggest next steps for health monitoring
+
+Always provide evidence-based insights and recommend consulting healthcare providers for medical decisions.
+
+Be encouraging but realistic about health status.
+
+Focus on actionable, personalized recommendations.
+
+All responses must be in {target_language_name}."""
                     },
                     {
                         "role": "user",
@@ -486,7 +644,7 @@ class AIAnalysisService:
                 "model": self.model,
                 "messages": messages,
                 "max_tokens": 2000,
-                "temperature": 0.7
+                "temperature": 0.3
             }
             
             # Call OpenAI API
@@ -595,67 +753,136 @@ class AIAnalysisService:
         if health_record_type_id == 5:
             return self._create_medical_images_prompt(health_data, target_language)
         
+        # Language name mapping
+        language_names = {
+            'en': 'English',
+            'es': 'Spanish',
+            'pt': 'Portuguese'
+        }
+        target_language_name = language_names.get(target_language, 'English')
+        
+        # Get user context
+        user_context = health_data.get('user_context', {})
+        
+        # Format age
+        age_str = str(user_context.get('age')) if user_context.get('age') else "Not provided"
+        
+        # Format sex
+        sex_str = user_context.get('sex') or "Not provided"
+        
+        # Format conditions
+        current_conditions = user_context.get('current_conditions', [])
+        past_conditions = user_context.get('past_conditions', [])
+        conditions_str = ""
+        if current_conditions or past_conditions:
+            if current_conditions:
+                conditions_str += f"Current Conditions: {', '.join(current_conditions)}"
+            else:
+                conditions_str += "Current Conditions: None reported"
+            if past_conditions:
+                conditions_str += f"\nPast Conditions: {', '.join(past_conditions)}"
+            else:
+                conditions_str += "\nPast Conditions: None reported"
+        else:
+            conditions_str = "Current Conditions: None reported\nPast Conditions: None reported"
+        
+        # Format family history
+        family_history = user_context.get('family_history', [])
+        family_history_str = ', '.join(family_history) if family_history else "None reported"
+        
+        # Format medications
+        medications = user_context.get('medications', [])
+        medications_str = ', '.join(medications) if medications else "None reported"
+        
         prompt = f"""
-        Please analyze the following health data and provide a comprehensive health assessment:
+Please analyze the following health data and provide a comprehensive health assessment:
 
-        **Health Data Summary:**
-        - User ID: {health_data.get('user_id', 'Unknown')}
-        - Analysis Date: {health_data.get('analysis_date', 'Unknown')}
-        - Total Sections: {len(health_data.get('sections', []))}
+**Health Data Summary:**
 
-        **Detailed Health Data:**
+- Age: {age_str}
 
-        """
+- Sex: {sex_str}
+
+- [Current and Past Conditions and Family History]
+  {conditions_str}
+  Family History: {family_history_str}
+
+- [Medication being taken]
+  {medications_str}
+
+- Analysis Date: {health_data.get('analysis_date', 'Unknown')}
+
+- Total Sections: {len(health_data.get('sections', []))}
+
+**Detailed Health Data:**
+
+"""
         
         for section in health_data.get("sections", []):
-            prompt += f"\n**Section: {section.get('section_name', 'Unknown')}**\n"
+            prompt += f"**Section: {section.get('section_name', 'Unknown')}**\n\n"
             if section.get('section_description'):
-                prompt += f"Description: {section.get('section_description')}\n"
+                prompt += f"Description: {section.get('section_description')}\n\n"
             
             for metric in section.get("metrics", []):
-                prompt += f"\n- **{metric.get('metric_name', 'Unknown')}**\n"
-                prompt += f"  - Unit: {metric.get('unit', 'N/A')}\n"
-                prompt += f"  - Latest Value: {metric.get('latest_value', 'N/A')}\n"
-                prompt += f"  - Status: {metric.get('latest_status', 'unknown')}\n"
-                prompt += f"  - Trend: {metric.get('trend', 'unknown')}\n"
-                prompt += f"  - Total Records: {metric.get('total_records', 0)}\n"
+                prompt += f"- **{metric.get('metric_name', 'Unknown')}**\n\n"
+                prompt += f"  - Unit: {metric.get('unit', 'N/A')}\n\n"
                 
-                if metric.get('reference_range'):
-                    prompt += f"  - Reference Range: {metric.get('reference_range')}\n"
+                latest_value = metric.get('latest_value')
+                if latest_value is None:
+                    prompt += f"  - Latest Value: None\n\n"
+                else:
+                    prompt += f"  - Latest Value: {latest_value}\n\n"
+                
+                prompt += f"  - Status: {metric.get('latest_status', 'unknown')}\n\n"
+                prompt += f"  - Trend: {metric.get('trend', 'unknown')}\n\n"
+                prompt += f"  - Total Records: {metric.get('total_records', 0)}\n\n"
                 
                 # Add recent data points
                 data_points = metric.get('data_points', [])[:5]  # Last 5 points
                 if data_points:
-                    prompt += f"  - Recent Values:\n"
+                    prompt += f"  - Recent Values:\n\n"
                     for point in data_points:
-                        prompt += f"    * {point.get('value', 'N/A')} ({point.get('recorded_at', 'Unknown date')}) - {point.get('status', 'normal')}\n"
+                        value = point.get('value', 'N/A')
+                        recorded_at = point.get('recorded_at', 'Unknown date')
+                        status = point.get('status', 'normal')
+                        # Format timestamp to include timezone if available
+                        prompt += f"   * {value} ({recorded_at}) – {status}\n\n"
         
-        prompt += """
+        prompt += f"""
+**Please provide your analysis in the following JSON format:**
 
-        **Please provide your analysis in the following JSON format:**
+{{
+    "areas_of_concern": [
+        "Write 2-3 short, conversational sentences (40-80 words) about specific health concerns. Be direct but encouraging."
+    ],
+    "positive_trends": [
+        "Write 2-3 short, conversational sentences (40-80 words) about positive health trends. Be encouraging and supportive."
+    ],
+    "recommendations": [
+        "Write 2-3 short, conversational sentences (40-80 words) with specific, actionable health recommendations. Be practical and motivating."
+    ]
+}}
 
-        {
-            "areas_of_concern": [
-                "Write 1-2 short, conversational sentences (35-40 words) about specific health concerns. Be direct but encouraging."
-            ],
-            "positive_trends": [
-                "Write 1-2 short, conversational sentences (35-40 words) about positive health trends. Be encouraging and supportive."
-            ],
-            "recommendations": [
-                "Write 1-2 short, conversational sentences (35-40 words) with specific, actionable health recommendations. Be practical and motivating."
-            ]
-        }
+**Guidelines:**
 
-        **Guidelines:**
-        - Keep each response conversational and friendly (35-40 words maximum)
-        - Be specific and reference actual metric values when possible
-        - Use encouraging, supportive language
-        - Provide actionable, practical recommendations
-        - Be direct but not alarming about concerns
-        - Focus on what the user can do to improve their health
-        - Avoid medical jargon - use everyday language
-        - All responses must be in {target_language_name} language
-        """
+ - Keep each response conversational and friendly (35-40 words maximum)
+
+ - Be specific and reference actual metric values when possible and do not provide diagnoses or prescribe medication
+
+ - If ranges are referenced, explain them simply (e.g., "Most adults are usually within…" or "The World Health Organization recommends value to be within…")
+
+ - Use encouraging, empowering, calm, supportive language
+
+ - Provide actionable, practical recommendations
+
+ - Be direct but not alarming about concerns and recommend seeking medical advice, especially whenever important risks are identified
+
+ - Focus on what the user can do to improve their health
+
+ - Avoid medical jargon - use everyday language
+
+ - All responses must be in {target_language_name} language
+"""
         
         return prompt
     
