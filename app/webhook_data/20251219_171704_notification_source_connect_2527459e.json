@@ -1,0 +1,10 @@
+{
+  "endUserId": "2527459e9b6dc6363bf13d2f3e2aa1cd",
+  "endUserAlias": "c3d17f3e-91d1-4e46-9601-d566a9953718",
+  "timestampType": "unix",
+  "type": "notification.source.connect",
+  "data": {
+    "timestamp": 1766164624622,
+    "dataSourceId": 8
+  }
+}

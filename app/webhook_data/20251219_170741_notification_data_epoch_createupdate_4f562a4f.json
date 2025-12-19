@@ -1,0 +1,14 @@
+{
+  "endUserId": "4f562a4f596e887ee390f7461f678bd9",
+  "endUserAlias": "bd675d8a-9aeb-4e70-ad2a-ff312e693f38",
+  "timestampType": "unix",
+  "type": "notification.data.epoch.createupdate",
+  "data": {
+    "startTimestamp": 1763973390000,
+    "endTimestamp": 1763973390000,
+    "dataSourceId": 8,
+    "dataTypeIds": [
+      3000
+    ]
+  }
+}

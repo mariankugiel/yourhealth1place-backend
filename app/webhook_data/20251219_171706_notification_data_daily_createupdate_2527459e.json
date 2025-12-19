@@ -1,0 +1,27 @@
+{
+  "endUserId": "2527459e9b6dc6363bf13d2f3e2aa1cd",
+  "endUserAlias": "c3d17f3e-91d1-4e46-9601-d566a9953718",
+  "timestampType": "unix",
+  "type": "notification.data.daily.createupdate",
+  "data": {
+    "startDay": 1763510400000,
+    "endDay": 1766102400000,
+    "dataSourceId": 8,
+    "dataTypeIds": [
+      2210,
+      3020,
+      2000,
+      2001,
+      2003,
+      2100,
+      2101,
+      2005,
+      2006,
+      2102,
+      2007,
+      2200,
+      2008,
+      3001
+    ]
+  }
+}
