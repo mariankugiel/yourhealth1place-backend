@@ -27,3 +27,15 @@ class ThryveIntegrationStatus(BaseModel):
     connected: bool
     connected_at: Optional[str] = None
 
+
+class ThryveSyncRequest(BaseModel):
+    data_source_id: int
+    days_back: Optional[int] = 30
+
+
+class ThryveSyncResponse(BaseModel):
+    success: bool
+    records_created: int
+    records_updated: int
+    records_skipped: int
+    errors: List[str]

@@ -4057,6 +4057,56 @@ async def get_ocr_processing_status(
     
     return response
 
+@router.post("/health-record-doc-lab/check-similarity", response_model=dict)
+async def check_lab_document_similarity(
+    request: dict,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Check similarity of sections and metrics from lab document analysis.
+    Returns status (new/exist/similar) for each section and metric.
+    
+    Request body:
+    {
+        "sections": [{"name": "Blood Work"}, ...],
+        "metrics": [{"metric_name": "Hemoglobin", "section_name": "Blood Work"}, ...],
+        "health_record_type_id": 1
+    }
+    """
+    try:
+        from app.services.metric_similarity_service import metric_similarity_service
+        
+        sections = request.get("sections", [])
+        metrics = request.get("metrics", [])
+        health_record_type_id = request.get("health_record_type_id", 1)
+        
+        logger.info(f"Checking similarity for {len(sections)} sections and {len(metrics)} metrics for user {current_user.id}")
+        
+        result = metric_similarity_service.batch_check_similarity(
+            user_id=current_user.id,
+            sections=sections,
+            metrics=metrics,
+            health_record_type_id=health_record_type_id,
+            db=db
+        )
+        
+        logger.info(f"Similarity check completed: {len([s for s in result['sections'] if s['status'] != 'new'])} existing/similar sections, "
+                   f"{len([m for m in result['metrics'] if m['status'] != 'new'])} existing/similar metrics")
+        
+        return {
+            "success": True,
+            "sections": result["sections"],
+            "metrics": result["metrics"]
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to check similarity: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to check similarity: {str(e)}"
+        )
+
 @router.post("/health-record-doc-lab/bulk", response_model=dict)
 async def bulk_create_lab_records(
     request: dict,  # Using dict instead of BulkLabRecordsRequest for now

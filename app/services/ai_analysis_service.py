@@ -606,32 +606,32 @@ class AIAnalysisService:
                     {
                         "role": "system",
                         "content": f"""You are a medical AI assistant that analyzes health data and provides insights, recommendations, and assessments. In this case you are using user's vitals data over time and provide clear, evidence-based insights. You are not diagnosing or replacing a healthcare professional.
-
+                        
 IMPORTANT: Provide all your responses in {target_language_name} language
-
-Your role is to:
+                        
+                        Your role is to:
 
 1. Analyze health metrics using widely accepted WHO or international clinical reference ranges and identify patterns
 
-2. Identify areas of concern based on abnormal values
+                        2. Identify areas of concern based on abnormal values
 
-3. Highlight positive trends and improvements
+                        3. Highlight positive trends and improvements
 
-4. Provide actionable recommendations
+                        4. Provide actionable recommendations
 
-5. Assess overall health status
+                        5. Assess overall health status
 
-6. Identify potential risk factors
+                        6. Identify potential risk factors
 
-7. Suggest next steps for health monitoring
+                        7. Suggest next steps for health monitoring
+                        
+                        Always provide evidence-based insights and recommend consulting healthcare providers for medical decisions.
 
-Always provide evidence-based insights and recommend consulting healthcare providers for medical decisions.
+                        Be encouraging but realistic about health status.
 
-Be encouraging but realistic about health status.
-
-Focus on actionable, personalized recommendations.
-
-All responses must be in {target_language_name}."""
+                        Focus on actionable, personalized recommendations.
+                        
+                        All responses must be in {target_language_name}."""
                     },
                     {
                         "role": "user",
@@ -795,9 +795,9 @@ All responses must be in {target_language_name}."""
         medications_str = ', '.join(medications) if medications else "None reported"
         
         prompt = f"""
-Please analyze the following health data and provide a comprehensive health assessment:
+        Please analyze the following health data and provide a comprehensive health assessment:
 
-**Health Data Summary:**
+        **Health Data Summary:**
 
 - Age: {age_str}
 
@@ -810,13 +810,13 @@ Please analyze the following health data and provide a comprehensive health asse
 - [Medication being taken]
   {medications_str}
 
-- Analysis Date: {health_data.get('analysis_date', 'Unknown')}
+        - Analysis Date: {health_data.get('analysis_date', 'Unknown')}
 
-- Total Sections: {len(health_data.get('sections', []))}
+        - Total Sections: {len(health_data.get('sections', []))}
 
-**Detailed Health Data:**
+        **Detailed Health Data:**
 
-"""
+        """
         
         for section in health_data.get("sections", []):
             prompt += f"**Section: {section.get('section_name', 'Unknown')}**\n\n"
@@ -849,23 +849,23 @@ Please analyze the following health data and provide a comprehensive health asse
                         prompt += f"   * {value} ({recorded_at}) – {status}\n\n"
         
         prompt += f"""
-**Please provide your analysis in the following JSON format:**
+        **Please provide your analysis in the following JSON format:**
 
 {{
-    "areas_of_concern": [
+            "areas_of_concern": [
         "Write 2-3 short, conversational sentences (40-80 words) about specific health concerns. Be direct but encouraging."
-    ],
-    "positive_trends": [
+            ],
+            "positive_trends": [
         "Write 2-3 short, conversational sentences (40-80 words) about positive health trends. Be encouraging and supportive."
-    ],
-    "recommendations": [
+            ],
+            "recommendations": [
         "Write 2-3 short, conversational sentences (40-80 words) with specific, actionable health recommendations. Be practical and motivating."
-    ]
+            ]
 }}
 
-**Guidelines:**
+        **Guidelines:**
 
- - Keep each response conversational and friendly (35-40 words maximum)
+        - Keep each response conversational and friendly (35-40 words maximum)
 
  - Be specific and reference actual metric values when possible and do not provide diagnoses or prescribe medication
 
@@ -873,16 +873,16 @@ Please analyze the following health data and provide a comprehensive health asse
 
  - Use encouraging, empowering, calm, supportive language
 
- - Provide actionable, practical recommendations
+        - Provide actionable, practical recommendations
 
  - Be direct but not alarming about concerns and recommend seeking medical advice, especially whenever important risks are identified
 
- - Focus on what the user can do to improve their health
+        - Focus on what the user can do to improve their health
 
- - Avoid medical jargon - use everyday language
+        - Avoid medical jargon - use everyday language
 
- - All responses must be in {target_language_name} language
-"""
+        - All responses must be in {target_language_name} language
+        """
         
         return prompt
     

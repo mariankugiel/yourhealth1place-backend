@@ -4,6 +4,7 @@ import logging
 import hmac
 import hashlib
 from typing import Dict, Any, Optional
+from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
 from app.services.thryve_data_type_service import ThryveDataTypeService
@@ -632,4 +633,309 @@ class ThryveWebhookService:
         except Exception as e:
             logger.error(f"Error creating health record from daily entry: {e}", exc_info=True)
             return False, False
+    
+    def _check_duplicate_health_record(
+        self, 
+        db: Session, 
+        user_id: int, 
+        metric_id: int, 
+        start_time: Optional[datetime], 
+        end_time: Optional[datetime], 
+        value: Any
+    ) -> bool:
+        """
+        Check if a health record already exists with the same:
+        - user_id (created_by)
+        - metric_id
+        - measure_start_time (within 1 minute tolerance)
+        - measure_end_time (if provided, within 1 minute tolerance)
+        - value (exact match)
+        
+        Returns:
+            True if duplicate exists, False otherwise
+        """
+        from datetime import timedelta
+        from app.models.health_record import HealthRecord
+        
+        if not start_time:
+            # If no start_time, we can't check for duplicates reliably
+            return False
+        
+        # Query for existing records
+        query = db.query(HealthRecord).filter(
+            HealthRecord.created_by == user_id,
+            HealthRecord.metric_id == metric_id,
+            HealthRecord.value == value
+        )
+        
+        # Check start_time within 1 minute tolerance
+        start_min = start_time - timedelta(minutes=1)
+        start_max = start_time + timedelta(minutes=1)
+        query = query.filter(
+            HealthRecord.measure_start_time >= start_min,
+            HealthRecord.measure_start_time <= start_max
+        )
+        
+        # Check end_time within 1 minute tolerance (if provided)
+        if end_time:
+            end_min = end_time - timedelta(minutes=1)
+            end_max = end_time + timedelta(minutes=1)
+            query = query.filter(
+                HealthRecord.measure_end_time >= end_min,
+                HealthRecord.measure_end_time <= end_max
+            )
+        else:
+            # If no end_time in new record, check for records with null end_time
+            query = query.filter(HealthRecord.measure_end_time.is_(None))
+        
+        return query.first() is not None
+    
+    def sync_health_data_from_thryve(
+        self,
+        db: Session,
+        user_id: int,
+        access_token: str,
+        data_source_id: int,
+        days_back: int = 30
+    ) -> Dict[str, Any]:
+        """
+        Sync health data from Thryve API for a specific data source.
+        Fetches last N days of epoch and daily data, transforms to webhook format,
+        and stores as health records (skipping duplicates).
+        
+        Args:
+            db: Database session
+            user_id: Internal user ID
+            access_token: Thryve access token
+            data_source_id: Data source ID to sync
+            days_back: Number of days of historical data to fetch (default: 30)
+        
+        Returns:
+            Dict with sync results: {success, records_created, records_updated, records_skipped, errors}
+        """
+        from datetime import datetime, timedelta
+        from app.services.thryve_integration_service import ThryveIntegrationService
+        from app.services.thryve_data_source_service import ThryveDataSourceService
+        
+        integration_service = ThryveIntegrationService()
+        
+        # Calculate date range
+        end_date = datetime.now().date()
+        start_date = end_date - timedelta(days=days_back)
+        
+        start_date_str = start_date.strftime("%Y-%m-%d")
+        end_date_str = end_date.strftime("%Y-%m-%d")
+        
+        records_created = 0
+        records_updated = 0
+        records_skipped = 0
+        errors = []
+        
+        try:
+            logger.info(f"Starting sync for user {user_id}, data source {data_source_id}, date range: {start_date_str} to {end_date_str}")
+            
+            # Get data source name
+            data_source = ThryveDataSourceService.get_by_id(db, data_source_id)
+            data_source_name = data_source.name if data_source else "Unknown"
+            
+            # Fetch epoch data
+            try:
+                epoch_response = integration_service.fetch_dynamic_epoch_values(
+                    access_token=access_token,
+                    start_date=start_date_str,
+                    end_date=end_date_str,
+                    data_source_id=data_source_id
+                )
+                
+                # Transform to webhook format
+                epoch_webhook_data = integration_service._transform_epoch_response_to_webhook_format(
+                    epoch_response, data_source_id, db
+                )
+                
+                # Process epoch data
+                epoch_data_list = epoch_webhook_data.get("data", [])
+                for data_item in epoch_data_list:
+                    epoch_entries = data_item.get("epochData", [])
+                    for epoch_entry in epoch_entries:
+                        try:
+                            # Get metric_id from dataTypeId
+                            data_type_id = epoch_entry.get("dataTypeId")
+                            if not data_type_id:
+                                continue
+                            
+                            from app.models.thryve_data_type import ThryveDataType
+                            from app.models.health_metrics import HealthRecordMetricTemplate
+                            
+                            thryve_data_type = db.query(ThryveDataType).filter(
+                                ThryveDataType.data_type_id == data_type_id,
+                                ThryveDataType.is_active == True
+                            ).first()
+                            
+                            if not thryve_data_type:
+                                continue
+                            
+                            metric_template = db.query(HealthRecordMetricTemplate).filter(
+                                HealthRecordMetricTemplate.thryve_data_type_id == thryve_data_type.id,
+                                HealthRecordMetricTemplate.is_active == True
+                            ).first()
+                            
+                            if not metric_template:
+                                continue
+                            
+                            # Convert timestamps
+                            start_timestamp_ms = epoch_entry.get("startTimestamp")
+                            end_timestamp_ms = epoch_entry.get("endTimestamp")
+                            
+                            start_time = None
+                            end_time = None
+                            
+                            if start_timestamp_ms:
+                                from datetime import timezone
+                                start_time = datetime.fromtimestamp(start_timestamp_ms / 1000.0, tz=timezone.utc)
+                            
+                            if end_timestamp_ms:
+                                from datetime import timezone
+                                end_time = datetime.fromtimestamp(end_timestamp_ms / 1000.0, tz=timezone.utc)
+                            
+                            # Check for duplicate
+                            if self._check_duplicate_health_record(
+                                db, user_id, metric_template.id, start_time, end_time, epoch_entry.get("value")
+                            ):
+                                records_skipped += 1
+                                continue
+                            
+                            # Create health record
+                            success, was_created = self._create_health_record_from_epoch(
+                                db, user_id, epoch_entry, data_source_name, False, "sync"
+                            )
+                            
+                            if success:
+                                if was_created:
+                                    records_created += 1
+                                else:
+                                    records_updated += 1
+                            else:
+                                records_skipped += 1
+                                
+                        except Exception as e:
+                            error_msg = f"Error processing epoch entry: {str(e)}"
+                            logger.error(error_msg, exc_info=True)
+                            errors.append(error_msg)
+                            records_skipped += 1
+                
+            except Exception as e:
+                error_msg = f"Error fetching/processing epoch data: {str(e)}"
+                logger.error(error_msg, exc_info=True)
+                errors.append(error_msg)
+            
+            # Fetch daily data
+            try:
+                daily_response = integration_service.fetch_daily_dynamic_values(
+                    access_token=access_token,
+                    start_day=start_date_str,
+                    end_day=end_date_str,
+                    data_source_id=data_source_id
+                )
+                
+                # Transform to webhook format
+                daily_webhook_data = integration_service._transform_daily_response_to_webhook_format(
+                    daily_response, data_source_id, db
+                )
+                
+                # Process daily data
+                daily_data_list = daily_webhook_data.get("data", [])
+                for data_item in daily_data_list:
+                    daily_entries = data_item.get("dailyData", [])
+                    for daily_entry in daily_entries:
+                        try:
+                            # Get metric_id from dataTypeId
+                            data_type_id = daily_entry.get("dataTypeId")
+                            if not data_type_id:
+                                continue
+                            
+                            from app.models.thryve_data_type import ThryveDataType
+                            from app.models.health_metrics import HealthRecordMetricTemplate
+                            
+                            thryve_data_type = db.query(ThryveDataType).filter(
+                                ThryveDataType.data_type_id == data_type_id,
+                                ThryveDataType.is_active == True
+                            ).first()
+                            
+                            if not thryve_data_type:
+                                continue
+                            
+                            metric_template = db.query(HealthRecordMetricTemplate).filter(
+                                HealthRecordMetricTemplate.thryve_data_type_id == thryve_data_type.id,
+                                HealthRecordMetricTemplate.is_active == True
+                            ).first()
+                            
+                            if not metric_template:
+                                continue
+                            
+                            # Convert day timestamp to datetime
+                            day_timestamp_ms = daily_entry.get("day")
+                            start_time = None
+                            
+                            if day_timestamp_ms:
+                                from datetime import timezone
+                                # Handle both milliseconds and seconds
+                                if day_timestamp_ms > 1e12:  # Likely milliseconds
+                                    start_time = datetime.fromtimestamp(day_timestamp_ms / 1000.0, tz=timezone.utc)
+                                else:  # Likely seconds
+                                    start_time = datetime.fromtimestamp(day_timestamp_ms, tz=timezone.utc)
+                            
+                            # Check for duplicate
+                            if self._check_duplicate_health_record(
+                                db, user_id, metric_template.id, start_time, None, daily_entry.get("value")
+                            ):
+                                records_skipped += 1
+                                continue
+                            
+                            # Create health record
+                            success, was_created = self._create_health_record_from_daily(
+                                db, user_id, daily_entry, data_source_name, False, "sync"
+                            )
+                            
+                            if success:
+                                if was_created:
+                                    records_created += 1
+                                else:
+                                    records_updated += 1
+                            else:
+                                records_skipped += 1
+                                
+                        except Exception as e:
+                            error_msg = f"Error processing daily entry: {str(e)}"
+                            logger.error(error_msg, exc_info=True)
+                            errors.append(error_msg)
+                            records_skipped += 1
+                
+            except Exception as e:
+                error_msg = f"Error fetching/processing daily data: {str(e)}"
+                logger.error(error_msg, exc_info=True)
+                errors.append(error_msg)
+            
+            logger.info(
+                f"Sync completed for user {user_id}, data source {data_source_id}: "
+                f"created={records_created}, updated={records_updated}, skipped={records_skipped}, errors={len(errors)}"
+            )
+            
+            return {
+                "success": True,
+                "records_created": records_created,
+                "records_updated": records_updated,
+                "records_skipped": records_skipped,
+                "errors": errors
+            }
+            
+        except Exception as e:
+            error_msg = f"Error in sync_health_data_from_thryve: {str(e)}"
+            logger.error(error_msg, exc_info=True)
+            return {
+                "success": False,
+                "records_created": records_created,
+                "records_updated": records_updated,
+                "records_skipped": records_skipped,
+                "errors": errors + [error_msg]
+            }
 

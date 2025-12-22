@@ -895,7 +895,9 @@ class LabDocumentAnalysisService:
         return health_record_type.id
 
     async def _get_or_create_section(self, db: Session, user_id: int, section_type: str) -> HealthRecordSection:
-        """Get or create health record section (main table only, no tmp table for user-created sections)"""
+        """Get or create health record section (main table only, no tmp table for user-created sections)
+        Uses similarity matching to prevent duplicates with typos.
+        """
         try:
             if not section_type:
                 raise ValueError("Section type is required but was None or empty")
@@ -904,29 +906,51 @@ class LabDocumentAnalysisService:
             # Ensure health_record_type_id=1 exists
             health_record_type_id = self._ensure_health_record_type(db, type_id=1)
             
-            # For user-created sections from lab documents, we don't create tmp table entries
-            # Only create in main table for UI
+            # First check exact match
             existing_section = db.query(HealthRecordSection).filter(
                 HealthRecordSection.name == section_name,
                 HealthRecordSection.health_record_type_id == health_record_type_id,
                 HealthRecordSection.created_by == user_id
             ).first()
             
-            if not existing_section:
-                # Create in main table only (no tmp table entry for user-created sections)
-                section_data = HealthRecordSectionCreate(
-                    name=section_name,
-                    display_name=section_type,
-                    description="",
-                    health_record_type_id=health_record_type_id,
-                    is_default=False
-                )
-                # Use detected language if available, otherwise default to 'en'
-                source_language = getattr(self, '_detected_language', None) or 'en'
-                existing_section = health_record_section_crud.create(
-                    db, section_data, user_id, source_language=source_language
-                )
-                logger.info(f"Created new user section (no tmp table): {existing_section.display_name} with source_language: {source_language}")
+            if existing_section:
+                return existing_section
+            
+            # If no exact match, check for similar sections using similarity service
+            from app.services.metric_similarity_service import metric_similarity_service
+            similar_sections = metric_similarity_service.find_similar_sections(
+                user_id=user_id,
+                section_name=section_type,
+                health_record_type_id=health_record_type_id,
+                db=db,
+                threshold=0.90  # Use 0.90 threshold for auto-merging
+            )
+            
+            if similar_sections and similar_sections[0]["similarity_score"] >= 0.90:
+                # Very similar section found - use existing one
+                existing_section = db.query(HealthRecordSection).filter(
+                    HealthRecordSection.id == similar_sections[0]["id"]
+                ).first()
+                if existing_section:
+                    logger.info(f"Using similar existing section '{existing_section.display_name}' "
+                              f"(similarity: {similar_sections[0]['similarity_score']:.2f}) "
+                              f"instead of creating '{section_type}'")
+                    return existing_section
+            
+            # No similar section found - create new one
+            section_data = HealthRecordSectionCreate(
+                name=section_name,
+                display_name=section_type,
+                description="",
+                health_record_type_id=health_record_type_id,
+                is_default=False
+            )
+            # Use detected language if available, otherwise default to 'en'
+            source_language = getattr(self, '_detected_language', None) or 'en'
+            existing_section = health_record_section_crud.create(
+                db, section_data, user_id, source_language=source_language
+            )
+            logger.info(f"Created new user section (no tmp table): {existing_section.display_name} with source_language: {source_language}")
             
             return existing_section
             
@@ -941,7 +965,9 @@ class LabDocumentAnalysisService:
         section_id: int, 
         record_data: Dict[str, Any]
     ) -> HealthRecordMetric:
-        """Get or create health record metric (main table only, no tmp table for user-created metrics)"""
+        """Get or create health record metric (main table only, no tmp table for user-created metrics)
+        Uses similarity matching to prevent duplicates with typos.
+        """
         try:
             metric_name_raw = record_data.get("metric_name")
             if not metric_name_raw:
@@ -953,13 +979,36 @@ class LabDocumentAnalysisService:
             if not main_section:
                 raise ValueError(f"Section with ID {section_id} not found")
             
-            # For user-created metrics from lab documents, we don't create tmp table entries
-            # Only create in main table for UI
+            # First check exact match
             existing_metric = db.query(HealthRecordMetric).filter(
                 HealthRecordMetric.section_id == section_id,
                 HealthRecordMetric.name == metric_name
             ).first()
             
+            if existing_metric:
+                return existing_metric
+            
+            # If no exact match, check for similar metrics using similarity service
+            from app.services.metric_similarity_service import metric_similarity_service
+            similar_metrics = metric_similarity_service.find_similar_metrics(
+                section_id=section_id,
+                metric_name=metric_name_raw,  # Use original name for similarity check
+                db=db,
+                threshold=0.90  # Use 0.90 threshold for auto-merging
+            )
+            
+            if similar_metrics and similar_metrics[0]["similarity_score"] >= 0.90:
+                # Very similar metric found - use existing one
+                existing_metric = db.query(HealthRecordMetric).filter(
+                    HealthRecordMetric.id == similar_metrics[0]["id"]
+                ).first()
+                if existing_metric:
+                    logger.info(f"Using similar existing metric '{existing_metric.display_name}' "
+                              f"(similarity: {similar_metrics[0]['similarity_score']:.2f}) "
+                              f"instead of creating '{metric_name_raw}'")
+                    return existing_metric
+            
+            # No similar metric found - create new one
             if not existing_metric:
                 # Parse reference range using new format
                 original_reference = record_data.get("reference_range", "") or record_data.get("reference", "")

@@ -1,7 +1,9 @@
 from typing import List, Dict, Any, Optional
 from difflib import SequenceMatcher
 import re
+import unicodedata
 from sqlalchemy.orm import Session
+from sqlalchemy import and_
 # from app.models.health_record import MetricCategories, MetricSubCategories  # These classes don't exist
 from app.core.config import settings
 import logging
@@ -18,6 +20,8 @@ class MetricSimilarityService:
         self.similarity_threshold = 0.75  # 75% similarity threshold
         self.exact_match_threshold = 0.95  # 95% for near-exact matches
         self.min_word_length = 3  # Minimum word length to consider
+        self.section_similarity_threshold = 0.85  # Threshold for sections
+        self.metric_similarity_threshold = 0.80  # Threshold for metrics
         
     def check_similar_categories(
         self, 
@@ -124,7 +128,7 @@ class MetricSimilarityService:
     
     def _normalize_name(self, name: str) -> str:
         """
-        Normalize metric name for comparison.
+        Normalize metric name for comparison with multilingual support.
         
         Args:
             name: Original metric name
@@ -132,8 +136,15 @@ class MetricSimilarityService:
         Returns:
             Normalized name
         """
+        if not name:
+            return ""
+        
+        # Remove diacritics (á → a, ç → c, etc.)
+        normalized = unicodedata.normalize('NFKD', name)
+        normalized = ''.join(c for c in normalized if not unicodedata.combining(c))
+        
         # Convert to lowercase
-        normalized = name.lower()
+        normalized = normalized.lower()
         
         # Remove special characters and extra spaces
         normalized = re.sub(r'[^\w\s]', ' ', normalized)
@@ -189,12 +200,18 @@ class MetricSimilarityService:
             'hba1c': 'hemoglobin a1c',
             'a1c': 'hemoglobin a1c',
             'urine': 'urinalysis',
-            'ua': 'urinalysis'
+            'ua': 'urinalysis',
+            # Portuguese abbreviations
+            'leuc': 'leucocitos',
+            'plaquetas': 'platelets',
+            'glicose': 'glucose',
+            'colesterol': 'cholesterol',
+            'triglicerides': 'triglycerides',
         }
         
         # Replace abbreviations
         for abbrev, full in abbreviations.items():
-            normalized = re.sub(r'\b' + abbrev + r'\b', full, normalized)
+            normalized = re.sub(r'\b' + re.escape(abbrev) + r'\b', full, normalized)
         
         return normalized
     
@@ -329,6 +346,302 @@ class MetricSimilarityService:
             "similar_items": similar_items[:5],  # Top 5 most similar
             "message": f"Found {len(similar_items)} similar metrics. Please review before proceeding."
         }
+
+    def find_similar_sections(
+        self,
+        user_id: int,
+        section_name: str,
+        health_record_type_id: int,
+        db: Session,
+        threshold: Optional[float] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Find similar sections for a user.
+        
+        Args:
+            user_id: User ID
+            section_name: New section name to check
+            health_record_type_id: Health record type ID
+            db: Database session
+            threshold: Similarity threshold (default: 0.85)
+            
+        Returns:
+            List of similar sections with similarity scores, sorted by score descending
+        """
+        from app.models.health_record import HealthRecordSection
+        
+        threshold = threshold or self.section_similarity_threshold
+        
+        # Get all user sections of the same type
+        existing_sections = db.query(HealthRecordSection).filter(
+            and_(
+                HealthRecordSection.created_by == user_id,
+                HealthRecordSection.health_record_type_id == health_record_type_id
+            )
+        ).all()
+        
+        similar_sections = []
+        normalized_new_name = self._normalize_name(section_name)
+        
+        for section in existing_sections:
+            similarity = self._calculate_similarity(
+                normalized_new_name,
+                self._normalize_name(section.display_name or section.name)
+            )
+            
+            if similarity >= threshold:
+                similar_sections.append({
+                    "id": section.id,
+                    "name": section.name,
+                    "display_name": section.display_name,
+                    "similarity_score": similarity,
+                    "match_type": self._get_match_type(similarity)
+                })
+        
+        # Sort by similarity score descending
+        similar_sections.sort(key=lambda x: x["similarity_score"], reverse=True)
+        
+        return similar_sections
+    
+    def find_similar_metrics(
+        self,
+        section_id: int,
+        metric_name: str,
+        db: Session,
+        threshold: Optional[float] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Find similar metrics within a section.
+        
+        Args:
+            section_id: Section ID
+            metric_name: New metric name to check
+            db: Database session
+            threshold: Similarity threshold (default: 0.80)
+            
+        Returns:
+            List of similar metrics with similarity scores, sorted by score descending
+        """
+        from app.models.health_record import HealthRecordMetric
+        
+        threshold = threshold or self.metric_similarity_threshold
+        
+        # Get all metrics in this section
+        existing_metrics = db.query(HealthRecordMetric).filter(
+            HealthRecordMetric.section_id == section_id
+        ).all()
+        
+        similar_metrics = []
+        normalized_new_name = self._normalize_name(metric_name)
+        
+        for metric in existing_metrics:
+            similarity = self._calculate_similarity(
+                normalized_new_name,
+                self._normalize_name(metric.display_name or metric.name)
+            )
+            
+            if similarity >= threshold:
+                similar_metrics.append({
+                    "id": metric.id,
+                    "name": metric.name,
+                    "display_name": metric.display_name,
+                    "similarity_score": similarity,
+                    "match_type": self._get_match_type(similarity)
+                })
+        
+        # Sort by similarity score descending
+        similar_metrics.sort(key=lambda x: x["similarity_score"], reverse=True)
+        
+        return similar_metrics
+    
+    def batch_check_similarity(
+        self,
+        user_id: int,
+        sections: List[Dict[str, Any]],
+        metrics: List[Dict[str, Any]],
+        health_record_type_id: int,
+        db: Session
+    ) -> Dict[str, Any]:
+        """
+        Batch check similarity for multiple sections and metrics.
+        
+        Args:
+            user_id: User ID
+            sections: List of dicts with 'name' key
+            metrics: List of dicts with 'metric_name' and 'section_name' keys
+            health_record_type_id: Health record type ID
+            db: Database session
+            
+        Returns:
+            Dictionary with similarity status for each section and metric
+        """
+        from app.models.health_record import HealthRecordSection
+        
+        result = {
+            "sections": [],
+            "metrics": []
+        }
+        
+        # Check sections
+        for section_data in sections:
+            section_name = section_data.get("name") or section_data.get("type_of_analysis", "")
+            if not section_name:
+                continue
+                
+            # First check exact match
+            normalized_name = section_name.lower().replace(" ", "_")
+            exact_match = db.query(HealthRecordSection).filter(
+                and_(
+                    HealthRecordSection.name == normalized_name,
+                    HealthRecordSection.health_record_type_id == health_record_type_id,
+                    HealthRecordSection.created_by == user_id
+                )
+            ).first()
+            
+            if exact_match:
+                result["sections"].append({
+                    "name": section_name,
+                    "status": "exist",
+                    "similarity_score": 1.0,
+                    "existing_section_id": exact_match.id,
+                    "existing_display_name": exact_match.display_name
+                })
+            else:
+                # Check for similar sections
+                similar = self.find_similar_sections(
+                    user_id, section_name, health_record_type_id, db
+                )
+                
+                if similar and similar[0]["similarity_score"] >= 0.90:
+                    # Very similar - treat as existing
+                    result["sections"].append({
+                        "name": section_name,
+                        "status": "exist",
+                        "similarity_score": similar[0]["similarity_score"],
+                        "existing_section_id": similar[0]["id"],
+                        "existing_display_name": similar[0]["display_name"]
+                    })
+                elif similar and similar[0]["similarity_score"] >= self.section_similarity_threshold:
+                    # Similar - suggest existing
+                    result["sections"].append({
+                        "name": section_name,
+                        "status": "similar",
+                        "similarity_score": similar[0]["similarity_score"],
+                        "existing_section_id": similar[0]["id"],
+                        "existing_display_name": similar[0]["display_name"]
+                    })
+                else:
+                    # New section
+                    result["sections"].append({
+                        "name": section_name,
+                        "status": "new",
+                        "similarity_score": None,
+                        "existing_section_id": None,
+                        "existing_display_name": None
+                    })
+        
+        # Check metrics - need to find section first
+        section_cache = {}  # Cache section lookups
+        
+        for metric_data in metrics:
+            metric_name = metric_data.get("metric_name", "")
+            section_name = metric_data.get("section_name") or metric_data.get("type_of_analysis", "")
+            
+            if not metric_name or not section_name:
+                continue
+            
+            # Get or find section
+            if section_name not in section_cache:
+                normalized_section_name = section_name.lower().replace(" ", "_")
+                section = db.query(HealthRecordSection).filter(
+                    and_(
+                        HealthRecordSection.name == normalized_section_name,
+                        HealthRecordSection.health_record_type_id == health_record_type_id,
+                        HealthRecordSection.created_by == user_id
+                    )
+                ).first()
+                
+                # If not found, check similar sections
+                if not section:
+                    similar_sections = self.find_similar_sections(
+                        user_id, section_name, health_record_type_id, db, threshold=0.90
+                    )
+                    if similar_sections:
+                        section = db.query(HealthRecordSection).filter(
+                            HealthRecordSection.id == similar_sections[0]["id"]
+                        ).first()
+                
+                section_cache[section_name] = section
+            
+            section = section_cache[section_name]
+            
+            if not section:
+                # Section doesn't exist yet, metric will be new
+                result["metrics"].append({
+                    "metric_name": metric_name,
+                    "section_name": section_name,
+                    "status": "new",
+                    "similarity_score": None,
+                    "existing_metric_id": None,
+                    "existing_display_name": None
+                })
+                continue
+            
+            # Check exact match
+            normalized_metric_name = metric_name.lower().replace(" ", "_")
+            from app.models.health_record import HealthRecordMetric
+            exact_match = db.query(HealthRecordMetric).filter(
+                and_(
+                    HealthRecordMetric.section_id == section.id,
+                    HealthRecordMetric.name == normalized_metric_name
+                )
+            ).first()
+            
+            if exact_match:
+                result["metrics"].append({
+                    "metric_name": metric_name,
+                    "section_name": section_name,
+                    "status": "exist",
+                    "similarity_score": 1.0,
+                    "existing_metric_id": exact_match.id,
+                    "existing_display_name": exact_match.display_name
+                })
+            else:
+                # Check for similar metrics
+                similar = self.find_similar_metrics(section.id, metric_name, db)
+                
+                if similar and similar[0]["similarity_score"] >= 0.90:
+                    # Very similar - treat as existing
+                    result["metrics"].append({
+                        "metric_name": metric_name,
+                        "section_name": section_name,
+                        "status": "exist",
+                        "similarity_score": similar[0]["similarity_score"],
+                        "existing_metric_id": similar[0]["id"],
+                        "existing_display_name": similar[0]["display_name"]
+                    })
+                elif similar and similar[0]["similarity_score"] >= self.metric_similarity_threshold:
+                    # Similar - suggest existing
+                    result["metrics"].append({
+                        "metric_name": metric_name,
+                        "section_name": section_name,
+                        "status": "similar",
+                        "similarity_score": similar[0]["similarity_score"],
+                        "existing_metric_id": similar[0]["id"],
+                        "existing_display_name": similar[0]["display_name"]
+                    })
+                else:
+                    # New metric
+                    result["metrics"].append({
+                        "metric_name": metric_name,
+                        "section_name": section_name,
+                        "status": "new",
+                        "similarity_score": None,
+                        "existing_metric_id": None,
+                        "existing_display_name": None
+                    })
+        
+        return result
 
 # Global instance
 metric_similarity_service = MetricSimilarityService() 

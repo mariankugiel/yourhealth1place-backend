@@ -1,16 +1,20 @@
-from fastapi import APIRouter, HTTPException, status, Depends, Query
+from fastapi import APIRouter, HTTPException, status, Depends, Query, BackgroundTasks
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.core.database import get_db
 from app.services.thryve_data_source_service import ThryveDataSourceService
 from app.services.thryve_integration_service import ThryveIntegrationService
+from app.services.thryve_webhook_service import ThryveWebhookService
 from app.schemas.thryve_integration import (
     ThryveDataSourceResponse,
     ThryveConnectionRequest,
     ThryveConnectionResponse,
-    ThryveIntegrationStatus
+    ThryveIntegrationStatus,
+    ThryveSyncRequest,
+    ThryveSyncResponse
 )
 from app.api.v1.endpoints.auth import get_user_id_from_token
+from app.crud.user import get_user_by_supabase_id
 import logging
 
 logger = logging.getLogger(__name__)
@@ -171,16 +175,69 @@ async def get_disconnection_url(
 @router.post("/thryve/connect", response_model=ThryveConnectionResponse)
 async def connect_data_source(
     request: ThryveConnectionRequest,
+    background_tasks: BackgroundTasks,
     current_user_id: str = Depends(get_user_id_from_token),
     db: Session = Depends(get_db)
 ):
-    """Initiate connection to a Thryve data source"""
-    return await get_connection_url(
+    """Initiate connection to a Thryve data source and trigger background sync"""
+    # Get connection URL
+    connection_response = await get_connection_url(
         data_source_id=request.data_source_id,
         redirect_uri=request.redirect_uri,
         current_user_id=current_user_id,
         db=db
     )
+    
+    # Trigger background sync after successful connection
+    # Note: This will run after the response is returned
+    try:
+        integration_service = ThryveIntegrationService()
+        access_token = await integration_service.get_user_access_token(current_user_id)
+        
+        if access_token:
+            # Get internal user ID from Supabase user ID
+            user = get_user_by_supabase_id(db, current_user_id)
+            if user:
+                # Add background task to sync data
+                background_tasks.add_task(
+                    sync_health_data_background,
+                    user_id=user.id,
+                    access_token=access_token,
+                    data_source_id=request.data_source_id,
+                    days_back=30
+                )
+                logger.info(f"Added background sync task for user {user.id}, data source {request.data_source_id}")
+    except Exception as e:
+        # Don't fail the connection if sync setup fails
+        logger.warning(f"Failed to setup background sync: {e}")
+    
+    return connection_response
+
+
+async def sync_health_data_background(
+    user_id: int,
+    access_token: str,
+    data_source_id: int,
+    days_back: int = 30
+):
+    """Background task to sync health data from Thryve"""
+    from app.core.database import SessionLocal
+    
+    db = SessionLocal()
+    try:
+        webhook_service = ThryveWebhookService(db)
+        result = webhook_service.sync_health_data_from_thryve(
+            db=db,
+            user_id=user_id,
+            access_token=access_token,
+            data_source_id=data_source_id,
+            days_back=days_back
+        )
+        logger.info(f"Background sync completed for user {user_id}: {result}")
+    except Exception as e:
+        logger.error(f"Error in background sync task: {e}", exc_info=True)
+    finally:
+        db.close()
 
 
 @router.post("/thryve/disconnect", response_model=ThryveConnectionResponse)
@@ -196,6 +253,60 @@ async def disconnect_data_source(
         current_user_id=current_user_id,
         db=db
     )
+
+
+@router.post("/thryve/sync-data", response_model=ThryveSyncResponse)
+async def sync_health_data(
+    request: ThryveSyncRequest,
+    current_user_id: str = Depends(get_user_id_from_token),
+    db: Session = Depends(get_db)
+):
+    """Sync health data from Thryve API for a specific data source"""
+    try:
+        integration_service = ThryveIntegrationService()
+        
+        # Get access token
+        access_token = await integration_service.get_user_access_token(current_user_id)
+        if not access_token:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="User does not have Thryve access token. Please connect a data source first."
+            )
+        
+        # Get internal user ID from Supabase user ID
+        user = get_user_by_supabase_id(db, current_user_id)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+        
+        # Sync health data
+        webhook_service = ThryveWebhookService(db)
+        result = webhook_service.sync_health_data_from_thryve(
+            db=db,
+            user_id=user.id,
+            access_token=access_token,
+            data_source_id=request.data_source_id,
+            days_back=request.days_back or 30
+        )
+        
+        return ThryveSyncResponse(
+            success=result.get("success", False),
+            records_created=result.get("records_created", 0),
+            records_updated=result.get("records_updated", 0),
+            records_skipped=result.get("records_skipped", 0),
+            errors=result.get("errors", [])
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error syncing health data: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to sync health data: {str(e)}"
+        )
 
 
 @router.get("/thryve/status", response_model=List[ThryveIntegrationStatus])
