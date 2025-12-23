@@ -508,7 +508,10 @@ async def update_user_profile(
 ):
     """Update user profile in Supabase"""
     logger.info(f"💾 PUT /profile endpoint called for user_id: {current_user_id}")
-    logger.info(f"📝 Profile data received: {profile_data.dict(exclude_none=True)}")
+    # Use exclude_unset=True instead of exclude_none=True to allow None values for clearing fields
+    # This way, explicitly set None values will be included to clear fields in the database
+    profile_dict = profile_data.dict(exclude_unset=True)
+    logger.info(f"📝 Profile data received: {profile_dict}")
     try:
         # Extract token from authorization header
         user_token = authorization.replace("Bearer ", "") if authorization else None
@@ -516,7 +519,7 @@ async def update_user_profile(
         # Update personal data in Supabase
         updated_profile = await supabase_service.update_user_profile(
             user_id=current_user_id,
-            profile=profile_data.dict(exclude_none=True),
+            profile=profile_dict,
             user_token=user_token
         )
         
