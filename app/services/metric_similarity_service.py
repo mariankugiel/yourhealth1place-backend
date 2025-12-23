@@ -2,6 +2,7 @@ from typing import List, Dict, Any, Optional
 from difflib import SequenceMatcher
 import re
 import unicodedata
+import numpy as np
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
 # from app.models.health_record import MetricCategories, MetricSubCategories  # These classes don't exist
@@ -9,6 +10,14 @@ from app.core.config import settings
 import logging
 
 logger = logging.getLogger(__name__)
+
+# Try to import OpenAI
+try:
+    from openai import OpenAI
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OPENAI_AVAILABLE = False
+    logger.warning("OpenAI package not installed. Similarity calculation will use fallback mode.")
 
 class MetricSimilarityService:
     """
@@ -22,6 +31,15 @@ class MetricSimilarityService:
         self.min_word_length = 3  # Minimum word length to consider
         self.section_similarity_threshold = 0.85  # Threshold for sections
         self.metric_similarity_threshold = 0.80  # Threshold for metrics
+        self.openai_similarity_threshold = 0.95  # 95% threshold for OpenAI similarity
+        self.openai_client = None
+        if OPENAI_AVAILABLE and settings.OPENAI_API_KEY:
+            try:
+                self.openai_client = OpenAI(api_key=settings.OPENAI_API_KEY)
+                logger.info("OpenAI client initialized for similarity calculation")
+            except Exception as e:
+                logger.warning(f"Failed to initialize OpenAI client: {e}")
+                self.openai_client = None
         
     def check_similar_categories(
         self, 
@@ -642,6 +660,172 @@ class MetricSimilarityService:
                     })
         
         return result
+    
+    def _cosine_similarity(self, vec1: List[float], vec2: List[float]) -> float:
+        """Calculate cosine similarity between two vectors"""
+        try:
+            vec1_array = np.array(vec1)
+            vec2_array = np.array(vec2)
+            
+            dot_product = np.dot(vec1_array, vec2_array)
+            norm1 = np.linalg.norm(vec1_array)
+            norm2 = np.linalg.norm(vec2_array)
+            
+            if norm1 == 0 or norm2 == 0:
+                return 0.0
+            
+            return float(dot_product / (norm1 * norm2))
+        except Exception as e:
+            logger.error(f"Error calculating cosine similarity: {e}")
+            return 0.0
+    
+    async def calculate_similarity_openai_batch(
+        self,
+        parsed_names: List[str],
+        existing_metrics_data: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """
+        Calculate similarity between parsed and existing metric names using OpenAI embeddings.
+        
+        Args:
+            parsed_names: List of metric names from document analysis
+            existing_metrics_data: List of dicts with keys: 'name', 'display_name', 'id', etc.
+        
+        Returns:
+            List of dicts with similarity results for each parsed name
+        """
+        if not parsed_names or not existing_metrics_data:
+            return []
+        
+        # Fallback to difflib if OpenAI not available
+        if not self.openai_client:
+            logger.warning("OpenAI not available, using difflib fallback for similarity")
+            return self._calculate_similarity_fallback(parsed_names, existing_metrics_data)
+        
+        try:
+            # Extract existing names
+            existing_names = [metric.get('display_name') or metric.get('name', '') for metric in existing_metrics_data]
+            existing_names = [name for name in existing_names if name]  # Filter empty names
+            
+            if not existing_names:
+                # No existing metrics, return all as new
+                return [
+                    {
+                        "parsed_name": name,
+                        "best_match": None,
+                        "suggested_name": name,
+                        "can_toggle": False
+                    }
+                    for name in parsed_names
+                ]
+            
+            # Combine all names for batch embedding
+            all_names = parsed_names + existing_names
+            
+            logger.info(f"Calculating OpenAI embeddings for {len(all_names)} metric names")
+            
+            # Get embeddings in batch
+            response = self.openai_client.embeddings.create(
+                model="text-embedding-3-small",
+                input=all_names
+            )
+            
+            # Extract embeddings
+            embeddings = [item.embedding for item in response.data]
+            parsed_embeddings = embeddings[:len(parsed_names)]
+            existing_embeddings = embeddings[len(parsed_names):]
+            
+            # Calculate similarities
+            results = []
+            for i, parsed_name in enumerate(parsed_names):
+                best_match = None
+                best_similarity = 0.0
+                
+                for j, existing_metric in enumerate(existing_metrics_data):
+                    similarity = self._cosine_similarity(
+                        parsed_embeddings[i],
+                        existing_embeddings[j]
+                    )
+                    
+                    if similarity > best_similarity:
+                        best_similarity = similarity
+                        best_match = {
+                            "existing_name": existing_metric.get('name', ''),
+                            "display_name": existing_metric.get('display_name') or existing_metric.get('name', ''),
+                            "metric_id": existing_metric.get('id'),
+                            "similarity_score": similarity
+                        }
+                
+                # Determine suggested name and toggle availability
+                if best_match and best_match["similarity_score"] >= self.openai_similarity_threshold:
+                    # Similarity >= 95%: suggest existing name
+                    suggested_name = best_match["display_name"]
+                    can_toggle = True
+                else:
+                    # Similarity < 95%: suggest parsed name
+                    suggested_name = parsed_name
+                    can_toggle = best_match is not None  # Can toggle if there's a match
+                
+                results.append({
+                    "parsed_name": parsed_name,
+                    "best_match": best_match if best_match and best_match["similarity_score"] >= 0.80 else None,
+                    "suggested_name": suggested_name,
+                    "can_toggle": can_toggle
+                })
+            
+            logger.info(f"OpenAI similarity calculation completed for {len(results)} metrics")
+            return results
+            
+        except Exception as e:
+            logger.error(f"Error in OpenAI similarity calculation: {e}", exc_info=True)
+            # Fallback to difflib
+            logger.info("Falling back to difflib similarity calculation")
+            return self._calculate_similarity_fallback(parsed_names, existing_metrics_data)
+    
+    def _calculate_similarity_fallback(
+        self,
+        parsed_names: List[str],
+        existing_metrics_data: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """Fallback similarity calculation using difflib"""
+        results = []
+        
+        for parsed_name in parsed_names:
+            best_match = None
+            best_similarity = 0.0
+            
+            for existing_metric in existing_metrics_data:
+                existing_name = existing_metric.get('display_name') or existing_metric.get('name', '')
+                if not existing_name:
+                    continue
+                
+                similarity = self._calculate_similarity(parsed_name, existing_name)
+                
+                if similarity > best_similarity:
+                    best_similarity = similarity
+                    best_match = {
+                        "existing_name": existing_metric.get('name', ''),
+                        "display_name": existing_name,
+                        "metric_id": existing_metric.get('id'),
+                        "similarity_score": similarity
+                    }
+            
+            # Determine suggested name
+            if best_match and best_match["similarity_score"] >= self.openai_similarity_threshold:
+                suggested_name = best_match["display_name"]
+                can_toggle = True
+            else:
+                suggested_name = parsed_name
+                can_toggle = best_match is not None and best_match["similarity_score"] >= 0.80
+            
+            results.append({
+                "parsed_name": parsed_name,
+                "best_match": best_match if best_match and best_match["similarity_score"] >= 0.80 else None,
+                "suggested_name": suggested_name,
+                "can_toggle": can_toggle
+            })
+        
+        return results
 
 # Global instance
 metric_similarity_service = MetricSimilarityService() 

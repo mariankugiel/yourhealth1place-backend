@@ -950,6 +950,8 @@ class LabDocumentAnalysisService:
             existing_section = health_record_section_crud.create(
                 db, section_data, user_id, source_language=source_language
             )
+            if not existing_section:
+                raise ValueError(f"Failed to create section '{section_type}' - create returned None")
             logger.info(f"Created new user section (no tmp table): {existing_section.display_name} with source_language: {source_language}")
             
             return existing_section
@@ -1043,7 +1045,12 @@ class LabDocumentAnalysisService:
                 existing_metric = health_record_metric_crud.create(
                     db, metric_data, user_id, source_language=source_language
                 )
+                if not existing_metric:
+                    raise ValueError(f"Failed to create metric '{metric_name_raw}' - create returned None")
                 logger.info(f"Created new user metric (no tmp table): {existing_metric.display_name} with source_language: {source_language} and threshold {threshold}")
+            
+            if not existing_metric:
+                raise ValueError(f"Failed to get or create metric '{metric_name_raw}' - metric is None")
             
             return existing_metric
             

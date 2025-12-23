@@ -356,12 +356,17 @@ Return only the JSON array, nothing else."""
 
             logger.info(f"🌐 [Translation] Batch translating {len(text_items)} items from {source_language} to {target_language}")
             
+            # Calculate approximate max_tokens needed (roughly 4 tokens per character for translations)
+            # Add buffer for JSON formatting and safety margin
+            estimated_tokens = len(text_items) * 20  # ~20 tokens per translation on average
+            max_tokens = max(2000, estimated_tokens + 500)  # At least 2000, or estimated + buffer
+            
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are a professional medical translator. Translate medical and health-related content accurately while preserving medical terminology and context. Always return a valid JSON array with translations in the same order as provided."
+                        "content": "You are a professional medical translator. Translate medical and health-related content accurately while preserving medical terminology and context. Always return a valid JSON array with translations in the same order as provided. You MUST return exactly the same number of translations as items provided."
                     },
                     {
                         "role": "user",
@@ -369,10 +374,14 @@ Return only the JSON array, nothing else."""
                     }
                 ],
                 temperature=0.3,
-                max_tokens=2000  # Increased for batch translations
+                max_tokens=max_tokens
             )
             
             translated_text = response.choices[0].message.content.strip()
+            
+            # Check if response was truncated
+            if response.choices[0].finish_reason == "length":
+                logger.warning(f"⚠️ [Translation] Response was truncated due to token limit. Requested {len(text_items)} items.")
             
             # Parse JSON array from response
             try:
@@ -385,8 +394,21 @@ Return only the JSON array, nothing else."""
                 
                 translations = json.loads(translated_text)
                 
-                if not isinstance(translations, list) or len(translations) != len(text_items):
-                    raise ValueError(f"Expected {len(text_items)} translations, got {len(translations) if isinstance(translations, list) else 'non-list'}")
+                if not isinstance(translations, list):
+                    raise ValueError(f"Expected JSON array, got {type(translations).__name__}")
+                
+                if len(translations) != len(text_items):
+                    logger.error(f"❌ [Translation] Count mismatch: Expected {len(text_items)} translations, got {len(translations)}")
+                    logger.error(f"First 20 items sent: {text_items[:20]}")
+                    logger.error(f"First 20 items received: {translations[:20] if len(translations) >= 20 else translations}")
+                    # Try to pad with original values if we got fewer translations
+                    if len(translations) < len(text_items):
+                        logger.warning(f"⚠️ [Translation] Padding {len(text_items) - len(translations)} missing translations with original values")
+                        translations.extend(text_items[len(translations):])
+                    else:
+                        # If we got more, truncate to expected length
+                        logger.warning(f"⚠️ [Translation] Truncating {len(translations) - len(text_items)} extra translations")
+                        translations = translations[:len(text_items)]
                 
                 # Map translations back to records
                 translated_data = []

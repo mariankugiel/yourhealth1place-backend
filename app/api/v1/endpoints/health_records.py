@@ -4064,40 +4064,88 @@ async def check_lab_document_similarity(
     db: Session = Depends(get_db)
 ):
     """
-    Check similarity of sections and metrics from lab document analysis.
-    Returns status (new/exist/similar) for each section and metric.
+    Check similarity of metrics from lab document analysis using OpenAI.
+    Returns suggested names and toggle info for each metric.
     
     Request body:
     {
-        "sections": [{"name": "Blood Work"}, ...],
-        "metrics": [{"metric_name": "Hemoglobin", "section_name": "Blood Work"}, ...],
+        "parsed_metrics": [
+            {"metric_name": "Hemoglobn", "section_name": "Blood Work"},
+            {"metric_name": "Blood Glucose", "section_name": "Chemistry"}
+        ],
         "health_record_type_id": 1
     }
     """
     try:
         from app.services.metric_similarity_service import metric_similarity_service
+        from app.models.health_record import HealthRecordMetric, HealthRecordSection
         
-        sections = request.get("sections", [])
-        metrics = request.get("metrics", [])
+        parsed_metrics = request.get("parsed_metrics", [])
         health_record_type_id = request.get("health_record_type_id", 1)
         
-        logger.info(f"Checking similarity for {len(sections)} sections and {len(metrics)} metrics for user {current_user.id}")
+        if not parsed_metrics:
+            return {
+                "success": True,
+                "results": []
+            }
         
-        result = metric_similarity_service.batch_check_similarity(
-            user_id=current_user.id,
-            sections=sections,
-            metrics=metrics,
-            health_record_type_id=health_record_type_id,
-            db=db
+        logger.info(f"Checking similarity for {len(parsed_metrics)} parsed metrics for user {current_user.id}")
+        
+        # Extract parsed metric names
+        parsed_names = [m.get("metric_name", "") for m in parsed_metrics if m.get("metric_name")]
+        
+        if not parsed_names:
+            return {
+                "success": True,
+                "results": []
+            }
+        
+        # Get all existing metrics for this user
+        existing_metrics = db.query(HealthRecordMetric).join(
+            HealthRecordSection
+        ).filter(
+            and_(
+                HealthRecordSection.created_by == current_user.id,
+                HealthRecordSection.health_record_type_id == health_record_type_id
+            )
+        ).all()
+        
+        # Prepare existing metrics data
+        existing_metrics_data = [
+            {
+                "id": metric.id,
+                "name": metric.name,
+                "display_name": metric.display_name,
+                "section_id": metric.section_id
+            }
+            for metric in existing_metrics
+        ]
+        
+        logger.info(f"Found {len(existing_metrics_data)} existing metrics to compare against")
+        
+        # Calculate similarity using OpenAI
+        similarity_results = await metric_similarity_service.calculate_similarity_openai_batch(
+            parsed_names=parsed_names,
+            existing_metrics_data=existing_metrics_data
         )
         
-        logger.info(f"Similarity check completed: {len([s for s in result['sections'] if s['status'] != 'new'])} existing/similar sections, "
-                   f"{len([m for m in result['metrics'] if m['status'] != 'new'])} existing/similar metrics")
+        # Map results back to include section names
+        results = []
+        for i, result in enumerate(similarity_results):
+            parsed_metric = parsed_metrics[i] if i < len(parsed_metrics) else {}
+            results.append({
+                "parsed_name": result["parsed_name"],
+                "section_name": parsed_metric.get("section_name", ""),
+                "best_match": result["best_match"],
+                "suggested_name": result["suggested_name"],
+                "can_toggle": result["can_toggle"]
+            })
+        
+        logger.info(f"Similarity check completed: {len([r for r in results if r['best_match']])} metrics have matches")
         
         return {
             "success": True,
-            "sections": result["sections"],
-            "metrics": result["metrics"]
+            "results": results
         }
         
     except Exception as e:
@@ -4130,18 +4178,29 @@ async def bulk_create_lab_records(
         from app.services.lab_document_analysis_service import LabDocumentAnalysisService
         lab_service = LabDocumentAnalysisService()
         
-        # Set detected language if provided (from upload/analysis step)
+        # Determine source_language for storing metrics/sections
+        # If translation was applied, data is in user_language, so use that as source_language
+        # Otherwise, use detected_language (original document language)
+        translation_applied = request.get('translation_applied', False)
+        user_language = request.get('user_language')
         detected_language = request.get('detected_language')
-        if detected_language:
-            lab_service._detected_language = detected_language
-            logger.info(f"Using detected language from request: {detected_language}")
+        
+        if translation_applied and user_language:
+            # Data was translated - use user_language as source_language for stored data
+            source_language_for_storage = user_language
+            logger.info(f"Translation was applied - using user_language '{user_language}' as source_language for stored data")
+        elif detected_language:
+            # No translation - use detected_language as source_language
+            source_language_for_storage = detected_language
+            logger.info(f"No translation applied - using detected_language '{detected_language}' as source_language")
         else:
-            # Fallback: try to detect from records (less accurate)
-            # Get user language as fallback
+            # Fallback: get user language
             from app.utils.user_language import get_user_language_from_cache
-            user_language = await get_user_language_from_cache(current_user.id, db)
-            lab_service._detected_language = user_language  # Use user language as fallback
-            logger.info(f"No detected_language provided, using user language as fallback: {user_language}")
+            source_language_for_storage = await get_user_language_from_cache(current_user.id, db)
+            logger.info(f"Using user language as fallback: {source_language_for_storage}")
+        
+        # Set source_language for section/metric creation
+        lab_service._detected_language = source_language_for_storage
         
         # Validate required fields
         file_name = request.get('file_name')
@@ -4195,6 +4254,10 @@ async def bulk_create_lab_records(
                     section_type=record_data.get('type_of_analysis')
                 )
                 
+                if not section:
+                    logger.error(f"Failed to get or create section for '{record_data.get('type_of_analysis')}' - section is None")
+                    raise ValueError(f"Failed to get or create section for '{record_data.get('type_of_analysis')}'")
+                
                 if section.id not in [s.id for s in created_sections]:
                     created_sections.append(section)
                 
@@ -4211,6 +4274,10 @@ async def bulk_create_lab_records(
                     section_id=section.id,
                     record_data=metric_data
                 )
+                
+                if not metric:
+                    logger.error(f"Failed to get or create metric '{metric_name}' - metric is None")
+                    raise ValueError(f"Failed to get or create metric '{metric_name}'")
                 
                 if metric.id not in [m.id for m in created_metrics]:
                     created_metrics.append(metric)
