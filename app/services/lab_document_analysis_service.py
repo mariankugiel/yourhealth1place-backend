@@ -938,21 +938,21 @@ class LabDocumentAnalysisService:
                     return existing_section
             
             # No similar section found - create new one
-            section_data = HealthRecordSectionCreate(
-                name=section_name,
-                display_name=section_type,
-                description="",
-                health_record_type_id=health_record_type_id,
-                is_default=False
-            )
-            # Use detected language if available, otherwise default to 'en'
-            source_language = getattr(self, '_detected_language', None) or 'en'
-            existing_section = health_record_section_crud.create(
-                db, section_data, user_id, source_language=source_language
-            )
+                section_data = HealthRecordSectionCreate(
+                    name=section_name,
+                    display_name=section_type,
+                    description="",
+                    health_record_type_id=health_record_type_id,
+                    is_default=False
+                )
+                # Use detected language if available, otherwise default to 'en'
+                source_language = getattr(self, '_detected_language', None) or 'en'
+                existing_section = health_record_section_crud.create(
+                    db, section_data, user_id, source_language=source_language
+                )
             if not existing_section:
                 raise ValueError(f"Failed to create section '{section_type}' - create returned None")
-            logger.info(f"Created new user section (no tmp table): {existing_section.display_name} with source_language: {source_language}")
+                logger.info(f"Created new user section (no tmp table): {existing_section.display_name} with source_language: {source_language}")
             
             return existing_section
             

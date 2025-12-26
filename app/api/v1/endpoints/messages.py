@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime
+import logging
 
 from app.core.database import get_db
 from app.api.v1.endpoints.auth import get_current_user
@@ -10,7 +11,8 @@ from app.schemas.message import (
     Message, MessageCreate, MessageUpdate, Conversation, ConversationCreate, ConversationUpdate,
     SendMessageRequest, SendMessageResponse, MessagesResponse, ConversationMessagesResponse,
     MessageFilters, MessageSearchParams, MessageSearchResponse, UnreadCountResponse,
-    MessageStatsResponse, MessageActionCreate, MessageAction, CreateConversationRequest
+    MessageStatsResponse, MessageActionCreate, MessageAction, CreateConversationRequest,
+    AIChatRequest, AIChatResponse
 )
 from app.models.message import MessageType, MessagePriority, MessageStatus, SenderType, Conversation as ConversationModel
 from app.models.user import User, UserRole
@@ -28,6 +30,8 @@ def get_initials(name: str) -> str:
     else:
         # Multiple words, take first letter of each word (max 2)
         return ''.join([word[0] for word in words[:2]]).upper()
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -930,4 +934,50 @@ async def get_available_contacts(
         raise HTTPException(
             status_code=500,
             detail=f"Failed to fetch contacts: {str(e)}"
+        )
+
+@router.post("/chat/ai", response_model=AIChatResponse)
+async def chat_with_ai(
+    request: AIChatRequest,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Chat with Saluso Support AI assistant.
+    This endpoint does not save messages to the database - it's ephemeral chat.
+    """
+    try:
+        from app.services.ai_chat_service import ai_chat_service
+        
+        # Validate message
+        if not request.message or not request.message.strip():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Message cannot be empty"
+            )
+        
+        # Convert conversation history to format expected by service
+        conversation_history = None
+        if request.conversation_history:
+            conversation_history = [
+                {"role": msg.role, "content": msg.content}
+                for msg in request.conversation_history
+            ]
+        
+        # Generate AI response
+        ai_response = ai_chat_service.generate_chat_response(
+            user_message=request.message,
+            conversation_history=conversation_history
+        )
+        
+        return AIChatResponse(response=ai_response)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        logger.error(f"Error in AI chat endpoint: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to generate AI response. Please try again later."
         )

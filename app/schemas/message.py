@@ -177,6 +177,21 @@ class MessageStatsResponse(BaseModel):
     messages_by_priority: Dict[str, int]
     recent_activity: List[Dict[str, Any]]
 
+# AI Chat schemas
+class AIChatMessage(BaseModel):
+    """Single message in conversation history"""
+    role: str  # "user" or "assistant"
+    content: str
+
+class AIChatRequest(BaseModel):
+    """Request schema for AI chat endpoint"""
+    message: str
+    conversation_history: Optional[List[AIChatMessage]] = None
+
+class AIChatResponse(BaseModel):
+    """Response schema for AI chat endpoint"""
+    response: str
+
 # WebSocket message schemas
 class WebSocketMessageEvent(BaseModel):
     type: str  # new_message, message_read, conversation_updated, typing_start, typing_stop

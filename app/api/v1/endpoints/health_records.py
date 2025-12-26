@@ -4079,6 +4079,7 @@ async def check_lab_document_similarity(
     try:
         from app.services.metric_similarity_service import metric_similarity_service
         from app.models.health_record import HealthRecordMetric, HealthRecordSection
+        from app.models.health_metrics import HealthRecordMetricTemplate, HealthRecordSectionTemplate
         
         parsed_metrics = request.get("parsed_metrics", [])
         health_record_type_id = request.get("health_record_type_id", 1)
@@ -4100,8 +4101,8 @@ async def check_lab_document_similarity(
                 "results": []
             }
         
-        # Get all existing metrics for this user
-        existing_metrics = db.query(HealthRecordMetric).join(
+        # Get all existing user-created metrics for this user
+        user_metrics = db.query(HealthRecordMetric).join(
             HealthRecordSection
         ).filter(
             and_(
@@ -4110,7 +4111,18 @@ async def check_lab_document_similarity(
             )
         ).all()
         
-        # Prepare existing metrics data
+        # Get all admin-defined metric templates for this health record type
+        admin_templates = db.query(HealthRecordMetricTemplate).join(
+            HealthRecordSectionTemplate
+        ).filter(
+            and_(
+                HealthRecordSectionTemplate.health_record_type_id == health_record_type_id,
+                HealthRecordMetricTemplate.is_active == True,
+                HealthRecordMetricTemplate.is_default == True
+            )
+        ).all()
+        
+        # Prepare existing metrics data from user-created metrics
         existing_metrics_data = [
             {
                 "id": metric.id,
@@ -4118,10 +4130,19 @@ async def check_lab_document_similarity(
                 "display_name": metric.display_name,
                 "section_id": metric.section_id
             }
-            for metric in existing_metrics
+            for metric in user_metrics
         ]
         
-        logger.info(f"Found {len(existing_metrics_data)} existing metrics to compare against")
+        # Add admin-defined metric templates to the comparison list
+        for template in admin_templates:
+            existing_metrics_data.append({
+                "id": f"template_{template.id}",  # Prefix to distinguish from user metrics
+                "name": template.name,
+                "display_name": template.display_name,
+                "section_id": None  # Templates don't have section_id, they have section_template_id
+            })
+        
+        logger.info(f"Found {len(user_metrics)} user-created metrics and {len(admin_templates)} admin templates ({len(existing_metrics_data)} total) to compare against")
         
         # Calculate similarity using OpenAI
         similarity_results = await metric_similarity_service.calculate_similarity_openai_batch(
@@ -4179,25 +4200,32 @@ async def bulk_create_lab_records(
         lab_service = LabDocumentAnalysisService()
         
         # Determine source_language for storing metrics/sections
-        # If translation was applied, data is in user_language, so use that as source_language
-        # Otherwise, use detected_language (original document language)
+        # IMPORTANT: When user confirms parsed results in the confirmation dialog,
+        # the data is already in the user's language (translated for display).
+        # Therefore, we should always use user's profile language as source_language
+        # to prevent re-translation when records are retrieved later.
+        
+        # Get user's profile language (preferred source)
+        from app.utils.user_language import get_user_language_from_cache
+        user_profile_language = await get_user_language_from_cache(current_user.id, db)
+        
+        # Check if user_language was provided in request (from frontend)
+        user_language_from_request = request.get('user_language')
         translation_applied = request.get('translation_applied', False)
-        user_language = request.get('user_language')
         detected_language = request.get('detected_language')
         
-        if translation_applied and user_language:
-            # Data was translated - use user_language as source_language for stored data
-            source_language_for_storage = user_language
-            logger.info(f"Translation was applied - using user_language '{user_language}' as source_language for stored data")
-        elif detected_language:
-            # No translation - use detected_language as source_language
-            source_language_for_storage = detected_language
-            logger.info(f"No translation applied - using detected_language '{detected_language}' as source_language")
+        # For confirmed uploads (from confirmation dialog), data is already in user's language
+        # Always use user's profile language as source_language to prevent re-translation
+        if user_language_from_request:
+            # Use the language provided by frontend (should match user's profile language)
+            source_language_for_storage = user_language_from_request
+            logger.info(f"Using user_language from request '{user_language_from_request}' as source_language (translation_applied: {translation_applied})")
         else:
-            # Fallback: get user language
-            from app.utils.user_language import get_user_language_from_cache
-            source_language_for_storage = await get_user_language_from_cache(current_user.id, db)
-            logger.info(f"Using user language as fallback: {source_language_for_storage}")
+            # Fallback: use user's profile language
+            source_language_for_storage = user_profile_language
+            logger.info(f"Using user profile language '{user_profile_language}' as source_language (no user_language in request)")
+        
+        logger.info(f"Source language set to '{source_language_for_storage}' to prevent re-translation on retrieval (detected: {detected_language}, user profile: {user_profile_language})")
         
         # Set source_language for section/metric creation
         lab_service._detected_language = source_language_for_storage

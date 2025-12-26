@@ -51,6 +51,13 @@ class Settings(BaseSettings):
     # OpenAI Configuration
     OPENAI_API_KEY: str = "your-openai-api-key"
     
+    # OpenAI Assistants API Configuration
+    OPENAI_ASSISTANT_BODY_ID: str = ""  # Body Composition (type_id=3)
+    OPENAI_ASSISTANT_VITALS_ID: str = ""  # Vitals (type_id=2)
+    OPENAI_ASSISTANT_LIFESTYLE_ID: str = ""  # Lifestyle (type_id=4)
+    OPENAI_ASSISTANT_EXAMS_ID: str = ""  # Exams/Medical Images (type_id=5)
+    OPENAI_ASSISTANT_SUMMARY_ID: str = ""  # Summary (type_id=1, Analysis)
+    
     # Application
     DEBUG: bool = True
     ENVIRONMENT: str = "development"

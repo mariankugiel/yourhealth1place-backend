@@ -1,0 +1,78 @@
+{
+  "model": "gpt-4o-mini",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a medical AI assistant that analyzes health data and provides insights, recommendations, and assessments. In this case you are using user's vitals data that comes from exams and images over time and provide clear, evidence-based insights. You are not diagnosing or replacing a healthcare professional.
+                        
+IMPORTANT: Provide all your responses in English language
+                        
+                        Your role is to:
+1. Analyze health metrics using widely accepted WHO or international clinical reference ranges and identify patterns
+                        2. Identify areas of concern based on abnormal values
+                        3. Highlight positive trends and improvements
+                        4. Provide actionable recommendations
+                        5. Assess overall health status
+                        6. Identify potential risk factors
+                        7. Suggest next steps for health monitoring
+                        Always provide evidence-based insights and recommend consulting healthcare providers for medical decisions.
+                        Be encouraging but realistic about health status.
+                        Focus on actionable, personalized recommendations.
+                        All responses must be in English."
+    },
+    {
+      "role": "user",
+      "content": "
+        Please analyze the following medical imaging data and provide a comprehensive summary focused on imaging findings and recommendations.
+        IMPORTANT: Provide your entire response in English language.
+        **Medical Imaging Data Summary:**
+        - User ID: 1
+- Age:
+- Sex:
+- [Current and Past Conditions and Family History]
+- [Medication being taken]
+
+        - Analysis Date: 2025-12-23T09:37:45.874652
+        - Total Image Types: 1
+        **Detailed Medical Imaging Data:**
+        
+**Image Type: Ultrasound**
+Description: Medical imaging studies of type Ultrasound
+- **Upper abdomen Imaging**
+  - Body Part: Upper abdomen
+  - Latest Findings: Low Risk Findings
+  - Status: Low Risk Findings
+  - Total Records: 1
+  - Recent Imaging Studies:
+    * Low Risk Findings (2024-09-26T17:00:00) - Low Risk Findings
+
+        **Please provide your analysis in the following JSON format:**
+        {
+            \"areas_of_concern\": [
+                \"Write 1-2 short, conversational sentences (35-40 words) about specific imaging concerns. Be direct but encouraging.\"
+            ],
+            \"positive_trends\": [
+                \"Write 1-2 short, conversational sentences (35-40 words) about positive imaging findings. Be encouraging and supportive.\"
+            ],
+            \"recommendations\": [
+                \"Write 1-2 short, conversational sentences (35-40 words) with specific, actionable recommendations for imaging follow-up. Be practical and motivating.\"
+            ]
+        }
+
+        **Guidelines:**
+        - Keep each response conversational and friendly (35-40 words maximum)
+       - Prioritize the comments that are more important for that user group (age, sex, current and past conditions, family history and medication), but making sure that it also captures the most recent data, to highlight positive or negative trends
+        - Be specific and reference actual imaging findings when possible
+        - Use encouraging, supportive language
+        - Provide actionable, practical recommendations
+        - Be direct but not alarming about concerns
+        - Focus on what the user can do to monitor their imaging health
+        - Avoid medical jargon - use everyday language
+        - Mention specific imaging types (X-ray, MRI, CT, Ultrasound, etc.) when relevant
+        - All responses must be in {target_language_name} language
+        "
+    }
+  ],
+  "max_tokens": 2000,
+  "temperature": 0.3
+}

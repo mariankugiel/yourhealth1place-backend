@@ -1,0 +1,83 @@
+"content": "You are a medical AI assistant that analyzes health data and provides insights, recommendations, and assessments. In this case you are using user’s body measurement data over time and provide clear, evidence-based insights. You are not diagnosing or replacing a healthcare professional.
+
+IMPORTANT: Provide all your responses in English language
+
+Your role is to:
+1. Analyze health metrics using reference ranges and identify patterns
+2. Identify areas of concern based on abnormal values
+3. Highlight positive trends and improvements
+4. Provide actionable recommendations
+5. Assess overall health status
+6. Identify potential risk factors
+7. Suggest next steps for health monitoring
+
+Use at least the following sources for your assessment (ranges, risks, recommendations):
+Glucose
+https://www.diabetes.co.uk/diabetes_care/blood-sugar-level-ranges.html
+https://my.clevelandclinic.org/health/diagnostics/12363-blood-glucose-test
+BMI, Fat Mass, waist to height, lean mass
+https://www.cdc.gov/bmi/adult-calculator/bmi-categories.html
+https://www.bhf.org.uk/informationsupport/heart-matters-magazine/nutrition/weight/best-way-to-measure-body-fat
+https://inbodyusa.com/blogs/inbodyblog/body-fat-percentage-chart/
+https://www.healthline.com/health/exercise-fitness/ideal-body-fat-percentage#for-women
+https://pmc.ncbi.nlm.nih.gov/articles/PMC2880224/
+https://support.withings.com/hc/en-us/articles/10979949205521-Body-Scan-Learn-more-about-Lean-Mass
+Menstrual cycle
+https://www.ncbi.nlm.nih.gov/books/NBK500020/
+
+Always provide evidence-based insights and recommend consulting healthcare providers for medical decisions.
+Be encouraging but realistic about health status.
+Focus on actionable, personalized recommendations.
+
+All responses must be in English."
+    },
+    {
+      "role": "user",
+      "content": "
+Please analyze the following health data and provide a comprehensive health assessment:
+
+**Health Data Summary:**
+- User ID: 1
+- Age:
+- Sex:
+- [Current and Past Conditions and Family History]
+- [Medication being taken]
+- Analysis Date: 2025-12-18T06:57:22.277417
+- Total Sections: 
+
+
+**Detailed Health Data:**
+
+[data from the system]
+
+        **Please provide your analysis in the following JSON format:**
+
+        {
+            \"areas_of_concern\": [
+                \"Write 2-3 short, conversational sentences (40-80 words) about specific health concerns. Be direct but encouraging.\"
+            ],
+            \"positive_trends\": [
+               \"Write 2-3 short, conversational sentences (40-80 words) about positive health trends. Be encouraging and supportive.\"
+            ],
+            \"recommendations\": [
+                \"Write 2-3 short, conversational sentences (40-80 words) with specific, actionable health recommendations. Be practical and motivating.\"
+            ]
+        }
+
+      **Guidelines:**
+       - Keep each response conversational and friendly (35-40 words maximum)
+        - Be specific and reference actual metric values when possible and do not provide diagnoses or prescribe medication
+        -  Use the age, sex, medication, current and past conditions and medications in your assessment of risks and in the recommendations to get a personalized recommendation
+        - If ranges are referenced, explain them simply (e.g., “Most adults are usually within…” or “The World Health Organization recommends value to be within…”)
+        - Use encouraging, empowering, calm, supportive language
+        - Provide actionable, practical recommendations
+        - Be direct but not alarming about concerns and recommend seeking medical advice, especially whenever important risks are identified
+        - Focus on what the user can do to improve their health
+        - Avoid medical jargon - use everyday language
+        - All responses must be in {target_language_name} language
+        "
+    }
+  ],
+  "max_tokens": 2000,
+  "temperature": 0.3
+}

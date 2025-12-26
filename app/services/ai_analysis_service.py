@@ -5,8 +5,6 @@ import re
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
-from pathlib import Path
-
 from app.core.config import settings
 from app.models.health_record import HealthRecord, HealthRecordMetric, HealthRecordSection, HealthRecordDocExam
 from app.models.user import User
@@ -27,69 +25,6 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-def save_openai_request_response_to_files(
-    request_data: Dict[str, Any],
-    response_data: Dict[str, Any],
-    user_id: int,
-    health_record_type_id: int,
-    target_language: str = 'en'
-) -> None:
-    """
-    Save OpenAI request and response data to files in project root.
-    Non-blocking - errors are logged but don't affect AI analysis processing.
-    
-    Files saved:
-    - {timestamp}_ai_analysis_user_{user_id}_type_{type_id}_{language}.request.json - Request data (messages, model, parameters)
-    - {timestamp}_ai_analysis_user_{user_id}_type_{type_id}_{language}.response.json - Response data (full OpenAI response)
-    - {timestamp}_ai_analysis_user_{user_id}_type_{type_id}_{language}.meta.json - Metadata (user_id, type_id, language, etc.)
-    """
-    try:
-        # Get project root directory (parent of app directory)
-        project_root = Path(__file__).parent.parent.parent
-        openai_data_dir = project_root / "openai_data"
-        
-        # Create directory if it doesn't exist
-        openai_data_dir.mkdir(exist_ok=True)
-        
-        # Generate timestamp for filename (YYYYMMDD_HHMMSS)
-        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-        
-        # Base filename
-        base_filename = f"{timestamp}_ai_analysis_user_{user_id}_type_{health_record_type_id}_{target_language}"
-        
-        # Save request data
-        request_file_path = openai_data_dir / f"{base_filename}.request.json"
-        with open(request_file_path, "w", encoding="utf-8") as f:
-            json.dump(request_data, f, indent=2, ensure_ascii=False)
-        logger.info(f"💾 Saved OpenAI request data to: {request_file_path}")
-        
-        # Save response data
-        response_file_path = openai_data_dir / f"{base_filename}.response.json"
-        with open(response_file_path, "w", encoding="utf-8") as f:
-            json.dump(response_data, f, indent=2, ensure_ascii=False)
-        logger.info(f"💾 Saved OpenAI response data to: {response_file_path}")
-        
-        # Save metadata
-        metadata = {
-            "timestamp": timestamp,
-            "user_id": user_id,
-            "health_record_type_id": health_record_type_id,
-            "target_language": target_language,
-            "saved_at": datetime.utcnow().isoformat(),
-            "model": request_data.get("model", "unknown"),
-            "has_response": bool(response_data),
-            "response_success": response_data.get("success", False) if isinstance(response_data, dict) else True
-        }
-        meta_file_path = openai_data_dir / f"{base_filename}.meta.json"
-        with open(meta_file_path, "w", encoding="utf-8") as f:
-            json.dump(metadata, f, indent=2, ensure_ascii=False)
-        logger.info(f"💾 Saved OpenAI metadata to: {meta_file_path}")
-        
-    except Exception as e:
-        logger.warning(f"⚠️  Failed to save OpenAI request/response data to files: {e}", exc_info=True)
-        # Don't raise - allow AI analysis processing to continue
-
-
 class AIAnalysisService:
     def __init__(self):
         """Initialize the AI Analysis Service with OpenAI client"""
@@ -98,15 +33,25 @@ class AIAnalysisService:
                 self.client = OpenAI(api_key=settings.OPENAI_API_KEY)
                 self.model = "gpt-4o-mini"  # Using GPT-4o-mini for cost efficiency
                 self.openai_enabled = True
+                # Map health_record_type_id to assistant_id
+                self.assistant_ids = {
+                    1: settings.OPENAI_ASSISTANT_SUMMARY_ID,  # Summary/Analysis
+                    2: settings.OPENAI_ASSISTANT_VITALS_ID,  # Vitals
+                    3: settings.OPENAI_ASSISTANT_BODY_ID,  # Body Composition
+                    4: settings.OPENAI_ASSISTANT_LIFESTYLE_ID,  # Lifestyle
+                    5: settings.OPENAI_ASSISTANT_EXAMS_ID,  # Exams/Medical Images
+                }
             except Exception as e:
                 logging.error(f"Failed to initialize OpenAI client: {e}")
                 self.client = None
                 self.model = None
                 self.openai_enabled = False
+                self.assistant_ids = {}
         else:
             self.client = None
             self.model = None
             self.openai_enabled = False
+            self.assistant_ids = {}
             logging.warning("OpenAI not available. AI analysis will use fallback mode.")
         
     async def analyze_health_data(
@@ -574,185 +519,13 @@ class AIAnalysisService:
             logger.error(f"Error getting user health data: {e}")
             return {}
     
-    async def _generate_ai_analysis(
+    def _format_user_prompt_for_assistant(
         self, 
         health_data: Dict[str, Any], 
-        health_record_type_id: int = 1,
-        user_id: int = None,
-        target_language: str = 'en'
-    ) -> Dict[str, Any]:
-        """Generate AI analysis using GPT or fallback to local analysis"""
-        if not self.openai_enabled:
-            return {
-                "success": False,
-                "message": "OpenAI service not available, using local analysis",
-                "analysis": self._generate_fallback_analysis(health_data)
-            }
-        
-        try:
-            # Language name mapping
-            language_names = {
-                'en': 'English',
-                'es': 'Spanish',
-                'pt': 'Portuguese'
-            }
-            target_language_name = language_names.get(target_language, 'English')
-            
-            # Prepare the prompt for GPT
-            prompt = self._create_analysis_prompt(health_data, health_record_type_id, target_language)
-            
-            # Prepare request messages
-            messages = [
-                    {
-                        "role": "system",
-                        "content": f"""You are a medical AI assistant that analyzes health data and provides insights, recommendations, and assessments. In this case you are using user's vitals data over time and provide clear, evidence-based insights. You are not diagnosing or replacing a healthcare professional.
-                        
-IMPORTANT: Provide all your responses in {target_language_name} language
-                        
-                        Your role is to:
-
-1. Analyze health metrics using widely accepted WHO or international clinical reference ranges and identify patterns
-
-                        2. Identify areas of concern based on abnormal values
-
-                        3. Highlight positive trends and improvements
-
-                        4. Provide actionable recommendations
-
-                        5. Assess overall health status
-
-                        6. Identify potential risk factors
-
-                        7. Suggest next steps for health monitoring
-                        
-                        Always provide evidence-based insights and recommend consulting healthcare providers for medical decisions.
-
-                        Be encouraging but realistic about health status.
-
-                        Focus on actionable, personalized recommendations.
-                        
-                        All responses must be in {target_language_name}."""
-                    },
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-            ]
-            
-            # Prepare request data for saving
-            request_params = {
-                "model": self.model,
-                "messages": messages,
-                "max_tokens": 2000,
-                "temperature": 0.3
-            }
-            
-            # Call OpenAI API
-            response = self.client.chat.completions.create(**request_params)
-            
-            # Convert response to dict for saving (handles OpenAI response object)
-            response_dict = {
-                "id": response.id,
-                "object": response.object,
-                "created": response.created,
-                "model": response.model,
-                "choices": [
-                    {
-                        "index": choice.index,
-                        "message": {
-                            "role": choice.message.role,
-                            "content": choice.message.content
-                        },
-                        "finish_reason": choice.finish_reason
-                    } for choice in response.choices
-                ],
-                "usage": {
-                    "prompt_tokens": response.usage.prompt_tokens if response.usage else None,
-                    "completion_tokens": response.usage.completion_tokens if response.usage else None,
-                    "total_tokens": response.usage.total_tokens if response.usage else None
-                }
-            }
-            
-            # Save request and response to files
-            if user_id:
-                try:
-                    save_openai_request_response_to_files(
-                        request_data=request_params,
-                        response_data=response_dict,
-                        user_id=user_id,
-                        health_record_type_id=health_record_type_id,
-                        target_language=target_language
-                    )
-                except Exception as save_error:
-                    logger.warning(f"Failed to save OpenAI request/response data: {save_error}")
-            
-            # Parse the response
-            ai_response = response.choices[0].message.content
-            
-            # Parse response as JSON for all health record types
-            try:
-                # Check if response is wrapped in markdown code block
-                if '```json' in ai_response:
-                    # Extract JSON from markdown code block
-                    json_match = re.search(r'```json\n(.*?)\n```', ai_response, re.DOTALL)
-                    if json_match:
-                        json_str = json_match.group(1)
-                        analysis = json.loads(json_str)
-                    else:
-                        analysis = json.loads(ai_response)
-                else:
-                    analysis = json.loads(ai_response)
-                
-            except json.JSONDecodeError as e:
-                logger.error(f"JSON decode error: {e}")
-                # If not JSON, create structured response from text
-                analysis = self._parse_text_response(ai_response)
-            
-            return {
-                "success": True,
-                "message": "AI analysis completed successfully",
-                "analysis": analysis
-            }
-            
-        except Exception as e:
-            logger.error(f"Error generating AI analysis: {e}")
-            
-            # Save error response if user_id is available
-            if user_id:
-                try:
-                    error_response = {
-                        "success": False,
-                        "error": str(e),
-                        "error_type": type(e).__name__
-                    }
-                    save_openai_request_response_to_files(
-                        request_data={"error": "Request not sent due to exception", "exception": str(e)},
-                        response_data=error_response,
-                        user_id=user_id,
-                        health_record_type_id=health_record_type_id,
-                        target_language=target_language
-                    )
-                except Exception as save_error:
-                    logger.warning(f"Failed to save error response: {save_error}")
-            
-            return {
-                "success": False,
-                "message": f"AI analysis failed: {str(e)}. Using local analysis instead.",
-                "analysis": self._generate_fallback_analysis(health_data)
-            }
-    
-    def _create_analysis_prompt(
-        self, 
-        health_data: Dict[str, Any], 
-        health_record_type_id: int = 1,
+        health_record_type_id: int,
         target_language: str = 'en'
     ) -> str:
-        """Create a detailed prompt for GPT analysis"""
-        
-        # Check if this is for medical images (type ID 5)
-        if health_record_type_id == 5:
-            return self._create_medical_images_prompt(health_data, target_language)
-        
+        """Format user prompt for Assistants API (no system instructions, just data)"""
         # Language name mapping
         language_names = {
             'en': 'English',
@@ -794,170 +567,286 @@ IMPORTANT: Provide all your responses in {target_language_name} language
         medications = user_context.get('medications', [])
         medications_str = ', '.join(medications) if medications else "None reported"
         
-        prompt = f"""
-        Please analyze the following health data and provide a comprehensive health assessment:
+        # Handle different types of data
+        if health_record_type_id == 5:  # Exams/Medical Images
+            prompt = f"""Please analyze the following medical imaging data and provide a comprehensive summary focused on imaging findings and recommendations.
+IMPORTANT: Provide your entire response in {target_language_name} language.
 
-        **Health Data Summary:**
-
+**Medical Imaging Data Summary:**
 - Age: {age_str}
-
 - Sex: {sex_str}
-
 - [Current and Past Conditions and Family History]
   {conditions_str}
   Family History: {family_history_str}
-
 - [Medication being taken]
   {medications_str}
+- Analysis Date: {health_data.get('analysis_date', 'Unknown')}
+- Total Image Types: {len(health_data.get('sections', []))}
 
-        - Analysis Date: {health_data.get('analysis_date', 'Unknown')}
+**Detailed Medical Imaging Data:**
 
-        - Total Sections: {len(health_data.get('sections', []))}
-
-        **Detailed Health Data:**
-
-        """
-        
-        for section in health_data.get("sections", []):
-            prompt += f"**Section: {section.get('section_name', 'Unknown')}**\n\n"
-            if section.get('section_description'):
-                prompt += f"Description: {section.get('section_description')}\n\n"
-            
-            for metric in section.get("metrics", []):
-                prompt += f"- **{metric.get('metric_name', 'Unknown')}**\n\n"
-                prompt += f"  - Unit: {metric.get('unit', 'N/A')}\n\n"
+"""
+            for section in health_data.get("sections", []):
+                prompt += f"**Image Type: {section.get('section_name', 'Unknown')}**\n"
+                if section.get('section_description'):
+                    prompt += f"Description: {section.get('section_description')}\n"
                 
-                latest_value = metric.get('latest_value')
-                if latest_value is None:
-                    prompt += f"  - Latest Value: None\n\n"
-                else:
-                    prompt += f"  - Latest Value: {latest_value}\n\n"
+                for metric in section.get("metrics", []):
+                    prompt += f"\n- **{metric.get('metric_name', 'Unknown')}**\n"
+                    prompt += f"  - Body Part: {metric.get('body_part', 'N/A')}\n"
+                    prompt += f"  - Latest Findings: {metric.get('latest_value', 'N/A')}\n"
+                    prompt += f"  - Status: {metric.get('latest_status', 'unknown')}\n"
+                    prompt += f"  - Total Records: {metric.get('total_records', 0)}\n"
+                    
+                    # Add recent imaging data points (max 5 per type)
+                    data_points = metric.get('data_points', [])[:5]
+                    if data_points:
+                        prompt += f"  - Recent Imaging Studies:\n"
+                        for point in data_points:
+                            findings = point.get('value', 'N/A')
+                            recorded_at = point.get('recorded_at', 'Unknown date')
+                            interpretation = point.get('interpretation', '')
+                            conclusions = point.get('conclusions', '')
+                            status = point.get('status', 'normal')
+                            prompt += f"    * {findings} ({recorded_at}) - {status}"
+                            if interpretation:
+                                prompt += f"\n      Interpretation: {interpretation}"
+                            if conclusions:
+                                prompt += f"\n      Conclusion: {conclusions}"
+                            prompt += "\n"
+        else:  # Body, Vitals, Lifestyle, Summary
+            prompt = f"""Please analyze the following health data and provide a comprehensive health assessment.
+IMPORTANT: Provide your entire response in {target_language_name} language.
+
+**Health Data Summary:**
+- Age: {age_str}
+- Sex: {sex_str}
+- [Current and Past Conditions and Family History]
+  {conditions_str}
+  Family History: {family_history_str}
+- [Medication being taken]
+  {medications_str}
+- Analysis Date: {health_data.get('analysis_date', 'Unknown')}
+- Total Sections: {len(health_data.get('sections', []))}
+
+**Detailed Health Data:**
+
+"""
+            for section in health_data.get("sections", []):
+                prompt += f"**Section: {section.get('section_name', 'Unknown')}**\n\n"
+                if section.get('section_description'):
+                    prompt += f"Description: {section.get('section_description')}\n\n"
                 
-                prompt += f"  - Status: {metric.get('latest_status', 'unknown')}\n\n"
-                prompt += f"  - Trend: {metric.get('trend', 'unknown')}\n\n"
-                prompt += f"  - Total Records: {metric.get('total_records', 0)}\n\n"
-                
-                # Add recent data points
-                data_points = metric.get('data_points', [])[:5]  # Last 5 points
-                if data_points:
-                    prompt += f"  - Recent Values:\n\n"
-                    for point in data_points:
-                        value = point.get('value', 'N/A')
-                        recorded_at = point.get('recorded_at', 'Unknown date')
-                        status = point.get('status', 'normal')
-                        # Format timestamp to include timezone if available
-                        prompt += f"   * {value} ({recorded_at}) – {status}\n\n"
-        
-        prompt += f"""
-        **Please provide your analysis in the following JSON format:**
-
-{{
-            "areas_of_concern": [
-        "Write 2-3 short, conversational sentences (40-80 words) about specific health concerns. Be direct but encouraging."
-            ],
-            "positive_trends": [
-        "Write 2-3 short, conversational sentences (40-80 words) about positive health trends. Be encouraging and supportive."
-            ],
-            "recommendations": [
-        "Write 2-3 short, conversational sentences (40-80 words) with specific, actionable health recommendations. Be practical and motivating."
-            ]
-}}
-
-        **Guidelines:**
-
-        - Keep each response conversational and friendly (35-40 words maximum)
-
- - Be specific and reference actual metric values when possible and do not provide diagnoses or prescribe medication
-
- - If ranges are referenced, explain them simply (e.g., "Most adults are usually within…" or "The World Health Organization recommends value to be within…")
-
- - Use encouraging, empowering, calm, supportive language
-
-        - Provide actionable, practical recommendations
-
- - Be direct but not alarming about concerns and recommend seeking medical advice, especially whenever important risks are identified
-
-        - Focus on what the user can do to improve their health
-
-        - Avoid medical jargon - use everyday language
-
-        - All responses must be in {target_language_name} language
-        """
+                for metric in section.get("metrics", []):
+                    prompt += f"- **{metric.get('metric_name', 'Unknown')}**\n\n"
+                    prompt += f"  - Unit: {metric.get('unit', 'N/A')}\n\n"
+                    
+                    latest_value = metric.get('latest_value')
+                    if latest_value is None:
+                        prompt += f"  - Latest Value: None\n\n"
+                    else:
+                        prompt += f"  - Latest Value: {latest_value}\n\n"
+                    
+                    prompt += f"  - Status: {metric.get('latest_status', 'unknown')}\n\n"
+                    prompt += f"  - Trend: {metric.get('trend', 'unknown')}\n\n"
+                    prompt += f"  - Total Records: {metric.get('total_records', 0)}\n\n"
+                    
+                    # Add recent data points (last 5)
+                    data_points = metric.get('data_points', [])[:5]
+                    if data_points:
+                        prompt += f"  - Recent Values:\n\n"
+                        for point in data_points:
+                            value = point.get('value', 'N/A')
+                            recorded_at = point.get('recorded_at', 'Unknown date')
+                            status = point.get('status', 'normal')
+                            prompt += f"   * {value} ({recorded_at}) – {status}\n\n"
         
         return prompt
     
-    def _create_medical_images_prompt(self, health_data: Dict[str, Any], target_language: str = 'en') -> str:
-        """Create a specialized prompt for medical images analysis"""
-        # Language name mapping
-        language_names = {
-            'en': 'English',
-            'es': 'Spanish',
-            'pt': 'Portuguese'
-        }
-        target_language_name = language_names.get(target_language, 'English')
-        
-        prompt = f"""
-        Please analyze the following medical imaging data and provide a comprehensive summary focused on imaging findings and recommendations.
-        
-        IMPORTANT: Provide your entire response in {target_language_name} language.
-
-        **Medical Imaging Data Summary:**
-        - User ID: {health_data.get('user_id', 'Unknown')}
-        - Analysis Date: {health_data.get('analysis_date', 'Unknown')}
-        - Total Image Types: {len(health_data.get('sections', []))}
-
-        **Detailed Medical Imaging Data:**
-
-        """
-        
-        for section in health_data.get("sections", []):
-            prompt += f"\n**Image Type: {section.get('section_name', 'Unknown')}**\n"
-            if section.get('section_description'):
-                prompt += f"Description: {section.get('section_description')}\n"
+    async def _generate_ai_analysis_with_assistant(
+        self,
+        health_data: Dict[str, Any],
+        health_record_type_id: int,
+        user_id: int = None,
+        target_language: str = 'en'
+    ) -> Dict[str, Any]:
+        """Generate AI analysis using OpenAI Assistants API"""
+        try:
+            # Get assistant ID for this health record type (should already be validated in _generate_ai_analysis)
+            assistant_id = self.assistant_ids.get(health_record_type_id)
+            if not assistant_id:
+                logger.error(f"No assistant ID configured for health_record_type_id {health_record_type_id}")
+                return {
+                    "success": False,
+                    "message": f"Assistant not configured for health record type {health_record_type_id}",
+                    "analysis": {
+                        "areas_of_concern": [],
+                        "positive_trends": [],
+                        "recommendations": []
+                    }
+                }
             
-            for metric in section.get("metrics", []):
-                prompt += f"\n- **{metric.get('metric_name', 'Unknown')}**\n"
-                prompt += f"  - Body Part: {metric.get('body_part', 'N/A')}\n"
-                prompt += f"  - Latest Findings: {metric.get('latest_value', 'N/A')}\n"
-                prompt += f"  - Status: {metric.get('latest_status', 'unknown')}\n"
-                prompt += f"  - Total Records: {metric.get('total_records', 0)}\n"
+            # Format user prompt (without system instructions)
+            user_prompt = self._format_user_prompt_for_assistant(health_data, health_record_type_id, target_language)
+            
+            # Create a new thread
+            thread = self.client.beta.threads.create()
+            thread_id = thread.id
+            
+            # Add user message to thread
+            self.client.beta.threads.messages.create(
+                thread_id=thread_id,
+                role="user",
+                content=user_prompt
+            )
+            
+            # Run the assistant
+            run = self.client.beta.threads.runs.create(
+                thread_id=thread_id,
+                assistant_id=assistant_id
+            )
+            
+            # Poll for completion
+            max_wait_time = 60  # seconds
+            start_time = datetime.utcnow()
+            while True:
+                run_status = self.client.beta.threads.runs.retrieve(
+                    thread_id=thread_id,
+                    run_id=run.id
+                )
                 
-                # Add recent imaging data points
-                data_points = metric.get('data_points', [])[:5]  # Last 5 points
-                if data_points:
-                    prompt += f"  - Recent Imaging Studies:\n"
-                    for point in data_points:
-                        prompt += f"    * {point.get('value', 'N/A')} ({point.get('recorded_at', 'Unknown date')}) - {point.get('status', 'normal')}\n"
+                if run_status.status == "completed":
+                    break
+                elif run_status.status in ["failed", "cancelled", "expired"]:
+                    error_msg = f"Assistant run {run_status.status}: {getattr(run_status, 'last_error', {}).get('message', 'Unknown error')}"
+                    logger.error(error_msg)
+                    return {
+                        "success": False,
+                        "message": error_msg,
+                        "analysis": {
+                            "areas_of_concern": [],
+                            "positive_trends": [],
+                            "recommendations": []
+                        }
+                    }
+                
+                # Check timeout
+                if (datetime.utcnow() - start_time).total_seconds() > max_wait_time:
+                    logger.error("Assistant run timeout")
+                    return {
+                        "success": False,
+                        "message": "Assistant run timeout",
+                        "analysis": {
+                            "areas_of_concern": [],
+                            "positive_trends": [],
+                            "recommendations": []
+                        }
+                    }
+                
+                # Wait before next poll
+                import asyncio
+                await asyncio.sleep(1)
+            
+            # Get the messages from the thread
+            messages = self.client.beta.threads.messages.list(thread_id=thread_id)
+            
+            # Find the assistant's message (first message in the list with role="assistant")
+            ai_response = None
+            for message in messages.data:
+                if message.role == "assistant":
+                    # Get text content from message
+                    if message.content and len(message.content) > 0:
+                        content_block = message.content[0]
+                        if hasattr(content_block, 'text'):
+                            ai_response = content_block.text.value
+                        elif isinstance(content_block, dict) and 'text' in content_block:
+                            ai_response = content_block['text'].get('value', '')
+                    break
+            
+            if not ai_response:
+                logger.error("No assistant response found")
+                return {
+                    "success": False,
+                    "message": "No response from assistant",
+                    "analysis": {
+                        "areas_of_concern": [],
+                        "positive_trends": [],
+                        "recommendations": []
+                    }
+                }
+            
+            # Parse response as JSON
+            try:
+                # Check if response is wrapped in markdown code block
+                if '```json' in ai_response:
+                    json_match = re.search(r'```json\n(.*?)\n```', ai_response, re.DOTALL)
+                    if json_match:
+                        json_str = json_match.group(1)
+                        analysis = json.loads(json_str)
+                    else:
+                        analysis = json.loads(ai_response)
+                else:
+                    analysis = json.loads(ai_response)
+            except json.JSONDecodeError as e:
+                logger.error(f"JSON decode error: {e}")
+                analysis = self._parse_text_response(ai_response)
+            
+            return {
+                "success": True,
+                "message": "AI analysis completed successfully",
+                "analysis": analysis
+            }
+            
+        except Exception as e:
+            logger.error(f"Error generating AI analysis with assistant: {e}", exc_info=True)
+            return {
+                "success": False,
+                "message": f"AI analysis failed: {str(e)}",
+                "analysis": {
+                    "areas_of_concern": [],
+                    "positive_trends": [],
+                    "recommendations": []
+                }
+            }
+    
+    async def _generate_ai_analysis(
+        self, 
+        health_data: Dict[str, Any], 
+        health_record_type_id: int = 1,
+        user_id: int = None,
+        target_language: str = 'en'
+    ) -> Dict[str, Any]:
+        """Generate AI analysis using OpenAI Assistants API"""
+        if not self.openai_enabled:
+            return {
+                "success": False,
+                "message": "OpenAI service not available",
+                "analysis": {
+                    "areas_of_concern": [],
+                    "positive_trends": [],
+                    "recommendations": []
+                }
+            }
         
-        prompt += """
-
-        **Please provide your analysis in the following JSON format:**
-
-        {
-            "areas_of_concern": [
-                "Write 1-2 short, conversational sentences (35-40 words) about specific imaging concerns. Be direct but encouraging."
-            ],
-            "positive_trends": [
-                "Write 1-2 short, conversational sentences (35-40 words) about positive imaging findings. Be encouraging and supportive."
-            ],
-            "recommendations": [
-                "Write 1-2 short, conversational sentences (35-40 words) with specific, actionable recommendations for imaging follow-up. Be practical and motivating."
-            ]
-        }
-
-        **Guidelines:**
-        - Keep each response conversational and friendly (35-40 words maximum)
-        - Be specific and reference actual imaging findings when possible
-        - Use encouraging, supportive language
-        - Provide actionable, practical recommendations
-        - Be direct but not alarming about concerns
-        - Focus on what the user can do to monitor their imaging health
-        - Avoid medical jargon - use everyday language
-        - Mention specific imaging types (X-ray, MRI, CT, Ultrasound, etc.) when relevant
-        - All responses must be in {target_language_name} language
-        """
+        # Always use Assistants API
+        assistant_id = self.assistant_ids.get(health_record_type_id)
+        if not assistant_id:
+            logger.error(f"No assistant ID configured for health_record_type_id {health_record_type_id}")
+            return {
+                "success": False,
+                "message": f"Assistant not configured for health record type {health_record_type_id}",
+                "analysis": {
+                    "areas_of_concern": [],
+                    "positive_trends": [],
+                    "recommendations": []
+                }
+            }
         
-        return prompt
+        logger.info(f"Using Assistants API for health_record_type_id {health_record_type_id}")
+        return await self._generate_ai_analysis_with_assistant(
+            health_data, health_record_type_id, user_id, target_language
+        )
+    
     
     def _parse_text_response(self, text_response: str) -> Dict[str, Any]:
         """Parse text response into structured format if JSON parsing fails"""
@@ -1044,13 +933,6 @@ IMPORTANT: Provide all your responses in {target_language_name} language
             logger.error(f"Error fetching medical images data: {e}")
             return {}
 
-    def _generate_fallback_analysis(self, health_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Generate simple fallback analysis when OpenAI is not available"""
-        return {
-            "areas_of_concern": ["AI analysis is currently unavailable. Please try again later."],
-            "positive_trends": ["Your health data has been recorded successfully."],
-            "recommendations": ["Continue monitoring your health metrics regularly."]
-        }
 
 # Create a singleton instance
 ai_analysis_service = AIAnalysisService()
